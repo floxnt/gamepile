@@ -1,13 +1,10 @@
-from pathlib import Path
-
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from app import sync
+from app.templates_config import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
 @router.post("/refresh", response_class=HTMLResponse)

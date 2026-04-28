@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from pathlib import Path
 
 from app import database as db
 from app.recommender import RecommendMode, RecommendRequest, recommend
+from app.templates_config import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
 def _bool_param(request: Request, name: str, default: bool = True) -> bool:

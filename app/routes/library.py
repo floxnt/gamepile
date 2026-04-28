@@ -1,16 +1,14 @@
 import urllib.parse
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from app import database as db
 from app.models import GameStatus, GameWithState
+from app.templates_config import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 _ALL_STATUSES = [s.value for s in GameStatus]
 

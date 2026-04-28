@@ -242,8 +242,8 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 /* ===== Card grid ===== */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 1rem;
 }
 
 .game-card {
@@ -252,8 +252,9 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   border-radius: var(--radius);
   overflow: hidden;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;      /* art left, content right */
   transition: border-color 0.2s;
+  min-height: 160px;
 }
 
 .game-card:hover { border-color: var(--accent); }
@@ -268,76 +269,113 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 }
 
 .card-art {
-  width: 100%;
-  aspect-ratio: 460 / 215;
+  width: 185px;
+  min-width: 185px;
+  align-self: stretch;
   object-fit: cover;
+  object-position: center;
   display: block;
   background: var(--surface2);
 }
 
 .card-body {
-  padding: 1rem;
+  padding: 0.85rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
   flex: 1;
+  min-width: 0;             /* prevents text overflow expanding the card */
+}
+
+/* --- Header: title + badges --- */
+.card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .card-title {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.card-meta {
+.card-badges {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
   flex-wrap: wrap;
-  align-items: center;
 }
 
-.genre {
+/* Category badges */
+.badge-cat-tonight  { background: #1a2e1a; color: #7ecf7e; }
+.badge-cat-long     { background: #2a1a3a; color: #b07ef5; }
+.badge-cat-surprise { background: #2a2010; color: #e8b84b; }
+
+/* --- Stats line --- */
+.card-stats-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 0.4rem;
+}
+
+.stat-item { display: inline-flex; gap: 0.25rem; align-items: baseline; }
+.stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.stat-value { color: var(--text); font-size: 0.82rem; }
+.stat-none  { color: var(--muted); font-size: 0.78rem; font-style: italic; }
+
+/* --- Why line --- */
+.card-why {
   font-size: 0.8rem;
   color: var(--muted);
+  line-height: 1.4;
 }
 
-.card-stats {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.25rem 0.75rem;
-  font-size: 0.85rem;
-}
-
-.card-stats dt { color: var(--muted); }
-.card-stats dd { color: var(--text); }
-
-.scores { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-
-.score {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border-radius: 4px;
-  font-size: 0.78rem;
+.why-label {
+  color: var(--text);
   font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.1rem;
 }
 
-.score-mc    { background: #1e2d4a; color: #6ab0f5; }
-.score-oc    { background: #1a3426; color: #5fe09a; }
-.score-steam { background: #1e2a1a; color: #a8d96b; }
-
-.hint {
+.why-hint {
   font-size: 0.75rem;
   color: var(--warn);
   font-style: italic;
+  margin-left: 0.25rem;
+}
+
+/* --- Warnings --- */
+.card-warnings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.card-warning {
+  font-size: 0.75rem;
+  color: var(--warn);
+  background: rgba(230, 168, 23, 0.1);
+  border: 1px solid rgba(230, 168, 23, 0.25);
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
 }
 
 .muted { color: var(--muted); }
 
 .card-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.4rem;
   margin-top: auto;
-  padding-top: 0.5rem;
+  padding-top: 0.3rem;
 }
 
 .game-card--confirm .confirm-body {
