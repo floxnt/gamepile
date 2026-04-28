@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Library — Tonight's Pick{% endblock %}
+
+{% block content %}
+<section class="library-controls">
+  <form method="get" action="/library" class="filter-row">
+    <label>
+      Status
+      <select name="status_filter">
+        <option value="">All</option>
+        {% for s in all_statuses %}
+          <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>
+            {{ s | replace("_", " ") | title }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      Genre
+      <select name="genre_filter">
+        <option value="">All</option>
+        {% for g in genres %}
+          <option value="{{ g }}" {% if genre_filter == g %}selected{% endif %}>{{ g }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <label>
+      <input type="checkbox" name="show_removed" value="true" {% if show_removed %}checked{% endif %}>
+      Show removed
+    </label>
+
+    <button type="submit" class="btn btn-secondary">Filter</button>
+  </form>
+</section>
+
+<div class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</div>
+
+{% if games %}
+<div class="table-wrapper">
+  <table class="library-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Status</th>
+        <th>Playtime</th>
+        <th>HLTB Main</th>
+        <th>Last Played</th>
+        <th>MC</th>
+        <th>OC</th>
+        <th>Steam %</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for gws in games %}
+        {% include "partials/library_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
+</div>
+{% endif %}
+{% endblock %}

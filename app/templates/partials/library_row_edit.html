@@ -1,0 +1,55 @@
+<tr id="row-{{ gws.game.appid }}">
+  <td class="game-name" colspan="8">
+    <form
+      hx-post="/games/{{ gws.game.appid }}/state"
+      hx-target="#row-{{ gws.game.appid }}"
+      hx-swap="outerHTML"
+      class="inline-edit-form"
+    >
+      <strong>{{ gws.game.name }}</strong>
+
+      <label>
+        Status
+        <select name="status">
+          {% for s in all_statuses %}
+            <option value="{{ s }}" {% if gws.state.status.value == s %}selected{% endif %}>
+              {{ s | replace("_", " ") | title }}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+
+      <label>
+        Hours played
+        <input
+          type="number"
+          name="hours_played_manual"
+          value="{{ gws.state.hours_played_manual if gws.state.hours_played_manual else '' }}"
+          min="0" step="0.5" placeholder="e.g. 5.5"
+          style="width: 6rem"
+        >
+      </label>
+
+      <label>
+        Notes
+        <input
+          type="text"
+          name="notes"
+          value="{{ gws.state.notes if gws.state.notes else '' }}"
+          placeholder="Optional note"
+          style="width: 14rem"
+        >
+      </label>
+
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      <button
+        type="button"
+        hx-get="/games/{{ gws.game.appid }}/cancel-edit"
+        hx-target="#row-{{ gws.game.appid }}"
+        hx-swap="outerHTML"
+        class="btn btn-ghost btn-sm"
+      >Cancel</button>
+    </form>
+  </td>
+  <td></td>
+</tr>

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Tonight's Pick{% endblock %}
+
+{% block content %}
+<section class="pick-controls">
+  <form method="get" action="/">
+    <div class="controls-row">
+      <label>
+        Time tonight
+        <input type="number" name="minutes" value="{{ minutes }}" min="15" max="480" step="15">
+        min
+      </label>
+
+      <div class="mode-toggle">
+        <label>
+          <input type="radio" name="mode" value="short_term" {% if mode == "short_term" %}checked{% endif %}>
+          Short-term
+        </label>
+        <label>
+          <input type="radio" name="mode" value="long_term" {% if mode == "long_term" %}checked{% endif %}>
+          Long-term
+        </label>
+      </div>
+
+      <div class="toggle-group">
+        <label>
+          <input type="checkbox" name="include_unplayed" value="true"
+            {% if include_unplayed %}checked{% endif %}
+            onchange="this.form.submit()">
+          Include unplayed
+        </label>
+        <label>
+          <input type="checkbox" name="include_in_progress" value="true"
+            {% if include_in_progress %}checked{% endif %}
+            onchange="this.form.submit()">
+          Include in-progress
+        </label>
+        <label title="Requires Steam library file parsing — coming in v2">
+          <input type="checkbox" disabled>
+          Installed only
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Find Games</button>
+    </div>
+  </form>
+</section>
+
+{% if picks %}
+<section class="card-grid">
+  {% for candidate in picks %}
+    {% include "partials/game_card.html" %}
+  {% endfor %}
+</section>
+{% else %}
+<div class="empty-state">
+  <p>No games match your current filters and time window.</p>
+  <p>Try adjusting the time, enabling more toggles, or <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">refreshing your library</button> if it's empty.</p>
+</div>
+{% endif %}
+{% endblock %}

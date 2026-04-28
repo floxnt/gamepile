@@ -1,0 +1,40 @@
+{% if progress.running %}
+<div
+  class="refresh-banner refresh-banner--running"
+  hx-get="/refresh/status"
+  hx-trigger="every 2s"
+  hx-target="this"
+  hx-swap="outerHTML"
+>
+  <div class="refresh-phase">{{ progress.phase }}</div>
+  <div class="refresh-game">
+    {% if progress.current_game %}
+      {{ progress.current_game }}
+      {% if progress.total_games %}
+        ({{ progress.current_index }}/{{ progress.total_games }})
+      {% endif %}
+    {% endif %}
+  </div>
+  <div class="refresh-tally">
+    Added {{ progress.games_added }} &middot;
+    Updated {{ progress.games_updated }}
+    {% if progress.errors %}
+      &middot; <span class="error-count">{{ progress.errors | length }} error(s)</span>
+    {% endif %}
+  </div>
+</div>
+{% elif already_running %}
+<div class="refresh-banner refresh-banner--warning">
+  A refresh is already running.
+</div>
+{% elif progress.completed_at %}
+<div class="refresh-banner refresh-banner--done">
+  Refresh complete —
+  {{ progress.games_added }} added,
+  {{ progress.games_updated }} updated
+  {% if progress.errors %}
+    , {{ progress.errors | length }} error(s)
+  {% endif %}
+  <button onclick="this.parentElement.remove()" class="btn-close">&times;</button>
+</div>
+{% endif %}

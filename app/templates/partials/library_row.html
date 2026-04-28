@@ -1,0 +1,51 @@
+<tr id="row-{{ gws.game.appid }}">
+  <td class="game-name">
+    {{ gws.game.name }}
+    {% if not gws.game.is_active %}
+      <span class="badge badge-removed">removed</span>
+    {% endif %}
+  </td>
+  <td>
+    <span class="badge badge-{{ gws.state.status.value }}">
+      {{ gws.state.status.value | replace("_", " ") | title }}
+    </span>
+  </td>
+  <td>
+    {% if gws.game.playtime_minutes %}
+      {{ "%.0f"|format(gws.game.playtime_minutes / 60) }}h
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>
+    {% if gws.game.hltb_main_hours %}
+      {{ "%.1f"|format(gws.game.hltb_main_hours) }}h
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>
+    {% if gws.game.last_played_steam %}
+      {{ gws.game.last_played_steam.strftime("%Y-%m-%d") }}
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>{{ gws.game.metacritic_score if gws.game.metacritic_score else "—" }}</td>
+  <td>{{ gws.game.opencritic_score if gws.game.opencritic_score else "—" }}</td>
+  <td>
+    {% if gws.game.steam_review_pct %}
+      {{ gws.game.steam_review_pct }}%
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td>
+    <button
+      hx-get="/games/{{ gws.game.appid }}/edit"
+      hx-target="#row-{{ gws.game.appid }}"
+      hx-swap="outerHTML"
+      class="btn btn-ghost btn-sm"
+    >Edit</button>
+  </td>
+</tr>
