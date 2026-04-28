@@ -27,7 +27,7 @@ class RecommendMode(str, Enum):
     short_term = "short_term"
     long_term = "long_term"
     both = "both"
-    surprise = "surprise"
+    surprise_me = "surprise_me"
 
 
 @dataclass
@@ -38,6 +38,9 @@ class RecommendRequest:
     include_in_progress: bool = True
     installed_only: bool = False              # always False in v1 (data not available)
     excluded_ids: frozenset = field(default_factory=frozenset)
+    # {(kind, value_lower): (weight, pick_count)} from db.get_all_affinities().
+    # Empty dict = no affinity data yet; scoring is identical to v1 in that case.
+    affinities: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -63,7 +66,7 @@ def recommend(
         return _short_term(games, req, max_results)
     if req.mode == RecommendMode.long_term:
         return _long_term(games, req, max_results)
-    if req.mode == RecommendMode.surprise:
+    if req.mode == RecommendMode.surprise_me:
         return _surprise(games, req, max_results)
     return _both(games, req, max_results)
 
@@ -91,15 +94,17 @@ def _short_term(
             continue
 
         score, score_reasons = _score_short_term(gws)
-        # "fits window" is the baseline criterion — append after scoring reasons
-        all_reasons = score_reasons + [f"fits {req.minutes}min window"]
+        affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
+        score += affinity_delta
+        # Affinity reasons take priority; "fits window" is always the baseline context.
+        all_reasons = affinity_reasons + score_reasons + [f"fits {req.minutes}min window"]
         c = Candidate(
             gws=gws,
             remaining_hours=remaining,
             score=score,
             no_manual_hours_hint=hint,
             source="tonight",
-            reasons=all_reasons[:2],
+            reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
         )
         candidates.append(c)
@@ -151,14 +156,16 @@ def _long_term(
             continue
 
         score, score_reasons = _score_long_term(gws)
+        affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
+        score += affinity_delta
         hltb_ctx = f"long-form ({_fmt_hours(hltb)})"
-        all_reasons = score_reasons + [hltb_ctx]
+        all_reasons = affinity_reasons + score_reasons + [hltb_ctx]
         c = Candidate(
             gws=gws,
             remaining_hours=hltb,
             score=score,
             source="long_term",
-            reasons=all_reasons[:2],
+            reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
         )
         candidates.append(c)
@@ -302,7 +309,7 @@ def _surprise(
         c = Candidate(
             gws=pick_gws,
             remaining_hours=remaining,
-            source="surprise",
+            source="surprise_me",
             reasons=reasons,
             warnings=_build_warnings(pick_gws),
         )
@@ -368,6 +375,17 @@ def _iterative_variety_select(
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+def _affinity_contribution(game, affinities: dict) -> tuple[list[str], float]:
+    """Return (reason_strings, score_delta) for one game. Empty when no affinities."""
+    if not affinities:
+        return [], 0.0
+    # Import here to avoid a circular import at module load time.
+    from app.affinity import compute_affinity_score, get_affinity_summary
+    delta = compute_affinity_score(game, affinities)
+    reasons = get_affinity_summary(game, affinities) if abs(delta) >= 0.1 else []
+    return reasons, delta
+
 
 def _passes_toggles(gws: GameWithState, req: RecommendRequest) -> bool:
     state = gws.state

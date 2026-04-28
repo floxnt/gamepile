@@ -1,0 +1,15 @@
+<form hx-post="/feedback/{{ pick.id }}/step3"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">Was the genre/style a good match for your mood?</p>
+  <div class="feedback-rating-row">
+    {% for n in [1, 2, 3, 4, 5] %}
+    <button name="genre_match" value="{{ n }}" type="submit" class="btn btn-secondary btn-sm feedback-rating-btn">
+      {{ n }}
+    </button>
+    {% endfor %}
+    <button name="skip" value="true" type="submit" class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+  <p class="feedback-hint">1 = totally off &nbsp;·&nbsp; 5 = perfect fit</p>
+</form>

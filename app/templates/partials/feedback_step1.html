@@ -1,0 +1,11 @@
+<form hx-post="/feedback/{{ pending_pick.id }}/step1"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">Did you end up playing it?</p>
+  <div class="feedback-actions">
+    <button name="answer" value="yes" type="submit" class="btn btn-primary btn-sm">Yes, I played it</button>
+    <button name="answer" value="no"  type="submit" class="btn btn-secondary btn-sm">No, didn't get to it</button>
+    <button name="answer" value="skip" type="submit" class="btn btn-ghost btn-sm">Ask me next time</button>
+  </div>
+</form>

@@ -2,6 +2,8 @@
 {% block title %}Tonight's Pick{% endblock %}
 
 {% block content %}
+{% include "partials/feedback_prompt.html" %}
+
 <section class="pick-controls">
   <form id="pick-form" method="get" action="/">
     <div class="controls-row">
@@ -28,8 +30,8 @@
           Long-term
         </label>
         <label>
-          <input type="radio" name="mode" value="surprise"
-            {% if mode == "surprise" %}checked{% endif %}>
+          <input type="radio" name="mode" value="surprise_me"
+            {% if mode == "surprise_me" %}checked{% endif %}>
           Surprise me
         </label>
       </div>
@@ -112,7 +114,7 @@ function updateTimeInput() {
     const label = document.getElementById('minutes-label');
     const input = label?.querySelector('input[name="minutes"]');
     if (!input) return;
-    const isSurprise = mode === 'surprise';
+    const isSurprise = mode === 'surprise_me';
     input.disabled = isSurprise;
     label.classList.toggle('dimmed', isSurprise);
 }

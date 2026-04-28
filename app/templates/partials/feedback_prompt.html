@@ -1,0 +1,27 @@
+{% if pending_pick %}
+<div id="feedback-prompt" class="feedback-prompt">
+  <div class="feedback-prompt-header">
+    <span class="feedback-prompt-title">
+      How did <strong>{{ pending_pick.game_name }}</strong> go?
+    </span>
+    <div class="feedback-prompt-controls">
+      <button
+        hx-post="/feedback/{{ pending_pick.id }}/skip-permanently"
+        hx-target="#feedback-prompt"
+        hx-swap="outerHTML"
+        class="btn-link feedback-skip-link"
+      >Never ask about this pick</button>
+      <button
+        hx-post="/feedback/{{ pending_pick.id }}/dismiss"
+        hx-target="#feedback-prompt"
+        hx-swap="outerHTML"
+        class="btn-close"
+        title="Ask me next time"
+      >&times;</button>
+    </div>
+  </div>
+  <div id="feedback-step-container">
+    {% include "partials/feedback_step1.html" %}
+  </div>
+</div>
+{% endif %}

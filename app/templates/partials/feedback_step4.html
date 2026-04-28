@@ -1,0 +1,30 @@
+<form hx-post="/feedback/{{ pick.id }}/step4"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">Would you have picked a different game from the original five?</p>
+
+  {% if other_candidates %}
+  <div class="feedback-candidates">
+    {% for gws in other_candidates %}
+    <label class="feedback-candidate-option">
+      <input type="radio" name="retroactive_appid" value="{{ gws.game.appid }}">
+      <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ gws.game.appid }}/capsule_184x69.jpg"
+           alt="{{ gws.game.name }}" class="feedback-candidate-art"
+           onerror="this.style.display='none'">
+      <span class="feedback-candidate-name">{{ gws.game.name }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  <div class="feedback-actions">
+    <button name="answer" value="yes" type="submit" class="btn btn-primary btn-sm">Yes, that one</button>
+    <button name="answer" value="no"  type="submit" class="btn btn-secondary btn-sm">No, I'd pick the same</button>
+    <button name="answer" value="skip" type="submit" class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+  {% else %}
+  <div class="feedback-actions">
+    <button name="answer" value="no" type="submit" class="btn btn-secondary btn-sm">No</button>
+    <button name="answer" value="skip" type="submit" class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+  {% endif %}
+</form>

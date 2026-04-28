@@ -12,8 +12,8 @@
     <div class="card-header">
       <h2 class="card-title">{{ game.name }}</h2>
       <div class="card-badges">
-        {# Category badge: surprise is fixed; tonight/long_term use actual duration #}
-        {% if candidate.source == "surprise" %}
+        {# Category badge: surprise_me is fixed; tonight/long_term use actual duration #}
+        {% if candidate.source == "surprise_me" %}
           <span class="badge badge-cat-surprise">🎲 Surprise pick</span>
         {% elif candidate.source == "tonight" %}
           {# Use remaining_hours for tonight — reflects time left, not total game length #}
@@ -87,10 +87,15 @@
     {% endif %}
 
     <div class="card-actions">
+      {# picks_appids and mode/minutes come from the pick page context.
+         The guard allows this partial to be safely rendered outside that context. #}
       <button
         hx-post="/games/{{ game.appid }}/pick"
         hx-target="#card-{{ game.appid }}"
         hx-swap="outerHTML"
+        {% if picks_appids is defined %}
+        hx-vals='{"candidates_at_pick": {{ picks_appids }}, "mode": "{{ mode }}", "minutes": {{ minutes }}}'
+        {% endif %}
         class="btn btn-primary btn-sm"
       >I picked this</button>
       <button

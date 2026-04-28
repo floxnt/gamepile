@@ -25,6 +25,7 @@ from app import database as db
 from app.fetchers import hltb as hltb_fetcher
 from app.fetchers import opencritic as oc_fetcher
 from app.fetchers import steam as steam_fetcher
+from app.fetchers import steamspy as steamspy_fetcher
 from app.models import Game
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ class RefreshProgress:
     hltb_skipped: int = 0
     oc_fetched: int = 0
     oc_skipped: int = 0
+    spy_fetched: int = 0
+    spy_skipped: int = 0
     errors: list[str] = field(default_factory=list)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -209,13 +212,24 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 updates["opencritic_score"] = oc_score
             progress.oc_fetched += 1
 
+        # --- SteamSpy user tags (cached unless force or data missing or stale) ---
+        if not force and game.user_tags and not _is_stale(game):
+            log.debug("SteamSpy cached: %s", game.name)
+            progress.spy_skipped += 1
+        else:
+            progress.phase = f"SteamSpy tags ({i+1}/{progress.total_games})"
+            spy_tags = await steamspy_fetcher.fetch_user_tags(client, game.appid)
+            if spy_tags:
+                updates["user_tags"] = ",".join(name for name, _ in spy_tags)
+            progress.spy_fetched += 1
+
         # --- Steam reviews (always fetch) ---
         progress.phase = f"Reviews ({i+1}/{progress.total_games})"
         reviews = await steam_fetcher.fetch_review_summary(client, game.appid)
         if reviews:
             updates.update(reviews)
 
-        # Always write, even when HLTB/OC were cached, so last_refreshed advances.
+        # Always write, even when sources were cached, so last_refreshed advances.
         enriched = Game(
             appid=game.appid,
             name=game.name,
@@ -227,6 +241,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             hltb_completionist_hours=updates.get("hltb_completionist_hours", game.hltb_completionist_hours),
             genres=updates.get("genres", game.genres),
             tags=updates.get("tags", game.tags),
+            user_tags=updates.get("user_tags", game.user_tags),
             developer=updates.get("developer", game.developer),
             publisher=updates.get("publisher", game.publisher),
             metacritic_score=updates.get("metacritic_score", game.metacritic_score),

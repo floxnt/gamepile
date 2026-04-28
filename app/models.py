@@ -26,8 +26,8 @@ class Game:
     hltb_main_hours: Optional[float]
     hltb_main_extra_hours: Optional[float]
     hltb_completionist_hours: Optional[float]
-    genres: str                          # comma-separated
-    tags: str                            # comma-separated, top 10
+    genres: str                          # comma-separated Steam store genres
+    tags: str                            # comma-separated Steam store categories (v1 compat, kept)
     developer: Optional[str]
     publisher: Optional[str]
     metacritic_score: Optional[int]
@@ -36,6 +36,7 @@ class Game:
     steam_review_count: Optional[int]
     last_refreshed: datetime
     is_active: bool = True
+    user_tags: str = ""                  # comma-separated SteamSpy user tags (top 10 by vote)
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]
@@ -46,6 +47,9 @@ class Game:
 
     def tag_list(self) -> list[str]:
         return [t.strip() for t in self.tags.split(",") if t.strip()]
+
+    def user_tags_list(self) -> list[str]:
+        return [t.strip() for t in self.user_tags.split(",") if t.strip()]
 
 
 @dataclass
@@ -75,3 +79,30 @@ class GameWithState:
     """Joined view used by the recommender and templates."""
     game: Game
     state: GameState
+
+
+@dataclass
+class PickHistory:
+    """One entry in pick_history: a game the user chose to play."""
+    id: Optional[int]
+    appid: int
+    game_name: str                       # denormalised for display without extra join
+    picked_at: datetime
+    time_window_minutes: Optional[int]   # None for surprise_me (time was irrelevant)
+    mode: str                            # short_term | long_term | both | surprise_me
+    candidates_at_pick: str             # JSON array of 5 appids shown at pick time
+    outcome: Optional[str]              # None until feedback is recorded
+    outcome_recorded_at: Optional[datetime]
+    rating: Optional[int]               # 1-5, from step 2
+    genre_match_rating: Optional[int]   # 1-5, from step 3
+    would_have_picked_other_appid: Optional[int]  # from step 4
+
+
+@dataclass
+class Affinity:
+    """Taste signal for a genre, user tag, or developer."""
+    kind: str                # "genre" | "tag" | "developer"
+    value: str               # e.g. "Action", "Soulslike", "FromSoftware"
+    weight: float            # clamped to [-10, +10]
+    pick_count: int          # how many picks contributed; drives confidence
+    updated_at: datetime

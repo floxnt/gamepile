@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import database as db
-from app.routes import library, pick, refresh
+from app.routes import feedback, library, pick, refresh
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +31,7 @@ app.mount(
 app.include_router(pick.router)
 app.include_router(library.router)
 app.include_router(refresh.router)
+app.include_router(feedback.router)
 
 
 @app.get("/healthz")

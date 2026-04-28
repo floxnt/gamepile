@@ -1,10 +1,11 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Generator, Optional
 
 from app.config import DB_PATH
-from app.models import Game, GameState, GameStatus, GameWithState, RefreshLog
+from app.models import Game, GameState, GameStatus, GameWithState, PickHistory, RefreshLog
 
 
 def _connect() -> sqlite3.Connection:
@@ -70,15 +71,43 @@ def init_db() -> None:
             );
         """)
 
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS pick_history (
+                id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+                appid                           INTEGER NOT NULL REFERENCES games(appid),
+                game_name                       TEXT NOT NULL,
+                picked_at                       TEXT NOT NULL,
+                time_window_minutes             INTEGER,
+                mode                            TEXT NOT NULL,
+                candidates_at_pick              TEXT NOT NULL,
+                outcome                         TEXT,
+                outcome_recorded_at             TEXT,
+                rating                          INTEGER,
+                genre_match_rating              INTEGER,
+                would_have_picked_other_appid   INTEGER REFERENCES games(appid)
+            );
+
+            CREATE TABLE IF NOT EXISTS affinity (
+                kind        TEXT NOT NULL,
+                value       TEXT NOT NULL,
+                weight      REAL NOT NULL DEFAULT 0.0,
+                pick_count  INTEGER NOT NULL DEFAULT 0,
+                updated_at  TEXT NOT NULL,
+                PRIMARY KEY (kind, value)
+            );
+        """)
+
         # --- Migrations ---
         # TODO: for v3+, replace try/except ALTER TABLE with a proper migration
         #       system using a schema_version table that tracks applied migrations.
-        try:
-            conn.execute(
-                "ALTER TABLE game_state ADD COLUMN manually_set BOOLEAN NOT NULL DEFAULT 0"
-            )
-        except Exception:
-            pass  # column already exists
+        for ddl in [
+            "ALTER TABLE game_state ADD COLUMN manually_set BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE games ADD COLUMN user_tags TEXT NOT NULL DEFAULT ''",
+        ]:
+            try:
+                conn.execute(ddl)
+            except Exception:
+                pass  # column already exists
 
         # Backfill: fix rows stuck at never_played despite having Steam playtime.
         # Only touches manually_set=0 rows — user-set statuses are preserved.
@@ -160,6 +189,7 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         steam_review_count=row["steam_review_count"],
         last_refreshed=_parse_dt(row["last_refreshed"]) or datetime.utcnow(),
         is_active=bool(row["is_active"]),
+        user_tags=row["user_tags"] or "",
     )
 
 
@@ -231,14 +261,14 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         INSERT INTO games (
             appid, name, playtime_minutes, last_played_steam, installed,
             hltb_main_hours, hltb_main_extra_hours, hltb_completionist_hours,
-            genres, tags, developer, publisher,
+            genres, tags, user_tags, developer, publisher,
             metacritic_score, opencritic_score,
             steam_review_pct, steam_review_count,
             last_refreshed, is_active
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
-            :genres, :tags, :developer, :publisher,
+            :genres, :tags, :user_tags, :developer, :publisher,
             :metacritic_score, :opencritic_score,
             :steam_review_pct, :steam_review_count,
             :last_refreshed, :is_active
@@ -252,6 +282,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             hltb_completionist_hours = excluded.hltb_completionist_hours,
             genres                  = excluded.genres,
             tags                    = excluded.tags,
+            user_tags               = excluded.user_tags,
             developer               = excluded.developer,
             publisher               = excluded.publisher,
             metacritic_score        = excluded.metacritic_score,
@@ -279,6 +310,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "steam_review_count": game.steam_review_count,
         "last_refreshed": game.last_refreshed.isoformat(),
         "is_active": 1 if game.is_active else 0,
+        "user_tags": game.user_tags,
     })
 
 
@@ -320,7 +352,7 @@ def get_games_with_state(
         SELECT
             g.appid, g.name, g.playtime_minutes, g.last_played_steam, g.installed,
             g.hltb_main_hours, g.hltb_main_extra_hours, g.hltb_completionist_hours,
-            g.genres, g.tags, g.developer, g.publisher,
+            g.genres, g.tags, g.user_tags, g.developer, g.publisher,
             g.metacritic_score, g.opencritic_score,
             g.steam_review_pct, g.steam_review_count,
             g.last_refreshed, g.is_active,
@@ -447,3 +479,135 @@ def finish_refresh_log(
         SET completed_at = ?, games_added = ?, games_updated = ?, errors = ?
         WHERE id = ?
     """, (datetime.utcnow().isoformat(), games_added, games_updated, errors, log_id))
+
+
+# ---------------------------------------------------------------------------
+# Pick history
+# ---------------------------------------------------------------------------
+
+def insert_pick_history(
+    conn: sqlite3.Connection,
+    appid: int,
+    game_name: str,
+    mode: str,
+    time_window_minutes: Optional[int],
+    candidates_at_pick: list[int],
+) -> int:
+    cursor = conn.execute("""
+        INSERT INTO pick_history
+            (appid, game_name, picked_at, time_window_minutes, mode, candidates_at_pick, outcome)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
+    """, (
+        appid,
+        game_name,
+        datetime.utcnow().isoformat(),
+        time_window_minutes,
+        mode,
+        json.dumps(candidates_at_pick),
+    ))
+    return cursor.lastrowid
+
+
+def get_oldest_pending_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
+    """Return the oldest pick_history row with outcome IS NULL, or None."""
+    row = conn.execute("""
+        SELECT * FROM pick_history
+        WHERE outcome IS NULL
+        ORDER BY picked_at ASC
+        LIMIT 1
+    """).fetchone()
+    if not row:
+        return None
+    return _row_to_pick_history(row)
+
+
+def get_pick_history_by_id(conn: sqlite3.Connection, pick_id: int) -> Optional[PickHistory]:
+    row = conn.execute("SELECT * FROM pick_history WHERE id = ?", (pick_id,)).fetchone()
+    return _row_to_pick_history(row) if row else None
+
+
+def update_pick_outcome(
+    conn: sqlite3.Connection,
+    pick_id: int,
+    outcome: str,
+    rating: Optional[int] = None,
+    genre_match_rating: Optional[int] = None,
+    would_have_picked_other_appid: Optional[int] = None,
+) -> None:
+    updates = ["outcome = ?", "outcome_recorded_at = ?"]
+    params: list = [outcome, datetime.utcnow().isoformat()]
+    if rating is not None:
+        updates.append("rating = ?")
+        params.append(rating)
+    if genre_match_rating is not None:
+        updates.append("genre_match_rating = ?")
+        params.append(genre_match_rating)
+    if would_have_picked_other_appid is not None:
+        updates.append("would_have_picked_other_appid = ?")
+        params.append(would_have_picked_other_appid)
+    params.append(pick_id)
+    conn.execute(
+        f"UPDATE pick_history SET {', '.join(updates)} WHERE id = ?",
+        params,
+    )
+
+
+def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
+    return PickHistory(
+        id=row["id"],
+        appid=row["appid"],
+        game_name=row["game_name"],
+        picked_at=_parse_dt(row["picked_at"]) or datetime.utcnow(),
+        time_window_minutes=row["time_window_minutes"],
+        mode=row["mode"],
+        candidates_at_pick=row["candidates_at_pick"],
+        outcome=row["outcome"],
+        outcome_recorded_at=_parse_dt(row["outcome_recorded_at"]),
+        rating=row["rating"],
+        genre_match_rating=row["genre_match_rating"],
+        would_have_picked_other_appid=row["would_have_picked_other_appid"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Affinity
+# ---------------------------------------------------------------------------
+
+def get_all_affinities(conn: sqlite3.Connection) -> dict:
+    """Return {(kind, value_lower): (weight, pick_count)} for all rows."""
+    rows = conn.execute("SELECT kind, value, weight, pick_count FROM affinity").fetchall()
+    return {(r["kind"], r["value"].lower()): (r["weight"], r["pick_count"]) for r in rows}
+
+
+def get_game_by_appid(conn: sqlite3.Connection, appid: int) -> Optional[Game]:
+    row = conn.execute("SELECT * FROM games WHERE appid = ?", (appid,)).fetchone()
+    return _row_to_game(row) if row else None
+
+
+def upsert_affinity_delta(
+    conn: sqlite3.Connection,
+    kind: str,
+    value: str,
+    delta: float,
+    increment_pick_count: bool,
+) -> None:
+    """Apply delta to an affinity weight, clamped to [-10, +10]."""
+    now = datetime.utcnow().isoformat()
+    existing = conn.execute(
+        "SELECT weight, pick_count FROM affinity WHERE kind = ? AND value = ?",
+        (kind, value),
+    ).fetchone()
+
+    if existing:
+        new_weight = max(-10.0, min(10.0, existing["weight"] + delta))
+        new_count = existing["pick_count"] + (1 if increment_pick_count else 0)
+        conn.execute(
+            "UPDATE affinity SET weight = ?, pick_count = ?, updated_at = ? WHERE kind = ? AND value = ?",
+            (new_weight, new_count, now, kind, value),
+        )
+    else:
+        initial = max(-10.0, min(10.0, delta))
+        conn.execute(
+            "INSERT INTO affinity (kind, value, weight, pick_count, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (kind, value, initial, 1 if increment_pick_count else 0, now),
+        )

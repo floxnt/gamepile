@@ -1,0 +1,15 @@
+<form hx-post="/feedback/{{ pick.id }}/step2"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">How would you rate the experience?</p>
+  <div class="feedback-rating-row">
+    {% for n in [1, 2, 3, 4, 5] %}
+    <button name="rating" value="{{ n }}" type="submit" class="btn btn-secondary btn-sm feedback-rating-btn">
+      {{ n }}
+    </button>
+    {% endfor %}
+    <button name="skip" value="true" type="submit" class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+  <p class="feedback-hint">1 = awful &nbsp;·&nbsp; 3 = okay &nbsp;·&nbsp; 5 = loved it</p>
+</form>
