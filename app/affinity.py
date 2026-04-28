@@ -120,6 +120,54 @@ def get_affinity_summary(game: Game, affinities: dict) -> list[str]:
     return [f"matches your taste ({', '.join(parts)})"]
 
 
+def apply_did_not_play_affinity(
+    conn: sqlite3.Connection,
+    picked_game: Game,
+    reason: str,
+    preferred_game: Optional[Game] = None,
+) -> None:
+    """
+    Apply affinity changes for a did-not-play feedback path.
+
+    no_time        — no changes (user just ran out of time, no taste signal)
+    technical_issue — no changes (problem was technical, not preference)
+    changed_mood   — no negative on picked game; +0.3 to preferred_game if given
+    picked_another_game — -0.3 to picked game; +0.3 to preferred_game if given
+    """
+    if reason in ("no_time", "technical_issue"):
+        return
+
+    picked_labels = deduplicate_labels(
+        picked_game.genre_list(),
+        picked_game.user_tags_list(),
+        picked_game.developer,
+    )
+
+    if reason == "changed_mood":
+        # No penalty on picked game — user didn't reject it, just changed mood.
+        if preferred_game:
+            other_labels = deduplicate_labels(
+                preferred_game.genre_list(),
+                preferred_game.user_tags_list(),
+                preferred_game.developer,
+            )
+            for kind, value in other_labels:
+                db.upsert_affinity_delta(conn, kind, value, +0.3, increment_pick_count=False)
+        return
+
+    if reason == "picked_another_game":
+        for kind, value in picked_labels:
+            db.upsert_affinity_delta(conn, kind, value, -0.3, increment_pick_count=False)
+        if preferred_game:
+            other_labels = deduplicate_labels(
+                preferred_game.genre_list(),
+                preferred_game.user_tags_list(),
+                preferred_game.developer,
+            )
+            for kind, value in other_labels:
+                db.upsert_affinity_delta(conn, kind, value, +0.3, increment_pick_count=False)
+
+
 def apply_affinity_update(
     conn: sqlite3.Connection,
     pick: PickHistory,

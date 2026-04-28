@@ -1,0 +1,22 @@
+<div class="feedback-step">
+  <p class="feedback-question">Which game from your library?</p>
+  <input
+    type="text"
+    name="q"
+    class="feedback-search-input"
+    placeholder="Start typing a game name…"
+    autocomplete="off"
+    hx-get="/feedback/{{ pick.id }}/game_search"
+    hx-trigger="keyup changed delay:300ms"
+    hx-target="#game-search-results"
+    hx-include="[name='q']"
+  >
+  <div id="game-search-results" class="game-search-results"></div>
+  <div class="feedback-actions">
+    <button type="button"
+            hx-post="/feedback/{{ pick.id }}/step1_6_library"
+            hx-target="#feedback-prompt"
+            hx-swap="outerHTML"
+            class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+</div>

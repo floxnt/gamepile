@@ -1,0 +1,13 @@
+<form hx-post="/feedback/{{ pick.id }}/step1_5"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">What happened?</p>
+  <div class="feedback-actions feedback-actions--wrap">
+    <button name="reason" value="no_time"            type="submit" class="btn btn-secondary btn-sm">No time</button>
+    <button name="reason" value="changed_mood"       type="submit" class="btn btn-secondary btn-sm">Changed mood</button>
+    <button name="reason" value="picked_another_game" type="submit" class="btn btn-secondary btn-sm">Picked another game</button>
+    <button name="reason" value="technical_issue"    type="submit" class="btn btn-secondary btn-sm">Technical issue</button>
+    <button name="reason" value="skip"               type="submit" class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+</form>

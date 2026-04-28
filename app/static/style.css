@@ -661,6 +661,51 @@ select option {
   color: var(--text);
 }
 
+.feedback-actions--wrap { flex-wrap: wrap; }
+
+/* Game search (step 1.6b) */
+.feedback-search-input {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.25rem;
+}
+
+.game-search-results { margin-top: 0.25rem; }
+
+.game-search-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.game-search-list li + li { border-top: 1px solid var(--border); }
+
+.game-search-result-btn {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: none;
+  color: var(--text);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.game-search-result-btn:hover { background: var(--surface2); }
+
+.game-search-empty {
+  font-size: 0.82rem;
+  color: var(--muted);
+  padding: 0.3rem 0;
+  margin: 0;
+}
+
 .feedback-prompt--done {
   border-color: var(--success);
   color: var(--success);

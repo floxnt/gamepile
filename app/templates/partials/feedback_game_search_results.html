@@ -1,0 +1,16 @@
+{% if results %}
+<ul class="game-search-list">
+  {% for game in results %}
+  <li>
+    <form hx-post="/feedback/{{ pick_id }}/step1_6_library"
+          hx-target="#feedback-prompt"
+          hx-swap="outerHTML">
+      <input type="hidden" name="actually_played_appid" value="{{ game.appid }}">
+      <button type="submit" class="game-search-result-btn">{{ game.name }}</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% elif results is not none %}
+<p class="game-search-empty">No games found matching that name.</p>
+{% endif %}

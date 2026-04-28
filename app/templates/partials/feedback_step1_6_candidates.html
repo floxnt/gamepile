@@ -1,0 +1,29 @@
+<form hx-post="/feedback/{{ pick.id }}/step1_6_candidates"
+      hx-target="#feedback-prompt"
+      hx-swap="outerHTML"
+      class="feedback-step">
+  <p class="feedback-question">Which one did you play?</p>
+
+  {% if other_candidates %}
+  <div class="feedback-candidates">
+    {% for gws in other_candidates %}
+    <label class="feedback-candidate-option">
+      <input type="radio" name="selected_appid" value="{{ gws.game.appid }}" required>
+      <img src="https://cdn.akamai.steamstatic.com/steam/apps/{{ gws.game.appid }}/capsule_184x69.jpg"
+           alt="{{ gws.game.name }}" class="feedback-candidate-art"
+           onerror="this.style.display='none'">
+      <span class="feedback-candidate-name">{{ gws.game.name }}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="feedback-actions">
+    <button type="submit" class="btn btn-primary btn-sm">Confirm</button>
+    <button type="button"
+            hx-post="/feedback/{{ pick.id }}/step1_6_candidates"
+            hx-target="#feedback-prompt"
+            hx-swap="outerHTML"
+            class="btn btn-ghost btn-sm">Skip</button>
+  </div>
+</form>

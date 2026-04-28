@@ -1,0 +1,23 @@
+<form hx-post="/feedback/{{ pick.id }}/step1_6"
+      hx-target="#feedback-step-container"
+      hx-swap="innerHTML"
+      class="feedback-step">
+  <p class="feedback-question">
+    {% if pick.did_not_play_reason == "changed_mood" %}
+      Did you end up playing something else?
+    {% else %}
+      What did you play instead?
+    {% endif %}
+  </p>
+  <div class="feedback-actions feedback-actions--wrap">
+    <button name="sub_option" value="from_candidates" type="submit" class="btn btn-secondary btn-sm">
+      One of the other recommendations
+    </button>
+    <button name="sub_option" value="from_library" type="submit" class="btn btn-secondary btn-sm">
+      Another game from my library
+    </button>
+    <button name="sub_option" value="not_in_app" type="submit" class="btn btn-ghost btn-sm">
+      {% if pick.did_not_play_reason == "changed_mood" %}Not really{% else %}Not in this app{% endif %}
+    </button>
+  </div>
+</form>

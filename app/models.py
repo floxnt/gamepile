@@ -62,6 +62,8 @@ class GameState:
     # False = status was auto-inferred from playtime; True = user set it via the UI.
     # Auto-inference only runs when manually_set is False.
     manually_set: bool = False
+    # Set via the "Technical issue" did-not-play reason; surfaced in the library view.
+    has_technical_issue: bool = False
 
 
 @dataclass
@@ -95,7 +97,10 @@ class PickHistory:
     outcome_recorded_at: Optional[datetime]
     rating: Optional[int]               # 1-5, from step 2
     genre_match_rating: Optional[int]   # 1-5, from step 3
-    would_have_picked_other_appid: Optional[int]  # from step 4
+    would_have_picked_other_appid: Optional[int]  # from step 4 / step 1.6 sub-path 1
+    # Did-not-play branch (step 1.5 / 1.6):
+    did_not_play_reason: Optional[str]        # no_time | changed_mood | picked_another_game | technical_issue
+    actually_played_appid: Optional[int]      # FK to games — set via step 1.6 library search
 
 
 @dataclass

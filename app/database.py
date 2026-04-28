@@ -103,6 +103,9 @@ def init_db() -> None:
         for ddl in [
             "ALTER TABLE game_state ADD COLUMN manually_set BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE games ADD COLUMN user_tags TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE game_state ADD COLUMN has_technical_issue BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE pick_history ADD COLUMN did_not_play_reason TEXT",
+            "ALTER TABLE pick_history ADD COLUMN actually_played_appid INTEGER REFERENCES games(appid)",
         ]:
             try:
                 conn.execute(ddl)
@@ -201,6 +204,7 @@ def _row_to_state(row: sqlite3.Row) -> GameState:
         notes=row["notes"],
         updated_at=_parse_dt(row["updated_at"]) or datetime.utcnow(),
         manually_set=bool(row["manually_set"]) if row["manually_set"] is not None else False,
+        has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
     )
 
 
@@ -358,7 +362,8 @@ def get_games_with_state(
             g.last_refreshed, g.is_active,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
-            gs.manually_set
+            gs.manually_set,
+            gs.has_technical_issue
         FROM games g
         LEFT JOIN game_state gs ON g.appid = gs.appid
         {where}
@@ -375,6 +380,7 @@ def get_games_with_state(
             notes=row["notes"],
             updated_at=_parse_dt(row["state_updated_at"]) or datetime.utcnow(),
             manually_set=bool(row["manually_set"]) if row["manually_set"] is not None else False,
+            has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
         )
         result.append(GameWithState(game=game, state=state))
     return result
@@ -391,6 +397,7 @@ def update_game_state(
     hours_played_manual: Optional[float] = None,
     notes: Optional[str] = None,
     manually_set: Optional[bool] = None,
+    has_technical_issue: Optional[bool] = None,
 ) -> None:
     existing = conn.execute(
         "SELECT appid FROM game_state WHERE appid = ?", (appid,)
@@ -418,6 +425,9 @@ def update_game_state(
         if manually_set is not None:
             updates.append("manually_set = ?")
             params.append(1 if manually_set else 0)
+        if has_technical_issue is not None:
+            updates.append("has_technical_issue = ?")
+            params.append(1 if has_technical_issue else 0)
         params.append(appid)
         conn.execute(
             f"UPDATE game_state SET {', '.join(updates)} WHERE appid = ?",
@@ -529,13 +539,21 @@ def get_pick_history_by_id(conn: sqlite3.Connection, pick_id: int) -> Optional[P
 def update_pick_outcome(
     conn: sqlite3.Connection,
     pick_id: int,
-    outcome: str,
+    outcome: Optional[str] = None,
     rating: Optional[int] = None,
     genre_match_rating: Optional[int] = None,
     would_have_picked_other_appid: Optional[int] = None,
+    did_not_play_reason: Optional[str] = None,
+    actually_played_appid: Optional[int] = None,
 ) -> None:
-    updates = ["outcome = ?", "outcome_recorded_at = ?"]
-    params: list = [outcome, datetime.utcnow().isoformat()]
+    """Update pick_history fields. outcome is optional so sub-steps can save
+    extra columns (e.g. actually_played_appid) without overwriting the outcome."""
+    updates: list = []
+    params: list = []
+
+    if outcome is not None:
+        updates += ["outcome = ?", "outcome_recorded_at = ?"]
+        params += [outcome, datetime.utcnow().isoformat()]
     if rating is not None:
         updates.append("rating = ?")
         params.append(rating)
@@ -545,6 +563,16 @@ def update_pick_outcome(
     if would_have_picked_other_appid is not None:
         updates.append("would_have_picked_other_appid = ?")
         params.append(would_have_picked_other_appid)
+    if did_not_play_reason is not None:
+        updates.append("did_not_play_reason = ?")
+        params.append(did_not_play_reason)
+    if actually_played_appid is not None:
+        updates.append("actually_played_appid = ?")
+        params.append(actually_played_appid)
+
+    if not updates:
+        return
+
     params.append(pick_id)
     conn.execute(
         f"UPDATE pick_history SET {', '.join(updates)} WHERE id = ?",
@@ -553,6 +581,7 @@ def update_pick_outcome(
 
 
 def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
+    keys = row.keys()
     return PickHistory(
         id=row["id"],
         appid=row["appid"],
@@ -566,7 +595,21 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
         rating=row["rating"],
         genre_match_rating=row["genre_match_rating"],
         would_have_picked_other_appid=row["would_have_picked_other_appid"],
+        did_not_play_reason=row["did_not_play_reason"] if "did_not_play_reason" in keys else None,
+        actually_played_appid=row["actually_played_appid"] if "actually_played_appid" in keys else None,
     )
+
+
+def search_games_by_name(conn: sqlite3.Connection, query: str, limit: int = 10) -> list[Game]:
+    """Case-insensitive substring search against active games."""
+    query = query.strip()
+    if not query:
+        return []
+    rows = conn.execute(
+        "SELECT * FROM games WHERE name LIKE ? AND is_active = 1 ORDER BY name LIMIT ?",
+        (f"%{query}%", limit),
+    ).fetchall()
+    return [_row_to_game(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
