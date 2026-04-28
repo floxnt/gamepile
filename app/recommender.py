@@ -1,7 +1,7 @@
 """
 Recommendation engine — v1.
 
-Three modes: short_term, long_term, both.
+Four modes: short_term, long_term, both, surprise.
 
 SHORT-TERM mode (fits tonight's time window)
 --------------------------------------------
@@ -46,8 +46,22 @@ Duplicate games (eligible in both pools) are counted only once — whichever
 pool surfaces them first keeps the slot.
 Each candidate carries a source field ("tonight" or "long_term") so the
 UI can badge them accordingly.
+
+SURPRISE mode
+-------------
+Goal: surface something unexpected from the full eligible library.
+
+No time-window filtering — the whole eligible library is the pool.
+Weighted random selection per pick:
+  50% chance: draw from high-quality games (Metacritic/OpenCritic ≥ 85 or Steam ≥ 90% / ≥ 1000)
+  30% chance: draw from never-played games regardless of score
+  20% chance: draw from anything eligible
+If the weighted bucket is empty, falls back to the full eligible pool.
+After each pick, the game's primary genre is excluded from subsequent picks
+to enforce the same variety rule used by the other modes.
 """
 
+import random
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -60,15 +74,17 @@ class RecommendMode(str, Enum):
     short_term = "short_term"
     long_term = "long_term"
     both = "both"
+    surprise = "surprise"
 
 
 @dataclass
 class RecommendRequest:
-    minutes: int                    # tonight's available time
+    minutes: int                              # tonight's available time
     mode: RecommendMode
     include_unplayed: bool = True
     include_in_progress: bool = True
-    installed_only: bool = False    # always False in v1 (data not available)
+    installed_only: bool = False              # always False in v1 (data not available)
+    excluded_ids: frozenset = field(default_factory=frozenset)
 
 
 @dataclass
@@ -76,8 +92,8 @@ class Candidate:
     gws: GameWithState
     remaining_hours: float
     score: float = 0.0
-    no_manual_hours_hint: bool = False  # show "using full estimate" hint on the card
-    source: Optional[str] = None        # "tonight", "long_term", or None (single-mode)
+    no_manual_hours_hint: bool = False        # show "using full estimate" hint on the card
+    source: Optional[str] = None             # "tonight", "long_term", "surprise", or None
 
 
 def recommend(
@@ -85,10 +101,16 @@ def recommend(
     req: RecommendRequest,
     max_results: int = 5,
 ) -> list[Candidate]:
+    # Apply exclusions once here so no sub-function needs to know about them.
+    if req.excluded_ids:
+        games = [g for g in games if g.game.appid not in req.excluded_ids]
+
     if req.mode == RecommendMode.short_term:
         return _short_term(games, req, max_results)
     if req.mode == RecommendMode.long_term:
         return _long_term(games, req, max_results)
+    if req.mode == RecommendMode.surprise:
+        return _surprise(games, req, max_results)
     return _both(games, req, max_results)
 
 
@@ -290,6 +312,80 @@ def _both(
 
 
 # ---------------------------------------------------------------------------
+# Surprise
+# ---------------------------------------------------------------------------
+
+def _surprise(
+    games: list[GameWithState],
+    req: RecommendRequest,
+    max_results: int = 5,
+) -> list[Candidate]:
+    """
+    Weighted random selection from the full eligible library.
+
+    For each pick, randomly choose a bucket then sample uniformly from it:
+      50%  top-quality bucket  (Metacritic/OpenCritic ≥ 85, or Steam ≥ 90% / ≥ 1000)
+      30%  never-played bucket (ignores score — surfaces forgotten library entries)
+      20%  full eligible pool
+
+    If the chosen bucket is empty, falls back to the full eligible pool.
+    After each pick, the game's primary genre is excluded from all remaining
+    picks (same variety enforcement as the scored modes).
+    """
+    eligible = [gws for gws in games if _passes_toggles(gws, req)]
+    if not eligible:
+        return []
+
+    # Pre-compute quality and never-played subsets (rebuilt per pick below
+    # to exclude already-picked games and genres).
+    all_quality = [gws for gws in eligible if _is_high_quality(gws.game)]
+    all_unplayed = [gws for gws in eligible if gws.state.status == GameStatus.never_played]
+
+    selected: list[Candidate] = []
+    picked_ids: set[int] = set()
+    excluded_genres: set[str] = set()
+
+    for _ in range(max_results):
+        def _available(pool: list[GameWithState]) -> list[GameWithState]:
+            return [
+                gws for gws in pool
+                if gws.game.appid not in picked_ids
+                and (
+                    gws.game.primary_genre() is None
+                    or gws.game.primary_genre() not in excluded_genres
+                )
+            ]
+
+        avail_all = _available(eligible)
+        if not avail_all:
+            break
+
+        avail_quality = _available(all_quality)
+        avail_unplayed = _available(all_unplayed)
+
+        roll = random.random()
+        if roll < 0.50 and avail_quality:
+            pool = avail_quality
+        elif roll < 0.80 and avail_unplayed:
+            pool = avail_unplayed
+        else:
+            pool = avail_all
+
+        pick_gws = random.choice(pool)
+        remaining = pick_gws.game.hltb_main_hours or 0.0
+
+        c = Candidate(gws=pick_gws, remaining_hours=remaining, source="surprise")
+        selected.append(c)
+        picked_ids.add(pick_gws.game.appid)
+
+        genre = pick_gws.game.primary_genre()
+        if genre:
+            excluded_genres.add(genre)
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -334,7 +430,7 @@ def _remaining_hours(gws: GameWithState) -> tuple[Optional[float], bool]:
 
 
 def _is_high_quality(game) -> bool:
-    """Short-term quality signal: Metacritic OR OpenCritic ≥ 85, or very positive Steam."""
+    """Metacritic OR OpenCritic ≥ 85, or Steam ≥ 90% with ≥ 1000 reviews."""
     if game.metacritic_score is not None and game.metacritic_score >= 85:
         return True
     if game.opencritic_score is not None and game.opencritic_score >= 85:

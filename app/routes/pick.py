@@ -23,6 +23,17 @@ def _bool_param(request: Request, name: str, default: bool = True) -> bool:
     return raw.lower() not in ("false", "0", "no")
 
 
+def _parse_excluded(request: Request) -> frozenset:
+    """Parse ?excluded=1234,5678 into a frozenset of ints."""
+    raw = request.query_params.get("excluded", "")
+    ids = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.add(int(part))
+    return frozenset(ids)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def pick_page(
     request: Request,
@@ -31,12 +42,14 @@ async def pick_page(
 ):
     include_unplayed = _bool_param(request, "include_unplayed", default=True)
     include_in_progress = _bool_param(request, "include_in_progress", default=True)
+    excluded_ids = _parse_excluded(request)
 
     req = RecommendRequest(
         minutes=minutes,
         mode=RecommendMode(mode),
         include_unplayed=include_unplayed,
         include_in_progress=include_in_progress,
+        excluded_ids=excluded_ids,
     )
 
     with db.get_db() as conn:
@@ -50,6 +63,7 @@ async def pick_page(
         "mode": mode,
         "include_unplayed": include_unplayed,
         "include_in_progress": include_in_progress,
+        "has_exclusions": bool(excluded_ids),
     })
 
 

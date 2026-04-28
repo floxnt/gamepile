@@ -3,9 +3,9 @@
 
 {% block content %}
 <section class="pick-controls">
-  <form method="get" action="/">
+  <form id="pick-form" method="get" action="/">
     <div class="controls-row">
-      <label>
+      <label id="minutes-label">
         Time tonight
         <input type="number" name="minutes" value="{{ minutes }}" min="15" max="480" step="15">
         min
@@ -13,16 +13,24 @@
 
       <div class="mode-toggle">
         <label>
-          <input type="radio" name="mode" value="both" {% if mode == "both" %}checked{% endif %}>
+          <input type="radio" name="mode" value="both"
+            {% if mode == "both" %}checked{% endif %}>
           Both
         </label>
         <label>
-          <input type="radio" name="mode" value="short_term" {% if mode == "short_term" %}checked{% endif %}>
+          <input type="radio" name="mode" value="short_term"
+            {% if mode == "short_term" %}checked{% endif %}>
           Short-term
         </label>
         <label>
-          <input type="radio" name="mode" value="long_term" {% if mode == "long_term" %}checked{% endif %}>
+          <input type="radio" name="mode" value="long_term"
+            {% if mode == "long_term" %}checked{% endif %}>
           Long-term
+        </label>
+        <label>
+          <input type="radio" name="mode" value="surprise"
+            {% if mode == "surprise" %}checked{% endif %}>
+          Surprise me
         </label>
       </div>
 
@@ -56,16 +64,84 @@
   </form>
 </section>
 
-{% if picks %}
-<section class="card-grid">
-  {% for candidate in picks %}
-    {% include "partials/game_card.html" %}
-  {% endfor %}
-</section>
-{% else %}
-<div class="empty-state">
-  <p>No games match your current filters and time window.</p>
-  <p>Try adjusting the time, enabling more toggles, or <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">refreshing your library</button> if it's empty.</p>
+{# pick-results is the HTMX swap target for both "Try again" and the
+   hx-select pattern used by the sort headers. Wrapping the entire results
+   section means the "Try again" button regenerates correctly on each swap. #}
+<div id="pick-results">
+  {% if picks %}
+  <section class="card-grid">
+    {% for candidate in picks %}
+      {% include "partials/game_card.html" %}
+    {% endfor %}
+  </section>
+
+  <div class="try-again-row">
+    <button type="button" class="btn btn-secondary" onclick="tryAgain()">
+      Try again
+    </button>
+  </div>
+
+  {% elif has_exclusions %}
+  {# All eligible games for the current filters have been shown. #}
+  <div class="empty-state">
+    <p>You've seen all matching games — adjust your filters or hit reset.</p>
+    <button type="button" class="btn btn-secondary"
+      onclick="document.getElementById('pick-form').submit()">
+      Reset and start over
+    </button>
+  </div>
+
+  {% else %}
+  <div class="empty-state">
+    <p>No games match your current filters and time window.</p>
+    <p>Try adjusting the time, enabling more toggles, or
+      <button hx-post="/refresh" hx-target="#refresh-status"
+        hx-swap="innerHTML" class="btn-link">refreshing your library
+      </button> if it's empty.
+    </p>
+  </div>
+  {% endif %}
 </div>
-{% endif %}
+
+<script>
+// ---------------------------------------------------------------------------
+// Surprise mode: dim the time input (it's ignored by the algorithm)
+// ---------------------------------------------------------------------------
+function updateTimeInput() {
+    const mode = document.querySelector('input[name="mode"]:checked')?.value;
+    const label = document.getElementById('minutes-label');
+    const input = label?.querySelector('input[name="minutes"]');
+    if (!input) return;
+    const isSurprise = mode === 'surprise';
+    input.disabled = isSurprise;
+    label.classList.toggle('dimmed', isSurprise);
+}
+document.querySelectorAll('input[name="mode"]').forEach(r =>
+    r.addEventListener('change', updateTimeInput)
+);
+updateTimeInput();
+
+// ---------------------------------------------------------------------------
+// Try again: accumulate excluded IDs in the URL, swap only #pick-results
+// ---------------------------------------------------------------------------
+function tryAgain() {
+    const params = new URLSearchParams(window.location.search);
+
+    // Collect IDs already excluded from previous batches.
+    const existing = (params.get('excluded') || '').split(',').filter(Boolean);
+
+    // Collect IDs visible in the current batch (includes dismissed "not feeling it" cards).
+    const current = Array.from(document.querySelectorAll('[id^="card-"]'))
+        .map(el => el.id.slice(5))
+        .filter(Boolean);
+
+    const allExcluded = [...new Set([...existing, ...current])];
+    params.set('excluded', allExcluded.join(','));
+
+    const url = '/?' + params.toString();
+
+    htmx.ajax('GET', url, {target: '#pick-results', swap: 'outerHTML'});
+    history.pushState(null, '', url);
+}
+</script>
 {% endblock %}

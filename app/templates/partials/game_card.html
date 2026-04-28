@@ -16,6 +16,8 @@
         <span class="badge badge-source-tonight">Tonight</span>
       {% elif candidate.source == "long_term" %}
         <span class="badge badge-source-longterm">Long-term</span>
+      {% elif candidate.source == "surprise" %}
+        <span class="badge badge-source-surprise">🎲 Surprise</span>
       {% endif %}
       {% if candidate.gws.game.genres %}
         <span class="genre">{{ candidate.gws.game.primary_genre() }}</span>

@@ -156,6 +156,7 @@ main {
 .badge-removed         { background: #3d3010; color: var(--warn); }
 .badge-source-tonight  { background: #1a2e1a; color: #7ecf7e; }
 .badge-source-longterm { background: #2a1a3a; color: #b07ef5; }
+.badge-source-surprise { background: #2a2010; color: #e8b84b; }
 
 /* ===== Pick page ===== */
 .pick-controls {
@@ -210,6 +211,16 @@ main {
 
 .toggle-group input[type="checkbox"]:disabled { opacity: 0.4; cursor: not-allowed; }
 .toggle-group label:has(input:disabled) { opacity: 0.5; cursor: not-allowed; }
+
+/* Surprise mode dims the time-tonight input */
+label.dimmed { opacity: 0.4; pointer-events: none; }
+
+/* ===== Try again row ===== */
+.try-again-row {
+  display: flex;
+  justify-content: center;
+  padding: 1.5rem 0 0.5rem;
+}
 
 /* ===== Card grid ===== */
 .card-grid {
