@@ -6,18 +6,20 @@
   hx-target="this"
   hx-swap="outerHTML"
 >
-  <div class="refresh-phase">{{ progress.phase }}</div>
+  <div class="refresh-phase">
+    {% if progress.force %}<span class="force-badge">FORCE</span> {% endif %}{{ progress.phase }}
+  </div>
   <div class="refresh-game">
     {% if progress.current_game %}
       {{ progress.current_game }}
-      {% if progress.total_games %}
-        ({{ progress.current_index }}/{{ progress.total_games }})
-      {% endif %}
+      {% if progress.total_games %}({{ progress.current_index }}/{{ progress.total_games }}){% endif %}
     {% endif %}
   </div>
   <div class="refresh-tally">
-    Added {{ progress.games_added }} &middot;
-    Updated {{ progress.games_updated }}
+    Added {{ progress.games_added }} &middot; Updated {{ progress.games_updated }}
+    {% if progress.hltb_fetched or progress.hltb_skipped %}
+      &middot; HLTB {{ progress.hltb_fetched }}↓ {{ progress.hltb_skipped }}⊘
+    {% endif %}
     {% if progress.errors %}
       &middot; <span class="error-count">{{ progress.errors | length }} error(s)</span>
     {% endif %}
@@ -29,9 +31,12 @@
 </div>
 {% elif progress.completed_at %}
 <div class="refresh-banner refresh-banner--done">
-  Refresh complete —
-  {{ progress.games_added }} added,
-  {{ progress.games_updated }} updated
+  {% if progress.force %}Force refresh{% else %}Refresh{% endif %} complete —
+  {{ progress.games_added }} added, {{ progress.games_updated }} updated
+  {% if progress.hltb_fetched or progress.hltb_skipped %}
+    &middot; HLTB {{ progress.hltb_fetched }}↓ {{ progress.hltb_skipped }}⊘
+    &middot; OC {{ progress.oc_fetched }}↓ {{ progress.oc_skipped }}⊘
+  {% endif %}
   {% if progress.errors %}
     , {{ progress.errors | length }} error(s)
   {% endif %}

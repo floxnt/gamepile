@@ -127,6 +127,39 @@ def _parse_bool(value) -> Optional[bool]:
 # Games
 # ---------------------------------------------------------------------------
 
+def upsert_game_steam_fields(
+    conn: sqlite3.Connection,
+    appid: int,
+    name: str,
+    playtime_minutes: int,
+    last_played_steam: Optional[datetime],
+    is_active: bool,
+) -> None:
+    """
+    Insert or update only the fields sourced from Steam's owned-games list.
+    Never overwrites enrichment columns (HLTB, genres, scores, reviews).
+    For new rows all enrichment columns start as NULL/empty defaults.
+    last_refreshed is set on INSERT but intentionally excluded from the
+    UPDATE clause — it only advances when _phase_enrich writes enrichment data.
+    """
+    conn.execute("""
+        INSERT INTO games (appid, name, playtime_minutes, last_played_steam, is_active, last_refreshed)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(appid) DO UPDATE SET
+            name              = excluded.name,
+            playtime_minutes  = excluded.playtime_minutes,
+            last_played_steam = excluded.last_played_steam,
+            is_active         = excluded.is_active
+    """, (
+        appid,
+        name,
+        playtime_minutes,
+        last_played_steam.isoformat() if last_played_steam else None,
+        1 if is_active else 0,
+        datetime.utcnow().isoformat(),
+    ))
+
+
 def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
     conn.execute("""
         INSERT INTO games (

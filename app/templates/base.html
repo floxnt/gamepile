@@ -15,12 +15,21 @@
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Pick</a>
         <a href="/library" {% if request.url.path == "/library" %}class="active"{% endif %}>Library</a>
       </div>
-      <button
-        hx-post="/refresh"
-        hx-target="#refresh-status"
-        hx-swap="innerHTML"
-        class="btn btn-secondary btn-sm"
-      >Refresh Library</button>
+      <div class="refresh-btn-group">
+        <button
+          hx-post="/refresh"
+          hx-target="#refresh-status"
+          hx-swap="innerHTML"
+          class="btn btn-secondary btn-sm"
+        >Refresh Library</button>
+        <button
+          hx-post="/refresh?force=true"
+          hx-target="#refresh-status"
+          hx-swap="innerHTML"
+          class="btn btn-ghost btn-sm"
+          title="Bypass HLTB and OpenCritic cache — re-fetches everything"
+        >Force</button>
+      </div>
     </nav>
   </header>
 

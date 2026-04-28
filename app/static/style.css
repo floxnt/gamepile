@@ -71,6 +71,23 @@ nav {
 
 nav .btn { margin-left: auto; }
 
+.refresh-btn-group {
+  margin-left: auto;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.force-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: var(--warn);
+  color: var(--bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
 /* ===== Main ===== */
 main {
   max-width: 1200px;
