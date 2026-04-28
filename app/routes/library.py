@@ -13,14 +13,14 @@ router = APIRouter()
 _ALL_STATUSES = [s.value for s in GameStatus]
 
 # Status sort order: active/in-flight states first, completion/terminal states last.
-# played sits between never_played and finished — it's "has history" but not curated.
+# played_unclassified sits between never_played and finished — has history but uncurated.
 _STATUS_SORT_ORDER = {
-    "in_progress":    0,
-    "never_played":   1,
-    "played":         2,
-    "finished":       3,
-    "dropped":        4,
-    "not_interested": 5,
+    "in_progress":         0,
+    "never_played":        1,
+    "played_unclassified": 2,
+    "finished":            3,
+    "dropped":             4,
+    "not_interested":      5,
 }
 
 _SORT_COLUMNS = ["name", "status", "playtime", "hltb_main", "last_played",

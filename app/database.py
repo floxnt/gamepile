@@ -1,11 +1,14 @@
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Generator, Optional
 
 from app.config import DB_PATH
 from app.models import Game, GameState, GameStatus, GameWithState, PickHistory, RecentPick, RefreshLog
+
+
+_RECENT_ACTIVITY_DAYS = 30
 
 
 def _connect() -> sqlite3.Connection:
@@ -114,8 +117,16 @@ def init_db() -> None:
             except Exception:
                 pass  # column already exists
 
-        # Backfill: fix rows stuck at never_played despite having Steam playtime.
-        # Only touches manually_set=0 rows — user-set statuses are preserved.
+        # Convert any legacy 'played' rows to 'played_unclassified'. The old enum
+        # used 'played' as a catch-all for "Steam shows hours, user hasn't
+        # categorised" — same meaning as the new played_unclassified state.
+        conn.execute(
+            "UPDATE game_state SET status = 'played_unclassified' WHERE status = 'played'"
+        )
+
+        # Backfill: re-run inference for every auto-inferred row so the new rules
+        # (played_unclassified split + recent-activity in_progress check) take effect.
+        # Manually-set statuses are never touched.
         _backfill_inferred_statuses(conn)
 
 
@@ -123,50 +134,66 @@ def init_db() -> None:
 # Status inference
 # ---------------------------------------------------------------------------
 
-def infer_status(playtime_minutes: int, hltb_main_hours: Optional[float]) -> "GameStatus":
+def infer_status(
+    playtime_minutes: int,
+    hltb_main_hours: Optional[float],
+    last_played_steam: Optional[datetime] = None,
+    now: Optional[datetime] = None,
+) -> "GameStatus":
     """
-    Derive a status from raw Steam playtime and HLTB data.
+    Derive a status from raw Steam playtime and HLTB data per docs/STATE_MACHINE.md.
 
     Rules (applied in order):
-      0 minutes               → never_played
-      playtime >= hltb * 60m  → played   (completed or exceeded main story)
-      playtime > 0, hltb set  → in_progress
-      playtime > 0, no hltb   → played   (can't determine progress; honest default)
+      playtime == 0                                                          → never_played
+      playtime < 30                                                          → played_unclassified
+      playtime >= 30 AND playtime < hltb_main * 60 AND recent activity (≤30d) → in_progress
+      playtime >= 30 (any other case)                                        → played_unclassified
     """
     from app.models import GameStatus
     if playtime_minutes == 0:
         return GameStatus.never_played
-    if hltb_main_hours is not None:
-        if playtime_minutes >= hltb_main_hours * 60:
-            return GameStatus.played
-        return GameStatus.in_progress
-    return GameStatus.played
+    if playtime_minutes < 30:
+        return GameStatus.played_unclassified
+
+    if hltb_main_hours is not None and last_played_steam is not None:
+        cutoff = (now or datetime.utcnow()) - timedelta(days=_RECENT_ACTIVITY_DAYS)
+        recent = last_played_steam >= cutoff
+        if recent and playtime_minutes < hltb_main_hours * 60:
+            return GameStatus.in_progress
+
+    return GameStatus.played_unclassified
 
 
 def _backfill_inferred_statuses(conn: sqlite3.Connection) -> None:
     """
-    Correct never_played rows that have non-zero Steam playtime.
-    Runs on every init_db() call; the WHERE clause makes it a no-op once
-    there are no more qualifying rows.
+    Re-run inference for every auto-inferred row (manually_set = 0).
+    Idempotent: applying the same rules again produces the same status.
     """
     rows = conn.execute("""
-        SELECT gs.appid, g.playtime_minutes, g.hltb_main_hours
+        SELECT gs.appid, gs.status, g.playtime_minutes, g.hltb_main_hours, g.last_played_steam
         FROM game_state gs
         JOIN games g ON gs.appid = g.appid
         WHERE gs.manually_set = 0
-          AND gs.status = 'never_played'
-          AND g.playtime_minutes > 0
     """).fetchall()
 
     if not rows:
         return
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
     for row in rows:
-        new_status = infer_status(row["playtime_minutes"], row["hltb_main_hours"])
+        last_played = _parse_dt(row["last_played_steam"])
+        new_status = infer_status(
+            row["playtime_minutes"],
+            row["hltb_main_hours"],
+            last_played,
+            now,
+        )
+        if new_status.value == row["status"]:
+            continue
         conn.execute(
             "UPDATE game_state SET status = ?, updated_at = ? WHERE appid = ? AND manually_set = 0",
-            (new_status.value, now, row["appid"]),
+            (new_status.value, now_iso, row["appid"]),
         )
 
 
@@ -322,14 +349,23 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
     })
 
 
-def ensure_game_state(conn: sqlite3.Connection, appid: int, playtime_minutes: int = 0) -> None:
+def ensure_game_state(
+    conn: sqlite3.Connection,
+    appid: int,
+    playtime_minutes: int = 0,
+    last_played_steam: Optional[datetime] = None,
+) -> None:
     """
     Insert a game_state row for a new game if one doesn't already exist.
-    Initial status is inferred from playtime (HLTB not available yet at this
-    point; _phase_enrich will refine to in_progress once HLTB is fetched).
+    Initial status is inferred from playtime + last-played (HLTB not available
+    yet; _phase_enrich will refine to in_progress once HLTB is fetched).
     manually_set is False — this is an auto-inferred row.
     """
-    status = infer_status(playtime_minutes, hltb_main_hours=None)
+    status = infer_status(
+        playtime_minutes,
+        hltb_main_hours=None,
+        last_played_steam=last_played_steam,
+    )
     conn.execute("""
         INSERT OR IGNORE INTO game_state (appid, status, manually_set, updated_at)
         VALUES (?, ?, 0, ?)
@@ -456,15 +492,15 @@ def maybe_refine_inferred_status(
     appid: int,
     playtime_minutes: int,
     hltb_main_hours: Optional[float],
+    last_played_steam: Optional[datetime] = None,
 ) -> None:
     """
     Re-run status inference for a game after HLTB data has been fetched.
     Only touches rows where manually_set = 0.
 
-    This refines the initial coarse guess (playtime > 0 → played) into the
-    accurate in_progress / played split once HLTB hours are known.
-    Also advances a never_played row if Steam now shows playtime (handles
-    playtime changes between refreshes).
+    Refines the initial coarse guess once HLTB hours and last_played_steam are
+    known (e.g. promoting played_unclassified → in_progress for actively-played
+    games still under the HLTB main story estimate).
     """
     row = conn.execute(
         "SELECT status, manually_set FROM game_state WHERE appid = ?", (appid,)
@@ -473,7 +509,11 @@ def maybe_refine_inferred_status(
     if not row or row["manually_set"]:
         return
 
-    new_status = infer_status(playtime_minutes, hltb_main_hours)
+    new_status = infer_status(
+        playtime_minutes,
+        hltb_main_hours,
+        last_played_steam,
+    )
     if new_status.value != row["status"]:
         conn.execute(
             "UPDATE game_state SET status = ?, updated_at = ? WHERE appid = ? AND manually_set = 0",

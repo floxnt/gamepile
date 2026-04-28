@@ -6,11 +6,11 @@ from typing import Optional
 
 class GameStatus(str, Enum):
     never_played = "never_played"
+    # Steam shows playtime but the user hasn't categorised the game.
+    # Eligible for "I only have tonight", "Comfort pick", "Surprise me" and
+    # (when playtime < 30min) "Start something new".
+    played_unclassified = "played_unclassified"
     in_progress = "in_progress"
-    # played: auto-inferred from Steam playtime when the user hasn't categorised the
-    # game explicitly. Means "Steam shows hours but we don't know why they stopped."
-    # Excluded from recommendations by default (same as finished).
-    played = "played"
     finished = "finished"
     dropped = "dropped"
     not_interested = "not_interested"
@@ -102,7 +102,7 @@ class PickHistory:
     game_name: str                       # denormalised for display without extra join
     picked_at: datetime
     time_window_minutes: Optional[int]   # None for surprise_me (time was irrelevant)
-    mode: str                            # short_term | long_term | both | surprise_me
+    mode: str                            # see RecommendMode for canonical values
     candidates_at_pick: str             # JSON array of 5 appids shown at pick time
     outcome: Optional[str]              # None until feedback is recorded
     outcome_recorded_at: Optional[datetime]

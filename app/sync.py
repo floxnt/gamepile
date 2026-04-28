@@ -159,8 +159,14 @@ async def _phase_steam(client: httpx.AsyncClient) -> None:
                 last_played_steam=last_played,
                 is_active=True,
             )
-            # Pass playtime so the initial status is inferred, not hardcoded to never_played.
-            db.ensure_game_state(conn, appid, playtime_minutes=playtime)
+            # Pass playtime + last-played so initial inference can promote
+            # actively-played games to in_progress on first sight.
+            db.ensure_game_state(
+                conn,
+                appid,
+                playtime_minutes=playtime,
+                last_played_steam=last_played,
+            )
 
         if is_new:
             progress.games_added += 1
@@ -256,4 +262,5 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 enriched.appid,
                 enriched.playtime_minutes,
                 enriched.hltb_main_hours,
+                enriched.last_played_steam,
             )
