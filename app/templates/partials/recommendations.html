@@ -1,0 +1,34 @@
+<div id="recommendations">
+  {% if picks %}
+  <section class="card-grid">
+    {% for candidate in picks %}
+      {% include "partials/game_card.html" %}
+    {% endfor %}
+  </section>
+
+  <div class="try-again-row">
+    <button type="button" class="btn btn-secondary" onclick="tryAgain()">
+      Try again
+    </button>
+  </div>
+
+  {% elif has_exclusions %}
+  <div class="empty-state">
+    <p>You've seen all matching games — adjust your filters or hit reset.</p>
+    <button type="button" class="btn btn-secondary"
+      onclick="document.getElementById('pick-form').submit()">
+      Reset and start over
+    </button>
+  </div>
+
+  {% else %}
+  <div class="empty-state">
+    <p>No games match your current filters and time window.</p>
+    <p>Try adjusting the time, enabling more toggles, or
+      <button hx-post="/refresh" hx-target="#refresh-status"
+        hx-swap="innerHTML" class="btn-link">refreshing your library
+      </button> if it's empty.
+    </p>
+  </div>
+  {% endif %}
+</div>

@@ -39,12 +39,12 @@ def _normalize_mode(raw: str) -> str:
     return "surprise_me" if raw == "surprise" else raw
 
 
-@router.get("/", response_class=HTMLResponse)
-async def pick_page(
-    request: Request,
-    minutes: int = 90,
-    mode: str = "both",
-):
+def _build_picks_context(request: Request, minutes: int, mode: str) -> dict:
+    """
+    Shared logic for GET / and GET /picks.
+    Returns the template context dict (without pending_pick, which is
+    only needed by the full page).
+    """
     mode = _normalize_mode(mode)
     include_unplayed = _bool_param(request, "include_unplayed", default=True)
     include_in_progress = _bool_param(request, "include_in_progress", default=True)
@@ -53,12 +53,6 @@ async def pick_page(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn)
         affinities = db.get_all_affinities(conn)
-        pending_raw = db.get_oldest_pending_pick(conn)
-
-    # Filter out picks dismissed for this session.
-    pending_pick = None
-    if pending_raw and not prompt_state.is_dismissed(pending_raw.id):
-        pending_pick = pending_raw
 
     req = RecommendRequest(
         minutes=minutes,
@@ -70,11 +64,9 @@ async def pick_page(
     )
 
     picks = recommend(all_games, req)
-
-    # Pre-serialise all 5 appids for the "I picked this" hx-vals embed.
     picks_appids = json.dumps([p.gws.game.appid for p in picks])
 
-    return templates.TemplateResponse(request, "pick.html", {
+    return {
         "picks": picks,
         "picks_appids": picks_appids,
         "minutes": minutes,
@@ -82,8 +74,41 @@ async def pick_page(
         "include_unplayed": include_unplayed,
         "include_in_progress": include_in_progress,
         "has_exclusions": bool(excluded_ids),
-        "pending_pick": pending_pick,
-    })
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+async def pick_page(
+    request: Request,
+    minutes: int = 90,
+    mode: str = "both",
+):
+    ctx = _build_picks_context(request, minutes, mode)
+
+    # Pending feedback prompt — only needed for the full page render.
+    with db.get_db() as conn:
+        pending_raw = db.get_oldest_pending_pick(conn)
+    pending_pick = None
+    if pending_raw and not prompt_state.is_dismissed(pending_raw.id):
+        pending_pick = pending_raw
+
+    ctx["pending_pick"] = pending_pick
+    return templates.TemplateResponse(request, "pick.html", ctx)
+
+
+@router.get("/picks", response_class=HTMLResponse)
+async def picks_partial(
+    request: Request,
+    minutes: int = 90,
+    mode: str = "both",
+):
+    """
+    Partial endpoint: returns only <div id="recommendations">…</div>.
+    Used by the "Find Games" and "Try again" HTMX calls so they replace
+    just the card grid without touching the page chrome or filter bar.
+    """
+    ctx = _build_picks_context(request, minutes, mode)
+    return templates.TemplateResponse(request, "partials/recommendations.html", ctx)
 
 
 @router.post("/games/{appid}/pick", response_class=HTMLResponse)
@@ -106,7 +131,6 @@ async def mark_picked(request: Request, appid: int):
 
     with db.get_db() as conn:
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
-        # Look up the game name for the pick_history record.
         game = db.get_game_by_appid(conn, appid)
         game_name = game.name if game else f"App {appid}"
         db.insert_pick_history(

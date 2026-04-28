@@ -5,6 +5,8 @@
 {% include "partials/feedback_prompt.html" %}
 
 <section class="pick-controls">
+  {# method/action kept for the fallback case (Reset button submits the form directly).
+     Normal Find Games and Try Again both call /picks via HTMX. #}
   <form id="pick-form" method="get" action="/">
     <div class="controls-row">
       <label id="minutes-label">
@@ -45,14 +47,14 @@
           <input type="hidden" name="include_unplayed" value="false">
           <input type="checkbox" name="include_unplayed" value="true"
             {% if include_unplayed %}checked{% endif %}
-            onchange="this.form.submit()">
+            onchange="findGames()">
           Include unplayed
         </label>
         <label>
           <input type="hidden" name="include_in_progress" value="false">
           <input type="checkbox" name="include_in_progress" value="true"
             {% if include_in_progress %}checked{% endif %}
-            onchange="this.form.submit()">
+            onchange="findGames()">
           Include in-progress
         </label>
         <label title="Requires Steam library file parsing — coming in v2">
@@ -61,49 +63,14 @@
         </label>
       </div>
 
-      <button type="submit" class="btn btn-primary">Find Games</button>
+      <button type="button" onclick="findGames()" class="btn btn-primary">Find Games</button>
     </div>
   </form>
 </section>
 
-{# pick-results is the HTMX swap target for both "Try again" and the
-   hx-select pattern used by the sort headers. Wrapping the entire results
-   section means the "Try again" button regenerates correctly on each swap. #}
-<div id="pick-results">
-  {% if picks %}
-  <section class="card-grid">
-    {% for candidate in picks %}
-      {% include "partials/game_card.html" %}
-    {% endfor %}
-  </section>
-
-  <div class="try-again-row">
-    <button type="button" class="btn btn-secondary" onclick="tryAgain()">
-      Try again
-    </button>
-  </div>
-
-  {% elif has_exclusions %}
-  {# All eligible games for the current filters have been shown. #}
-  <div class="empty-state">
-    <p>You've seen all matching games — adjust your filters or hit reset.</p>
-    <button type="button" class="btn btn-secondary"
-      onclick="document.getElementById('pick-form').submit()">
-      Reset and start over
-    </button>
-  </div>
-
-  {% else %}
-  <div class="empty-state">
-    <p>No games match your current filters and time window.</p>
-    <p>Try adjusting the time, enabling more toggles, or
-      <button hx-post="/refresh" hx-target="#refresh-status"
-        hx-swap="innerHTML" class="btn-link">refreshing your library
-      </button> if it's empty.
-    </p>
-  </div>
-  {% endif %}
-</div>
+{# #recommendations is the sole HTMX swap target for both Find Games and Try Again.
+   The partial at /picks returns only this div, so swaps never touch the page chrome. #}
+{% include "partials/recommendations.html" %}
 
 <script>
 // ---------------------------------------------------------------------------
@@ -124,26 +91,45 @@ document.querySelectorAll('input[name="mode"]').forEach(r =>
 updateTimeInput();
 
 // ---------------------------------------------------------------------------
-// Try again: accumulate excluded IDs in the URL, swap only #pick-results
+// findGames: fetch /picks with current form state, swap only #recommendations
+// ---------------------------------------------------------------------------
+function findGames() {
+    const form = document.getElementById('pick-form');
+    // FormData correctly skips disabled inputs (e.g. minutes in surprise_me mode)
+    // and respects the checked state of checkboxes.
+    const params = new URLSearchParams(new FormData(form));
+    // Strip any leftover exclusion list when the user explicitly searches.
+    params.delete('excluded');
+    _swapRecommendations(params);
+}
+
+// ---------------------------------------------------------------------------
+// tryAgain: same as findGames but accumulates the exclusion list
 // ---------------------------------------------------------------------------
 function tryAgain() {
     const params = new URLSearchParams(window.location.search);
 
-    // Collect IDs already excluded from previous batches.
+    // Collect IDs already excluded from previous Try Again clicks.
     const existing = (params.get('excluded') || '').split(',').filter(Boolean);
 
-    // Collect IDs visible in the current batch (includes dismissed "not feeling it" cards).
+    // Collect IDs in the current batch (includes dismissed "not feeling it" cards).
     const current = Array.from(document.querySelectorAll('[id^="card-"]'))
         .map(el => el.id.slice(5))
         .filter(Boolean);
 
     const allExcluded = [...new Set([...existing, ...current])];
     params.set('excluded', allExcluded.join(','));
+    _swapRecommendations(params);
+}
 
-    const url = '/?' + params.toString();
-
-    htmx.ajax('GET', url, {target: '#pick-results', swap: 'outerHTML'});
-    history.pushState(null, '', url);
+// ---------------------------------------------------------------------------
+// Shared: POST to /picks, swap #recommendations, push URL
+// ---------------------------------------------------------------------------
+function _swapRecommendations(params) {
+    const picksUrl = '/picks?' + params.toString();
+    const pageUrl  = '/?' + params.toString();
+    htmx.ajax('GET', picksUrl, {target: '#recommendations', swap: 'outerHTML'});
+    history.pushState(null, '', pageUrl);
 }
 </script>
 {% endblock %}
