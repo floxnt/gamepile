@@ -12,6 +12,11 @@
       <span class="badge badge-{{ candidate.gws.state.status.value }}">
         {{ candidate.gws.state.status.value | replace("_", " ") | title }}
       </span>
+      {% if candidate.source == "tonight" %}
+        <span class="badge badge-source-tonight">Tonight</span>
+      {% elif candidate.source == "long_term" %}
+        <span class="badge badge-source-longterm">Long-term</span>
+      {% endif %}
       {% if candidate.gws.game.genres %}
         <span class="genre">{{ candidate.gws.game.primary_genre() }}</span>
       {% endif %}

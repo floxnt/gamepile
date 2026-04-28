@@ -13,6 +13,10 @@
 
       <div class="mode-toggle">
         <label>
+          <input type="radio" name="mode" value="both" {% if mode == "both" %}checked{% endif %}>
+          Both
+        </label>
+        <label>
           <input type="radio" name="mode" value="short_term" {% if mode == "short_term" %}checked{% endif %}>
           Short-term
         </label>
@@ -23,13 +27,19 @@
       </div>
 
       <div class="toggle-group">
+        {# Hidden inputs must come BEFORE their paired checkbox. Browsers submit
+           inputs in document order; Starlette's QueryParams uses the last
+           duplicate value. So: hidden="false" first, checkbox="true" second →
+           last value is "true" when checked, "false" only when unchecked. #}
         <label>
+          <input type="hidden" name="include_unplayed" value="false">
           <input type="checkbox" name="include_unplayed" value="true"
             {% if include_unplayed %}checked{% endif %}
             onchange="this.form.submit()">
           Include unplayed
         </label>
         <label>
+          <input type="hidden" name="include_in_progress" value="false">
           <input type="checkbox" name="include_in_progress" value="true"
             {% if include_in_progress %}checked{% endif %}
             onchange="this.form.submit()">

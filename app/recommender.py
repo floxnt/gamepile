@@ -1,13 +1,13 @@
 """
 Recommendation engine — v1.
 
-Two modes: short_term and long_term.
+Three modes: short_term, long_term, both.
 
 SHORT-TERM mode (fits tonight's time window)
 --------------------------------------------
 Goal: pick games you can meaningfully play within the time available.
 
-1. Filter by user toggles (include_unplayed, include_in_progress, installed_only).
+1. Filter by user toggles (include_unplayed, include_in_progress).
 2. Estimate remaining time per game:
      - in_progress + hours_played_manual set → max(hltb_main_hours - hours_played_manual, 0.5)
      - in_progress, no manual hours           → hltb_main_hours  (full estimate, UI hints user)
@@ -35,6 +35,17 @@ Goal: find a quality game worth investing hours in over multiple evenings.
      +1  in_progress (continuation bias)
      -2  dropped (don't re-suggest games I bounced off)
 4. Sort descending, take top 5 (no iterative variety step for long-term).
+
+BOTH mode (default)
+-------------------
+Goal: return a balanced mix of tonight-sized and long-commitment games.
+
+Targets 3 short-term picks and 2 long-term picks.
+If either category comes up short, the other fills the remaining slots.
+Duplicate games (eligible in both pools) are counted only once — whichever
+pool surfaces them first keeps the slot.
+Each candidate carries a source field ("tonight" or "long_term") so the
+UI can badge them accordingly.
 """
 
 from dataclasses import dataclass, field
@@ -48,6 +59,7 @@ from app.models import GameStatus, GameWithState
 class RecommendMode(str, Enum):
     short_term = "short_term"
     long_term = "long_term"
+    both = "both"
 
 
 @dataclass
@@ -64,7 +76,8 @@ class Candidate:
     gws: GameWithState
     remaining_hours: float
     score: float = 0.0
-    no_manual_hours_hint: bool = False  # show "using full estimate" hint
+    no_manual_hours_hint: bool = False  # show "using full estimate" hint on the card
+    source: Optional[str] = None        # "tonight", "long_term", or None (single-mode)
 
 
 def recommend(
@@ -74,7 +87,9 @@ def recommend(
 ) -> list[Candidate]:
     if req.mode == RecommendMode.short_term:
         return _short_term(games, req, max_results)
-    return _long_term(games, req, max_results)
+    if req.mode == RecommendMode.long_term:
+        return _long_term(games, req, max_results)
+    return _both(games, req, max_results)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +132,6 @@ def _short_term_score(gws: GameWithState) -> float:
     if state.status == GameStatus.in_progress:
         score += 2
 
-    # Not played recently (or never)
     if game.last_played_steam is None:
         score += 1
     elif game.last_played_steam < datetime.utcnow() - timedelta(days=30):
@@ -138,12 +152,12 @@ def _iterative_variety_select(
     primary genre of each pick. This produces actual variety in the final list
     rather than just nudging scores.
     """
-    # Work on a mutable copy so we don't modify caller's scores
     pool = [Candidate(
         gws=c.gws,
         remaining_hours=c.remaining_hours,
         score=c.score,
         no_manual_hours_hint=c.no_manual_hours_hint,
+        source=c.source,
     ) for c in candidates]
 
     selected: list[Candidate] = []
@@ -211,13 +225,78 @@ def _long_term_score(gws: GameWithState) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Both
+# ---------------------------------------------------------------------------
+
+def _both(
+    games: list[GameWithState],
+    req: RecommendRequest,
+    max_results: int = 5,
+) -> list[Candidate]:
+    """
+    Blend short-term and long-term picks.
+    Target allocation: 3 short ("tonight"), 2 long ("long_term").
+    If either pool is short, the other fills the gap up to max_results.
+    A game that appears in both pools is counted only once (short wins).
+    """
+    target_short = 3
+    target_long = 2
+
+    # Request the full pool from each so we have overflow to fill gaps.
+    short_pool = _short_term(games, req, max_results=max_results)
+    long_pool = _long_term(games, req, max_results=max_results)
+
+    selected: list[Candidate] = []
+    picked_ids: set[int] = set()
+
+    # Fill up to target_short from the short pool.
+    for c in short_pool:
+        if len(selected) >= target_short:
+            break
+        c.source = "tonight"
+        selected.append(c)
+        picked_ids.add(c.gws.game.appid)
+
+    # Fill up to target_long from the long pool, skipping duplicates.
+    long_filled = 0
+    for c in long_pool:
+        if long_filled >= target_long:
+            break
+        if c.gws.game.appid not in picked_ids:
+            c.source = "long_term"
+            selected.append(c)
+            picked_ids.add(c.gws.game.appid)
+            long_filled += 1
+
+    # Fill any remaining slots — long first (compensates for short shortage),
+    # then short (compensates for long shortage or overall scarcity).
+    for c in long_pool:
+        if len(selected) >= max_results:
+            break
+        if c.gws.game.appid not in picked_ids:
+            c.source = "long_term"
+            selected.append(c)
+            picked_ids.add(c.gws.game.appid)
+
+    for c in short_pool:
+        if len(selected) >= max_results:
+            break
+        if c.gws.game.appid not in picked_ids:
+            c.source = "tonight"
+            selected.append(c)
+            picked_ids.add(c.gws.game.appid)
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
 def _passes_toggles(gws: GameWithState, req: RecommendRequest) -> bool:
     state = gws.state
 
-    # Always exclude not_interested and finished
+    # Always exclude not_interested and finished.
     if state.status in (GameStatus.not_interested, GameStatus.finished):
         return False
 
@@ -249,7 +328,6 @@ def _remaining_hours(gws: GameWithState) -> tuple[Optional[float], bool]:
         return remaining, False
 
     if state.status == GameStatus.in_progress:
-        # No manual hours — use full estimate and flag it
         return hltb, True
 
     return hltb, False

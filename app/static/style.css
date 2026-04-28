@@ -148,12 +148,14 @@ main {
   letter-spacing: 0.03em;
 }
 
-.badge-never_played  { background: var(--surface2); color: var(--muted); }
-.badge-in_progress   { background: #1e3a5f; color: #5ba3f5; }
-.badge-finished      { background: #1a3d2b; color: #4eca7f; }
-.badge-dropped       { background: #3d1a1a; color: #e05555; }
-.badge-not_interested{ background: var(--surface2); color: var(--muted); }
-.badge-removed       { background: #3d3010; color: var(--warn); }
+.badge-never_played    { background: var(--surface2); color: var(--muted); }
+.badge-in_progress     { background: #1e3a5f; color: #5ba3f5; }
+.badge-finished        { background: #1a3d2b; color: #4eca7f; }
+.badge-dropped         { background: #3d1a1a; color: #e05555; }
+.badge-not_interested  { background: var(--surface2); color: var(--muted); }
+.badge-removed         { background: #3d3010; color: var(--warn); }
+.badge-source-tonight  { background: #1a2e1a; color: #7ecf7e; }
+.badge-source-longterm { background: #2a1a3a; color: #b07ef5; }
 
 /* ===== Pick page ===== */
 .pick-controls {
@@ -181,12 +183,6 @@ main {
 
 .controls-row input[type="number"] {
   width: 5rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  padding: 0.3rem 0.5rem;
-  font-size: 0.875rem;
 }
 
 .mode-toggle {
@@ -384,12 +380,27 @@ main {
   color: var(--muted);
 }
 
-.filter-row select {
+/* Global dark styling for all form inputs — prevents system-theme white bleed */
+select,
+input[type="number"],
+input[type="text"] {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text);
   padding: 0.3rem 0.5rem;
+  font-size: 0.875rem;
+  color-scheme: dark;
+}
+
+/* Option elements inside <select> need explicit dark colors; WebKit won't
+   inherit them from the <select> rule for the dropdown overlay. */
+select option {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.filter-row select {
   font-size: 0.875rem;
 }
 
@@ -416,7 +427,7 @@ main {
 }
 
 .library-table th {
-  padding: 0.6rem 0.75rem;
+  padding: 0;
   text-align: left;
   color: var(--muted);
   font-weight: 600;
@@ -425,6 +436,24 @@ main {
   letter-spacing: 0.04em;
   white-space: nowrap;
   border-bottom: 1px solid var(--border);
+}
+
+.sort-link {
+  display: block;
+  padding: 0.6rem 0.75rem;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.sort-link:hover { color: var(--text); text-decoration: none; }
+.sort-link--active { color: var(--text); }
+
+.sort-arrow {
+  font-style: normal;
+  font-size: 0.75rem;
+  margin-left: 0.2rem;
 }
 
 .library-table td {
@@ -459,11 +488,6 @@ main {
 .inline-edit-form select,
 .inline-edit-form input[type="number"],
 .inline-edit-form input[type="text"] {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text);
-  padding: 0.3rem 0.5rem;
   font-size: 0.85rem;
 }
 

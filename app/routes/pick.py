@@ -10,14 +10,28 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
+def _bool_param(request: Request, name: str, default: bool = True) -> bool:
+    """
+    Read a boolean query param that may appear twice (hidden + checkbox pattern).
+    Starlette's QueryParams._dict uses the last duplicate value, which is what
+    we want: hidden input submits "false" first, checked checkbox submits "true"
+    second → last value is "true". Unchecked: only hidden submits "false".
+    """
+    raw = request.query_params.get(name)
+    if raw is None:
+        return default
+    return raw.lower() not in ("false", "0", "no")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def pick_page(
     request: Request,
     minutes: int = 90,
-    mode: str = "short_term",
-    include_unplayed: bool = True,
-    include_in_progress: bool = True,
+    mode: str = "both",
 ):
+    include_unplayed = _bool_param(request, "include_unplayed", default=True)
+    include_in_progress = _bool_param(request, "include_in_progress", default=True)
+
     req = RecommendRequest(
         minutes=minutes,
         mode=RecommendMode(mode),

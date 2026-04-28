@@ -6,7 +6,7 @@
   <form method="get" action="/library" class="filter-row">
     <label>
       Status
-      <select name="status_filter">
+      <select name="status_filter" onchange="this.form.submit()">
         <option value="">All</option>
         {% for s in all_statuses %}
           <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>
@@ -18,7 +18,7 @@
 
     <label>
       Genre
-      <select name="genre_filter">
+      <select name="genre_filter" onchange="this.form.submit()">
         <option value="">All</option>
         {% for g in genres %}
           <option value="{{ g }}" {% if genre_filter == g %}selected{% endif %}>{{ g }}</option>
@@ -26,8 +26,14 @@
       </select>
     </label>
 
+    {# Preserve active sort when filters change via the filter form #}
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+    {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+
     <label>
-      <input type="checkbox" name="show_removed" value="true" {% if show_removed %}checked{% endif %}>
+      <input type="checkbox" name="show_removed" value="true"
+        {% if show_removed %}checked{% endif %}
+        onchange="this.form.submit()">
       Show removed
     </label>
 
@@ -35,34 +41,43 @@
   </form>
 </section>
 
-<div class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</div>
+{# Wrap count + table in a single target div. Header sort links use
+   hx-select="#library-content" so the entire block (thead + tbody) is
+   replaced on each click — this keeps the header link URLs fresh and
+   the sort indicator in sync with the actual current sort state. #}
+<div id="library-content">
+  <div class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</div>
 
-{% if games %}
-<div class="table-wrapper">
-  <table class="library-table">
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Status</th>
-        <th>Playtime</th>
-        <th>HLTB Main</th>
-        <th>Last Played</th>
-        <th>MC</th>
-        <th>OC</th>
-        <th>Steam %</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for gws in games %}
-        {% include "partials/library_row.html" %}
-      {% endfor %}
-    </tbody>
-  </table>
+  {% if games %}
+  <div class="table-wrapper">
+    <table class="library-table">
+      <thead>
+        <tr>
+          {% for col_key, col in sort_headers.items() %}
+          <th>
+            <a
+              href="/library?{{ col.qs }}"
+              hx-get="/library?{{ col.qs }}"
+              hx-select="#library-content"
+              hx-target="#library-content"
+              hx-swap="outerHTML"
+              hx-push-url="true"
+              class="sort-link{% if col.active %} sort-link--active{% endif %}"
+            >{{ col.label }}{% if col.arrow %} <span class="sort-arrow">{{ col.arrow }}</span>{% endif %}</a>
+          </th>
+          {% endfor %}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% include "partials/library_rows.html" %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
+  </div>
+  {% endif %}
 </div>
-{% else %}
-<div class="empty-state">
-  <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
-</div>
-{% endif %}
 {% endblock %}
