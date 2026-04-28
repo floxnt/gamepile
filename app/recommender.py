@@ -371,7 +371,10 @@ def _iterative_variety_select(
 
 def _passes_toggles(gws: GameWithState, req: RecommendRequest) -> bool:
     state = gws.state
-    if state.status in (GameStatus.not_interested, GameStatus.finished):
+    # Exclude terminal/completion statuses by default.
+    # played = auto-inferred from Steam hours; excluded like finished since the
+    # user has already experienced the game. They can re-open it manually.
+    if state.status in (GameStatus.not_interested, GameStatus.finished, GameStatus.played):
         return False
     if state.status == GameStatus.never_played and not req.include_unplayed:
         return False

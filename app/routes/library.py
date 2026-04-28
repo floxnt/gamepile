@@ -12,13 +12,15 @@ router = APIRouter()
 
 _ALL_STATUSES = [s.value for s in GameStatus]
 
-# Status sort order: active/in-flight states first, completion states last.
+# Status sort order: active/in-flight states first, completion/terminal states last.
+# played sits between never_played and finished — it's "has history" but not curated.
 _STATUS_SORT_ORDER = {
     "in_progress":    0,
     "never_played":   1,
-    "finished":       2,
-    "dropped":        3,
-    "not_interested": 4,
+    "played":         2,
+    "finished":       3,
+    "dropped":        4,
+    "not_interested": 5,
 }
 
 _SORT_COLUMNS = ["name", "status", "playtime", "hltb_main", "last_played",
@@ -214,6 +216,7 @@ async def update_state(
             status=GameStatus(status),
             hours_played_manual=hours,
             notes=notes or None,
+            manually_set=True,
         )
         all_games = db.get_games_with_state(conn)
 

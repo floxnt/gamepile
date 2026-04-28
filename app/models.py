@@ -7,6 +7,10 @@ from typing import Optional
 class GameStatus(str, Enum):
     never_played = "never_played"
     in_progress = "in_progress"
+    # played: auto-inferred from Steam playtime when the user hasn't categorised the
+    # game explicitly. Means "Steam shows hours but we don't know why they stopped."
+    # Excluded from recommendations by default (same as finished).
+    played = "played"
     finished = "finished"
     dropped = "dropped"
     not_interested = "not_interested"
@@ -51,6 +55,9 @@ class GameState:
     hours_played_manual: Optional[float]
     notes: Optional[str]
     updated_at: datetime
+    # False = status was auto-inferred from playtime; True = user set it via the UI.
+    # Auto-inference only runs when manually_set is False.
+    manually_set: bool = False
 
 
 @dataclass

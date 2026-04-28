@@ -140,6 +140,7 @@ async def _phase_steam(client: httpx.AsyncClient) -> None:
         progress.current_index = i + 1
 
         last_played = steam_fetcher.parse_last_played(entry.get("rtime_last_played"))
+        playtime = entry.get("playtime_forever", 0)
         is_new = appid not in existing_appids
 
         with db.get_db() as conn:
@@ -148,11 +149,12 @@ async def _phase_steam(client: httpx.AsyncClient) -> None:
                 conn,
                 appid=appid,
                 name=name,
-                playtime_minutes=entry.get("playtime_forever", 0),
+                playtime_minutes=playtime,
                 last_played_steam=last_played,
                 is_active=True,
             )
-            db.ensure_game_state(conn, appid)
+            # Pass playtime so the initial status is inferred, not hardcoded to never_played.
+            db.ensure_game_state(conn, appid, playtime_minutes=playtime)
 
         if is_new:
             progress.games_added += 1
@@ -236,3 +238,11 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
+            # Refine inferred status now that HLTB data is available.
+            # Skips games where the user has manually set a status.
+            db.maybe_refine_inferred_status(
+                conn,
+                enriched.appid,
+                enriched.playtime_minutes,
+                enriched.hltb_main_hours,
+            )

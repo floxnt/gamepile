@@ -167,6 +167,7 @@ main {
 
 .badge-never_played    { background: var(--surface2); color: var(--muted); }
 .badge-in_progress     { background: #1e3a5f; color: #5ba3f5; }
+.badge-played          { background: #1a2a3a; color: #7ab4d4; }
 .badge-finished        { background: #1a3d2b; color: #4eca7f; }
 .badge-dropped         { background: #3d1a1a; color: #e05555; }
 .badge-not_interested  { background: var(--surface2); color: var(--muted); }

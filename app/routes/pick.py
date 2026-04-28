@@ -70,7 +70,7 @@ async def mark_picked(request: Request, appid: int):
     """'I picked this' — sets status to in_progress, returns confirmation card."""
     from app.models import GameStatus
     with db.get_db() as conn:
-        db.update_game_state(conn, appid, status=GameStatus.in_progress)
+        db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
 
     return templates.TemplateResponse(request, "partials/game_card_confirm.html", {
         "appid": appid,
@@ -88,6 +88,6 @@ async def update_state_from_card(request: Request, appid: int):
     body = await request.json()
     status = GameStatus(body.get("status", "not_interested"))
     with db.get_db() as conn:
-        db.update_game_state(conn, appid, status=status)
+        db.update_game_state(conn, appid, status=status, manually_set=True)
 
     return HTMLResponse(f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>')
