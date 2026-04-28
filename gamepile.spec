@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 #
-# PyInstaller spec for Tonight's Pick.
-# Build with: pyinstaller tonights_pick.spec
+# PyInstaller spec for GamePile.
+# Build with: pyinstaller gamepile.spec
 #
 # Linux runtime deps (install via pacman before distributing):
 #   webkit2gtk-4.1   — WebKit rendering engine used by pywebview's GTK backend
@@ -54,7 +54,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="tonights-pick",
+    name="gamepile",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import database as db
-from app.routes import feedback, library, pick, refresh
+from app.routes import feedback, library, refresh, shortlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,7 +20,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-app = FastAPI(title="Tonight's Pick", docs_url=None, redoc_url=None)
+app = FastAPI(title="GamePile", docs_url=None, redoc_url=None)
 
 app.mount(
     "/static",
@@ -28,7 +28,7 @@ app.mount(
     name="static",
 )
 
-app.include_router(pick.router)
+app.include_router(shortlist.router)
 app.include_router(library.router)
 app.include_router(refresh.router)
 app.include_router(feedback.router)
@@ -81,7 +81,7 @@ def run() -> None:
     log.info("Server ready at http://127.0.0.1:%d", PORT)
 
     window = webview.create_window(
-        title="Tonight's Pick",
+        title="GamePile",
         url=f"http://127.0.0.1:{PORT}/",
         width=1200,
         height=800,

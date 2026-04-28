@@ -1,5 +1,5 @@
 [project]
-name = "tonights-pick"
+name = "gamepile"
 version = "1.0.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tonights-pick = "app.main:run"
+gamepile = "app.main:run"
 
 [build-system]
 requires = ["hatchling"]

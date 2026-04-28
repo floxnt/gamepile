@@ -44,7 +44,7 @@ async def _search(client: httpx.AsyncClient, name: str) -> list[dict]:
         resp = await client.get(
             f"{_BASE}/game/search",
             params={"criteria": name},
-            headers={"User-Agent": "tonights-pick/1.0"},
+            headers={"User-Agent": "gamepile/1.0"},
             timeout=15,
         )
         resp.raise_for_status()
@@ -84,7 +84,7 @@ async def _fetch_score(client: httpx.AsyncClient, game_id: int) -> Optional[int]
     try:
         resp = await client.get(
             f"{_BASE}/game/{game_id}",
-            headers={"User-Agent": "tonights-pick/1.0"},
+            headers={"User-Agent": "gamepile/1.0"},
             timeout=15,
         )
         resp.raise_for_status()

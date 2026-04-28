@@ -1,6 +1,10 @@
-# Tonight's Pick
+# GamePile
 
-A local desktop app that helps you decide what to play from your Steam library.
+A local desktop app that helps you manage your Steam backlog and decide
+what to play. The **Shortlist** feature ("suggest 5 games") is the
+headline interactive mode; the broader purpose is backlog management
+and progress tracking.
+
 Opens as a native window. No browser, no server to manage.
 
 ## Requirements
@@ -40,43 +44,22 @@ Your `.env` needs:
 ## Running
 
 ```bash
-uv run tonights-pick
+uv run gamepile
 ```
 
 A native window opens. Hit **Refresh Library** to pull your Steam library and
-enrich it with HLTB/OpenCritic data. First refresh takes a while (~2s per game
+enrich it with HLTB / SteamSpy data. First refresh takes a while (~2s per game
 for HLTB lookups); progress is shown in the banner.
 
-## How recommendations work
+## Shortlist modes
 
-### Short-term mode
+The Shortlist tab offers five user-intent modes:
 
-Recommends games that fit in your available time window (±50%).
-
-1. Filters by your toggles (include unplayed, include in-progress)
-2. Estimates remaining time:
-   - In-progress + manual hours set → `max(hltb_main - hours_played, 0.5)`
-   - In-progress, no manual hours → full HLTB estimate (card shows a hint)
-   - Unplayed → full HLTB estimate
-3. Scores each candidate:
-   - +2 if in-progress
-   - +1 if not played in 30+ days (or never)
-   - +1 if Metacritic ≥ 85, OpenCritic ≥ 85, or Steam reviews ≥ 90% with ≥ 1000 reviews
-4. **Iterative variety selection**: picks highest-scored game, then applies −1
-   to remaining candidates sharing its primary genre, repeats until 5 picks.
-   This actually enforces genre variety rather than just nudging scores.
-
-### Long-term mode
-
-Recommends games worth committing to across multiple sessions.
-
-1. Requires HLTB main story ≥ 8 hours
-2. Scores each candidate:
-   - +3 if Metacritic ≥ 85 or OpenCritic ≥ 85
-   - +2 if Steam reviews ≥ 90% with ≥ 1000 reviews
-   - +1 if in-progress (continuation bias)
-   - −2 if dropped (don't re-suggest games you bounced off)
-3. Top 5 by score, no genre variety step
+- **I only have tonight** — games that fit your time window (±50%)
+- **Continue something** — surfaces in-progress games, especially those near completion
+- **Comfort pick** — favors high-playtime games you've clearly enjoyed
+- **Start something new** — never-played (and effectively-untouched) games worth committing to
+- **Surprise me** — randomized with a quality bias
 
 ## Building the binary (optional)
 
@@ -84,19 +67,24 @@ Requires `pyinstaller`. Only do this after the app works via `uv run`.
 
 ```bash
 uv pip install pyinstaller
-pyinstaller tonights_pick.spec
+pyinstaller gamepile.spec
 ```
 
-Output: `dist/tonights-pick` — a single self-contained executable.
+Output: `dist/gamepile` — a single self-contained executable.
 
 **Linux note:** The binary still requires `webkit2gtk-4.1` to be installed on
 the target machine. PyInstaller cannot bundle GTK/WebKit system libraries.
 
 ## Data storage
 
-All data lives in `~/.local/share/tonights-pick/` (or `$XDG_DATA_HOME/tonights-pick/`):
+All data lives in `~/.local/share/gamepile/` (or `$XDG_DATA_HOME/gamepile/`):
 
-- `tonights-pick.db` — SQLite database
+- `gamepile.db` — SQLite database
 - `.env` — credentials (when running the binary)
+
+If a legacy install exists at `~/.local/share/tonights-pick/` or
+`~/.local/share/game-roulette/`, the app migrates it automatically on
+first launch. If the migration fails, the app refuses to start rather
+than risk losing data.
 
 During development, `.env` is read from the project root instead.
