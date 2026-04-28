@@ -111,6 +111,11 @@ def _short_term(
         )
         candidates.append(c)
 
+    # Jitter breaks ties between similarly-scored games so repeated Find Games
+    # clicks surface different results rather than the same deterministic top-5.
+    for c in candidates:
+        c.score += random.uniform(-1.0, 1.0)
+
     return _iterative_variety_select(candidates, max_results)
 
 
@@ -171,6 +176,9 @@ def _long_term(
             warnings=_build_warnings(gws),
         )
         candidates.append(c)
+
+    for c in candidates:
+        c.score += random.uniform(-1.0, 1.0)
 
     candidates.sort(key=lambda c: c.score, reverse=True)
     return candidates[:max_results]

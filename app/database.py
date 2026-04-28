@@ -617,10 +617,22 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
 
 
 def get_recent_picks(conn: sqlite3.Connection, limit: int = 8) -> list[RecentPick]:
-    """Return the most recent pick_history rows enriched with game and state data."""
-    rows = conn.execute(
-        "SELECT * FROM pick_history ORDER BY picked_at DESC LIMIT ?", (limit,)
-    ).fetchall()
+    """
+    Return the most recent pick per unique game, most recent first.
+    If the same game was picked multiple times (e.g. returning to a dropped game),
+    only the latest pick row appears.
+    """
+    rows = conn.execute("""
+        SELECT p.* FROM pick_history p
+        INNER JOIN (
+            SELECT appid, MAX(picked_at) AS latest
+            FROM pick_history
+            GROUP BY appid
+        ) latest_picks
+        ON p.appid = latest_picks.appid AND p.picked_at = latest_picks.latest
+        ORDER BY p.picked_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
 
     result = []
     for row in rows:

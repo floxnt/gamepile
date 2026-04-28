@@ -290,7 +290,7 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;          /* allow dropdown menus to extend outside card */
   display: flex;
   flex-direction: row;
   transition: border-color 0.2s;
@@ -316,6 +316,8 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   object-position: center;
   display: block;
   background: var(--surface2);
+  /* Clip the art to the card's left corners since the card uses overflow:visible */
+  border-radius: var(--radius) 0 0 var(--radius);
 }
 
 .card-body {
@@ -354,6 +356,33 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 .badge-cat-long     { background: #2a1a3a; color: #b07ef5; }
 .badge-cat-surprise { background: #2a2010; color: #e8b84b; }
 
+/* --- Stats + inline actions row (recent pick cards) --- */
+.card-stats-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: nowrap;
+  border-top: 1px solid var(--border);
+  padding-top: 0.35rem;
+  margin-top: auto;
+}
+
+.card-stats-actions .card-stats-line {
+  border-top: none;
+  padding-top: 0;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.card-inline-actions {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* --- Stats line --- */
 .card-stats-line {
   display: flex;
@@ -366,7 +395,6 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 }
 
 .stat-item { display: inline-flex; gap: 0.25rem; align-items: baseline; }
-.stat-picked-at { margin-left: auto; }
 .stat-label { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .stat-value { color: var(--text); font-size: 0.82rem; }
 .stat-none  { color: var(--muted); font-size: 0.78rem; font-style: italic; }

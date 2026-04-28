@@ -9,6 +9,7 @@
     onerror="this.style.display='none'"
   >
   <div class="card-body">
+
     <div class="card-header">
       <h2 class="card-title">{{ game.name }}</h2>
       <div class="card-badges">
@@ -29,95 +30,97 @@
       </div>
     </div>
 
-    <div class="card-stats-line">
-      {% if game.hltb_main_hours %}
-        <span class="stat-item">
-          <span class="stat-value">Main {{ game.hltb_main_hours | fmt_hltb }}{% if game.hltb_completionist_hours and game.hltb_completionist_hours > game.hltb_main_hours %} · Compl. {{ game.hltb_completionist_hours | fmt_hltb }}{% endif %}</span>
-        </span>
-      {% endif %}
-      {% if game.playtime_minutes %}
-        <span class="stat-item">
-          <span class="stat-label">Played</span>
-          <span class="stat-value">{{ game.playtime_minutes | fmt_minutes }}</span>
-        </span>
-      {% endif %}
-      {% if game.steam_review_pct and game.steam_review_count %}
-        <span class="stat-item" title="{{ review_label(game.steam_review_pct, game.steam_review_count) }}">
-          <span class="stat-label">Steam</span>
-          <span class="stat-value">{{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})</span>
-        </span>
-      {% endif %}
-      {% if game.metacritic_score %}
-        <span class="stat-item">
-          <span class="stat-label">MC</span>
-          <span class="stat-value">{{ game.metacritic_score }}</span>
-        </span>
-      {% endif %}
-      <span class="stat-item stat-picked-at">
-        <span class="stat-label">Picked</span>
-        <span class="stat-value">{{ pick.picked_at.strftime("%b %d") }}</span>
-      </span>
-    </div>
-
     {% if state.has_technical_issue %}
       <div class="card-warnings">
         <span class="card-warning">⚠ Had a technical issue</span>
       </div>
     {% endif %}
 
-    <div class="card-actions">
-      {% if not pick.outcome %}
-        {# Outcome not yet recorded — show resolution buttons #}
-        <button
-          hx-post="/games/{{ game.appid }}/quick-action"
-          hx-vals='{"action": "finished", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
-          hx-target="#recent-card-{{ pick.id }}"
-          hx-swap="outerHTML"
-          class="btn btn-primary btn-sm"
-        >Finished</button>
-        <button
-          hx-post="/games/{{ game.appid }}/quick-action"
-          hx-vals='{"action": "bounced", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
-          hx-target="#recent-card-{{ pick.id }}"
-          hx-swap="outerHTML"
-          class="btn btn-secondary btn-sm"
-        >Bounced off it</button>
-        <button
-          hx-post="/games/{{ game.appid }}/quick-action"
-          hx-vals='{"action": "not_my_thing", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
-          hx-target="#recent-card-{{ pick.id }}"
-          hx-swap="outerHTML"
-          class="btn btn-ghost btn-sm"
-        >Not my thing</button>
-        <details class="card-overflow">
-          <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
-          <div class="card-overflow-menu">
-            <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Give detailed feedback</a>
-            <button
-              hx-post="/games/{{ game.appid }}/quick-action"
-              hx-vals='{"action": "never_recommend", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
-              hx-target="#recent-card-{{ pick.id }}"
-              hx-swap="outerHTML"
-              class="overflow-item overflow-item--danger"
-            >Never recommend</button>
-          </div>
-        </details>
-      {% else %}
-        {# Outcome recorded — only overflow actions available #}
-        <details class="card-overflow">
-          <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯ Update</summary>
-          <div class="card-overflow-menu">
-            <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Update feedback</a>
-            <button
-              hx-post="/games/{{ game.appid }}/quick-action"
-              hx-vals='{"action": "never_recommend", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
-              hx-target="#recent-card-{{ pick.id }}"
-              hx-swap="outerHTML"
-              class="overflow-item overflow-item--danger"
-            >Never recommend</button>
-          </div>
-        </details>
-      {% endif %}
+    {# Stats and action buttons share one row — keeps card height tight #}
+    <div class="card-stats-actions">
+      <div class="card-stats-line">
+        {% if game.hltb_main_hours %}
+          <span class="stat-item">
+            <span class="stat-value">Main {{ game.hltb_main_hours | fmt_hltb }}{% if game.hltb_completionist_hours and game.hltb_completionist_hours > game.hltb_main_hours %} · Compl. {{ game.hltb_completionist_hours | fmt_hltb }}{% endif %}</span>
+          </span>
+        {% endif %}
+        {% if game.playtime_minutes %}
+          <span class="stat-item">
+            <span class="stat-label">Played</span>
+            <span class="stat-value">{{ game.playtime_minutes | fmt_minutes }}</span>
+          </span>
+        {% endif %}
+        {% if game.steam_review_pct and game.steam_review_count %}
+          <span class="stat-item">
+            <span class="stat-label">Steam</span>
+            <span class="stat-value">{{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})</span>
+          </span>
+        {% endif %}
+        {% if game.metacritic_score %}
+          <span class="stat-item">
+            <span class="stat-label">MC</span>
+            <span class="stat-value">{{ game.metacritic_score }}</span>
+          </span>
+        {% endif %}
+        <span class="stat-item">
+          <span class="stat-label">Picked</span>
+          <span class="stat-value">{{ pick.picked_at.strftime("%b %d") }}</span>
+        </span>
+      </div>
+
+      <div class="card-inline-actions">
+        {% if not pick.outcome %}
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "finished", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
+            hx-target="#recent-card-{{ pick.id }}"
+            hx-swap="outerHTML"
+            class="btn btn-primary btn-sm"
+          >Finished</button>
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "bounced", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
+            hx-target="#recent-card-{{ pick.id }}"
+            hx-swap="outerHTML"
+            class="btn btn-secondary btn-sm"
+          >Bounced</button>
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "not_my_thing", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
+            hx-target="#recent-card-{{ pick.id }}"
+            hx-swap="outerHTML"
+            class="btn btn-ghost btn-sm"
+          >Not my thing</button>
+          <details class="card-overflow">
+            <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
+            <div class="card-overflow-menu">
+              <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Give detailed feedback</a>
+              <button
+                hx-post="/games/{{ game.appid }}/quick-action"
+                hx-vals='{"action": "never_recommend", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
+                hx-target="#recent-card-{{ pick.id }}"
+                hx-swap="outerHTML"
+                class="overflow-item overflow-item--danger"
+              >Never recommend</button>
+            </div>
+          </details>
+        {% else %}
+          <details class="card-overflow">
+            <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
+            <div class="card-overflow-menu">
+              <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Update feedback</a>
+              <button
+                hx-post="/games/{{ game.appid }}/quick-action"
+                hx-vals='{"action": "never_recommend", "pick_id": {{ pick.id }}, "card_context": "recent_pick"}'
+                hx-target="#recent-card-{{ pick.id }}"
+                hx-swap="outerHTML"
+                class="overflow-item overflow-item--danger"
+              >Never recommend</button>
+            </div>
+          </details>
+        {% endif %}
+      </div>
     </div>
+
   </div>
 </article>
