@@ -12,13 +12,15 @@
     <div class="card-header">
       <h2 class="card-title">{{ game.name }}</h2>
       <div class="card-badges">
-        {# Category badge: explains why the game appears in this batch #}
-        {% if candidate.source == "tonight" %}
-          <span class="badge badge-cat-tonight">Finishable tonight</span>
-        {% elif candidate.source == "long_term" %}
-          <span class="badge badge-cat-long">Long commitment</span>
-        {% elif candidate.source == "surprise" %}
+        {# Category badge: surprise is fixed; tonight/long_term use actual duration #}
+        {% if candidate.source == "surprise" %}
           <span class="badge badge-cat-surprise">🎲 Surprise pick</span>
+        {% elif candidate.source == "tonight" %}
+          {# Use remaining_hours for tonight — reflects time left, not total game length #}
+          <span class="badge badge-cat-tonight">{{ duration_label(candidate.remaining_hours or game.hltb_main_hours) }}</span>
+        {% elif candidate.source == "long_term" %}
+          {# Use total hltb for long-term — the point is the full commitment size #}
+          <span class="badge badge-cat-long">{{ duration_label(game.hltb_main_hours) }}</span>
         {% endif %}
         {# Status badge #}
         {% if state.status.value != "never_played" %}
@@ -33,8 +35,7 @@
     <div class="card-stats-line">
       {% if game.hltb_main_hours %}
         <span class="stat-item">
-          <span class="stat-label">HLTB</span>
-          <span class="stat-value">{{ game.hltb_main_hours | fmt_hours }}</span>
+          <span class="stat-value">Main {{ game.hltb_main_hours | fmt_hltb }}{% if game.hltb_completionist_hours and game.hltb_completionist_hours > game.hltb_main_hours %} · Compl. {{ game.hltb_completionist_hours | fmt_hltb }}{% endif %}</span>
         </span>
       {% endif %}
       {% if game.playtime_minutes %}

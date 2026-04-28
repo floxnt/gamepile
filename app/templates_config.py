@@ -60,8 +60,39 @@ def _fmt_count(n) -> str:
     return f"{n:,}"
 
 
+def _fmt_hltb(h) -> str:
+    """HLTB hours: one decimal for < 10h, whole number for 10h+.
+    Unlike fmt_hours, never converts to minutes — HLTB data is always hours."""
+    if h is None:
+        return "—"
+    h = float(h)
+    if h < 10:
+        return f"{h:.1f}h"
+    return f"{round(h)}h"
+
+
+def _duration_label(h) -> str:
+    """Human commitment label derived from HLTB main hours."""
+    if h is None or h == 0:
+        return "Unknown length"
+    h = float(h)
+    if h <= 5:
+        return "Finishable tonight"
+    if h <= 15:
+        return "A few sessions"
+    if h <= 50:
+        return "1–2 week commitment"
+    if h <= 100:
+        return "Multi-week commitment"
+    if h <= 300:
+        return "Your game for the month"
+    return "Lifestyle game"
+
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["fmt_hours"] = _fmt_hours
 templates.env.filters["fmt_minutes"] = _fmt_minutes
 templates.env.filters["fmt_count"] = _fmt_count
+templates.env.filters["fmt_hltb"] = _fmt_hltb
 templates.env.globals["review_label"] = _review_label
+templates.env.globals["duration_label"] = _duration_label
