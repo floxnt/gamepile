@@ -62,8 +62,11 @@ class GameState:
     # False = status was auto-inferred from playtime; True = user set it via the UI.
     # Auto-inference only runs when manually_set is False.
     manually_set: bool = False
-    # Set via the "Technical issue" did-not-play reason; surfaced in the library view.
     has_technical_issue: bool = False
+    # Hard exclusion: never appears in recommendations regardless of mode or toggles.
+    blacklisted: bool = False
+    # Only set when status == dropped. "soft" = bounced off; "strong" = not my thing.
+    dropped_strength: Optional[str] = None
 
 
 @dataclass
@@ -79,6 +82,14 @@ class RefreshLog:
 @dataclass
 class GameWithState:
     """Joined view used by the recommender and templates."""
+    game: Game
+    state: GameState
+
+
+@dataclass
+class RecentPick:
+    """A pick_history row enriched with current game and state data for display."""
+    pick: "PickHistory"
     game: Game
     state: GameState
 

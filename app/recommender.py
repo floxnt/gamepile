@@ -59,6 +59,8 @@ def recommend(
     req: RecommendRequest,
     max_results: int = 5,
 ) -> list[Candidate]:
+    # Hard exclusions first: blacklisted games never appear in any mode.
+    games = [g for g in games if not g.state.blacklisted]
     if req.excluded_ids:
         games = [g for g in games if g.game.appid not in req.excluded_ids]
 

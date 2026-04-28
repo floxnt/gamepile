@@ -87,8 +87,6 @@
     {% endif %}
 
     <div class="card-actions">
-      {# picks_appids and mode/minutes come from the pick page context.
-         The guard allows this partial to be safely rendered outside that context. #}
       <button
         hx-post="/games/{{ game.appid }}/pick"
         hx-target="#card-{{ game.appid }}"
@@ -105,6 +103,25 @@
         hx-swap="outerHTML"
         class="btn btn-ghost btn-sm"
       >Not feeling it</button>
+      <details class="card-overflow">
+        <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
+        <div class="card-overflow-menu">
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "already_completed", "card_context": "recommendation"}'
+            hx-target="#card-{{ game.appid }}"
+            hx-swap="outerHTML"
+            class="overflow-item"
+          >Already completed</button>
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "never_recommend", "card_context": "recommendation"}'
+            hx-target="#card-{{ game.appid }}"
+            hx-swap="outerHTML"
+            class="overflow-item overflow-item--danger"
+          >Never recommend</button>
+        </div>
+      </details>
     </div>
 
   </div>

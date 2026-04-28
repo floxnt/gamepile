@@ -120,6 +120,22 @@ def get_affinity_summary(game: Game, affinities: dict) -> list[str]:
     return [f"matches your taste ({', '.join(parts)})"]
 
 
+def apply_quick_drop_affinity(
+    conn: sqlite3.Connection,
+    game: Game,
+    strength: str,
+) -> None:
+    """
+    Apply flat affinity penalty from the quick-action buttons on cards.
+    strength: "soft"   (Bounced off it)  → -0.5 per label
+              "strong" (Not my thing)    → -1.0 per label
+    """
+    delta = -0.5 if strength == "soft" else -1.0
+    labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
+    for kind, value in labels:
+        db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=False)
+
+
 def apply_did_not_play_affinity(
     conn: sqlite3.Connection,
     picked_game: Game,

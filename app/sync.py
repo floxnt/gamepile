@@ -23,7 +23,9 @@ import httpx
 
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
-from app.fetchers import opencritic as oc_fetcher
+# OpenCritic disabled: API migrated to RapidAPI (requires paid key) as of 2025.
+# Existing opencritic_score values in the DB remain valid and are still used for
+# scoring; we just stop fetching new data.
 from app.fetchers import steam as steam_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
 from app.models import Game
@@ -45,6 +47,7 @@ class RefreshProgress:
     games_updated: int = 0
     hltb_fetched: int = 0
     hltb_skipped: int = 0
+    # OC fetch disabled (RapidAPI migration); fields kept for progress display compat
     oc_fetched: int = 0
     oc_skipped: int = 0
     spy_fetched: int = 0
@@ -201,16 +204,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 updates.update(hltb)
             progress.hltb_fetched += 1
 
-        # --- OpenCritic (cached unless force or data missing or stale) ---
-        if not force and game.opencritic_score is not None and not _is_stale(game):
-            log.debug("OpenCritic cached: %s", game.name)
-            progress.oc_skipped += 1
-        else:
-            progress.phase = f"OpenCritic lookup ({i+1}/{progress.total_games})"
-            oc_score = await oc_fetcher.fetch_opencritic_score(client, game.name)
-            if oc_score is not None:
-                updates["opencritic_score"] = oc_score
-            progress.oc_fetched += 1
+        # OpenCritic fetch disabled — RapidAPI migration requires paid key (2025).
+        # Existing scores in the DB are preserved and still used for scoring.
+        progress.oc_skipped += 1
 
         # --- SteamSpy user tags (cached unless force or data missing or stale) ---
         if not force and game.user_tags and not _is_stale(game):

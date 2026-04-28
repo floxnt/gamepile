@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Generator, Optional
 
 from app.config import DB_PATH
-from app.models import Game, GameState, GameStatus, GameWithState, PickHistory, RefreshLog
+from app.models import Game, GameState, GameStatus, GameWithState, PickHistory, RecentPick, RefreshLog
 
 
 def _connect() -> sqlite3.Connection:
@@ -106,6 +106,8 @@ def init_db() -> None:
             "ALTER TABLE game_state ADD COLUMN has_technical_issue BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE pick_history ADD COLUMN did_not_play_reason TEXT",
             "ALTER TABLE pick_history ADD COLUMN actually_played_appid INTEGER REFERENCES games(appid)",
+            "ALTER TABLE game_state ADD COLUMN blacklisted BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE game_state ADD COLUMN dropped_strength TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -205,6 +207,8 @@ def _row_to_state(row: sqlite3.Row) -> GameState:
         updated_at=_parse_dt(row["updated_at"]) or datetime.utcnow(),
         manually_set=bool(row["manually_set"]) if row["manually_set"] is not None else False,
         has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
+        blacklisted=bool(row["blacklisted"]) if row["blacklisted"] is not None else False,
+        dropped_strength=row["dropped_strength"] if "dropped_strength" in row.keys() else None,
     )
 
 
@@ -363,7 +367,9 @@ def get_games_with_state(
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,
-            gs.has_technical_issue
+            gs.has_technical_issue,
+            gs.blacklisted,
+            gs.dropped_strength
         FROM games g
         LEFT JOIN game_state gs ON g.appid = gs.appid
         {where}
@@ -381,6 +387,8 @@ def get_games_with_state(
             updated_at=_parse_dt(row["state_updated_at"]) or datetime.utcnow(),
             manually_set=bool(row["manually_set"]) if row["manually_set"] is not None else False,
             has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
+            blacklisted=bool(row["blacklisted"]) if row["blacklisted"] is not None else False,
+            dropped_strength=row["dropped_strength"],
         )
         result.append(GameWithState(game=game, state=state))
     return result
@@ -398,6 +406,8 @@ def update_game_state(
     notes: Optional[str] = None,
     manually_set: Optional[bool] = None,
     has_technical_issue: Optional[bool] = None,
+    blacklisted: Optional[bool] = None,
+    dropped_strength: Optional[str] = None,
 ) -> None:
     existing = conn.execute(
         "SELECT appid FROM game_state WHERE appid = ?", (appid,)
@@ -428,6 +438,12 @@ def update_game_state(
         if has_technical_issue is not None:
             updates.append("has_technical_issue = ?")
             params.append(1 if has_technical_issue else 0)
+        if blacklisted is not None:
+            updates.append("blacklisted = ?")
+            params.append(1 if blacklisted else 0)
+        if dropped_strength is not None:
+            updates.append("dropped_strength = ?")
+            params.append(dropped_strength)
         params.append(appid)
         conn.execute(
             f"UPDATE game_state SET {', '.join(updates)} WHERE appid = ?",
@@ -598,6 +614,35 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
         did_not_play_reason=row["did_not_play_reason"] if "did_not_play_reason" in keys else None,
         actually_played_appid=row["actually_played_appid"] if "actually_played_appid" in keys else None,
     )
+
+
+def get_recent_picks(conn: sqlite3.Connection, limit: int = 8) -> list[RecentPick]:
+    """Return the most recent pick_history rows enriched with game and state data."""
+    rows = conn.execute(
+        "SELECT * FROM pick_history ORDER BY picked_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        ph = _row_to_pick_history(row)
+        game = get_game_by_appid(conn, ph.appid)
+        if not game:
+            continue
+        gs_row = conn.execute(
+            "SELECT * FROM game_state WHERE appid = ?", (ph.appid,)
+        ).fetchone()
+        state = (
+            _row_to_state(gs_row) if gs_row
+            else GameState(
+                appid=ph.appid,
+                status=GameStatus.never_played,
+                hours_played_manual=None,
+                notes=None,
+                updated_at=datetime.utcnow(),
+            )
+        )
+        result.append(RecentPick(pick=ph, game=game, state=state))
+    return result
 
 
 def search_games_by_name(conn: sqlite3.Connection, query: str, limit: int = 10) -> list[Game]:

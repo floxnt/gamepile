@@ -1,10 +1,18 @@
-<div id="recommendations">
+<div id="main-content">
+  <div class="recommendations-header">
+    <button type="button"
+            class="btn btn-ghost btn-sm"
+            onclick="showRecentPicksView()">
+      ← Back to your picks
+    </button>
+  </div>
+
   {% if picks %}
-  <section class="card-grid">
+  <div class="card-stack">
     {% for candidate in picks %}
       {% include "partials/game_card.html" %}
     {% endfor %}
-  </section>
+  </div>
 
   <div class="try-again-row">
     <button type="button" class="btn btn-secondary" onclick="tryAgain()">
@@ -16,7 +24,7 @@
   <div class="empty-state">
     <p>You've seen all matching games — adjust your filters or hit reset.</p>
     <button type="button" class="btn btn-secondary"
-      onclick="document.getElementById('pick-form').submit()">
+      onclick="findGames()">
       Reset and start over
     </button>
   </div>

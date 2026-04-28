@@ -1,0 +1,13 @@
+<div id="main-content">
+  {% if recent_picks %}
+  <div class="card-stack">
+    {% for rp in recent_picks %}
+      {% include "partials/recent_pick_card.html" %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>No picks yet — find your first game above.</p>
+  </div>
+  {% endif %}
+</div>

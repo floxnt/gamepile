@@ -4,9 +4,18 @@
 {% block content %}
 {% include "partials/feedback_prompt.html" %}
 
-<section class="pick-controls">
-  {# method/action kept for the fallback case (Reset button submits the form directly).
-     Normal Find Games and Try Again both call /picks via HTMX. #}
+{# View toggle tabs #}
+<div class="view-tabs" id="view-tabs">
+  <button id="tab-recent" class="view-tab active" onclick="showRecentPicksView()">
+    Your recent picks
+  </button>
+  <button id="tab-find" class="view-tab" onclick="showFindPickView()">
+    Find tonight's pick
+  </button>
+</div>
+
+{# Controls panel — hidden until "Find tonight's pick" tab is clicked #}
+<section id="controls-panel" class="pick-controls collapsed">
   <form id="pick-form" method="get" action="/">
     <div class="controls-row">
       <label id="minutes-label">
@@ -39,10 +48,6 @@
       </div>
 
       <div class="toggle-group">
-        {# Hidden inputs must come BEFORE their paired checkbox. Browsers submit
-           inputs in document order; Starlette's QueryParams uses the last
-           duplicate value. So: hidden="false" first, checkbox="true" second →
-           last value is "true" when checked, "false" only when unchecked. #}
         <label>
           <input type="hidden" name="include_unplayed" value="false">
           <input type="checkbox" name="include_unplayed" value="true"
@@ -68,9 +73,8 @@
   </form>
 </section>
 
-{# #recommendations is the sole HTMX swap target for both Find Games and Try Again.
-   The partial at /picks returns only this div, so swaps never touch the page chrome. #}
-{% include "partials/recommendations.html" %}
+{# Unified swap target — starts with recent picks, swaps to recommendations after Find Games #}
+{% include "partials/recent_picks.html" %}
 
 <script>
 // ---------------------------------------------------------------------------
@@ -91,44 +95,56 @@ document.querySelectorAll('input[name="mode"]').forEach(r =>
 updateTimeInput();
 
 // ---------------------------------------------------------------------------
-// findGames: fetch /picks with current form state, swap only #recommendations
+// Tab switching
+// ---------------------------------------------------------------------------
+function showRecentPicksView() {
+    document.getElementById('controls-panel').classList.add('collapsed');
+    _setActiveTab('tab-recent');
+    htmx.ajax('GET', '/recent-picks', {target: '#main-content', swap: 'outerHTML'});
+    history.pushState(null, '', '/');
+}
+
+function showFindPickView() {
+    document.getElementById('controls-panel').classList.remove('collapsed');
+    _setActiveTab('tab-find');
+}
+
+function _setActiveTab(id) {
+    document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(id)?.classList.add('active');
+}
+
+// ---------------------------------------------------------------------------
+// findGames: fetch /picks with current form state, swap #main-content
 // ---------------------------------------------------------------------------
 function findGames() {
     const form = document.getElementById('pick-form');
-    // FormData correctly skips disabled inputs (e.g. minutes in surprise_me mode)
-    // and respects the checked state of checkboxes.
     const params = new URLSearchParams(new FormData(form));
-    // Strip any leftover exclusion list when the user explicitly searches.
     params.delete('excluded');
-    _swapRecommendations(params);
+    // Make sure the find-pick tab is shown as active
+    _setActiveTab('tab-find');
+    document.getElementById('controls-panel').classList.remove('collapsed');
+    _swapMainContent(params);
 }
 
 // ---------------------------------------------------------------------------
-// tryAgain: same as findGames but accumulates the exclusion list
+// tryAgain: accumulate exclusion list
 // ---------------------------------------------------------------------------
 function tryAgain() {
     const params = new URLSearchParams(window.location.search);
-
-    // Collect IDs already excluded from previous Try Again clicks.
     const existing = (params.get('excluded') || '').split(',').filter(Boolean);
-
-    // Collect IDs in the current batch (includes dismissed "not feeling it" cards).
     const current = Array.from(document.querySelectorAll('[id^="card-"]'))
         .map(el => el.id.slice(5))
         .filter(Boolean);
-
     const allExcluded = [...new Set([...existing, ...current])];
     params.set('excluded', allExcluded.join(','));
-    _swapRecommendations(params);
+    _swapMainContent(params);
 }
 
-// ---------------------------------------------------------------------------
-// Shared: POST to /picks, swap #recommendations, push URL
-// ---------------------------------------------------------------------------
-function _swapRecommendations(params) {
+function _swapMainContent(params) {
     const picksUrl = '/picks?' + params.toString();
     const pageUrl  = '/?' + params.toString();
-    htmx.ajax('GET', picksUrl, {target: '#recommendations', swap: 'outerHTML'});
+    htmx.ajax('GET', picksUrl, {target: '#main-content', swap: 'outerHTML'});
     history.pushState(null, '', pageUrl);
 }
 </script>
