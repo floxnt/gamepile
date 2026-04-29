@@ -75,7 +75,7 @@
       <div class="card-why">
         <span class="why-label">Why:</span> {{ candidate.reasons | join("; ") }}
         {% if candidate.no_manual_hours_hint %}
-          <span class="why-hint">(using full HLTB — set manual hours for a precise estimate)</span>
+          <span class="why-hint">(estimated from Steam playtime — set manual hours for a precise estimate)</span>
         {% endif %}
       </div>
     {% endif %}

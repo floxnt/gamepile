@@ -3,12 +3,17 @@ Recommendation engine — Shortlist (v2.5).
 
 Five user-intent modes:
 
-I_ONLY_HAVE_TONIGHT — fits tonight's time window (±50%).
-CONTINUE_SOMETHING — surfaces in_progress games, weighted by closeness to completion.
+I_ONLY_HAVE_TONIGHT — fits tonight's time window. Initial filter is ±25% of
+                     the requested minutes; widens to ±50% then ±75% only if
+                     fewer than 5 candidates qualify. Games with no HLTB data
+                     skip the time filter entirely (eligible regardless).
+CONTINUE_SOMETHING — surfaces in_progress games, weighted by closeness to
+                     completion. Time is a soft scoring preference, not a filter.
 COMFORT_PICK       — high-playtime games the user has clearly enjoyed; ignores time.
-START_SOMETHING_NEW — never_played + effectively-untouched played_unclassified games
-                      worth committing to (uses the long-form scoring).
-SURPRISE_ME        — weighted random with quality bias.
+START_SOMETHING_NEW — never_played + effectively-untouched played_unclassified
+                     games worth committing to (uses the long-form scoring).
+                     Time is a soft scoring preference, not a filter.
+SURPRISE_ME        — weighted random with quality bias; ignores time.
 
 Every Candidate carries:
   source    — mode value (set in all modes)
@@ -148,29 +153,49 @@ def _passes_short_term_toggles(gws: GameWithState, req: RecommendRequest) -> boo
     return True
 
 
+_SHORT_TERM_WIDENING = (0.25, 0.50, 0.75)
+
+
 def _short_term(
     games: list[GameWithState],
     req: RecommendRequest,
     max_results: int,
 ) -> list[Candidate]:
-    window_hours = req.minutes / 60.0
-    lo, hi = window_hours * 0.5, window_hours * 1.5
+    window_h = req.minutes / 60.0
+    eligible = [g for g in games if _passes_short_term_toggles(g, req)]
 
-    candidates = []
-    for gws in games:
-        if not _passes_short_term_toggles(gws, req):
-            continue
-        remaining, hint = _remaining_hours(gws)
-        if remaining is None:
-            continue
-        if not (lo <= remaining <= hi):
-            continue
+    # Split eligible games into time-known and time-unknown. Time-unknown
+    # games (no HLTB) bypass the time filter entirely so they remain reachable.
+    time_known: list[tuple[GameWithState, float, bool]] = []
+    time_unknown: list[GameWithState] = []
+    for gws in eligible:
+        rem, hint = _remaining_hours(gws)
+        if rem is None:
+            time_unknown.append(gws)
+        else:
+            time_known.append((gws, rem, hint))
 
+    # Iteratively widen the time filter until 5 candidates qualify (counting
+    # the time-unknown pool, which is constant across widenings).
+    fit: list[tuple[GameWithState, float, bool]] = []
+    spread_used = _SHORT_TERM_WIDENING[0]
+    for spread in _SHORT_TERM_WIDENING:
+        lo, hi = window_h * (1 - spread), window_h * (1 + spread)
+        fit = [t for t in time_known if lo <= t[1] <= hi]
+        spread_used = spread
+        if len(fit) + len(time_unknown) >= max_results:
+            break
+
+    candidates: list[Candidate] = []
+    for gws, remaining, hint in fit:
         score, score_reasons = _score_short_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
-        all_reasons = affinity_reasons + score_reasons + [f"fits {req.minutes}min window"]
-        c = Candidate(
+        fit_reason = f"fits {req.minutes}min window"
+        if spread_used > 0.25:
+            fit_reason = f"close to {req.minutes}min window"
+        all_reasons = affinity_reasons + score_reasons + [fit_reason]
+        candidates.append(Candidate(
             gws=gws,
             remaining_hours=remaining,
             score=score,
@@ -178,8 +203,24 @@ def _short_term(
             source=RecommendMode.i_only_have_tonight.value,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
-        )
-        candidates.append(c)
+        ))
+
+    for gws in time_unknown:
+        score, score_reasons = _score_short_term(gws)
+        affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
+        score += affinity_delta
+        # No "fits window" reason — duration unknown. Existing _build_warnings
+        # already adds a "duration unknown" amber tag.
+        all_reasons = affinity_reasons + score_reasons
+        candidates.append(Candidate(
+            gws=gws,
+            remaining_hours=0.0,
+            score=score,
+            no_manual_hours_hint=False,
+            source=RecommendMode.i_only_have_tonight.value,
+            reasons=all_reasons[:3],
+            warnings=_build_warnings(gws),
+        ))
 
     for c in candidates:
         c.score += random.uniform(-1.0, 1.0)
@@ -223,6 +264,7 @@ def _continue_something(
     max_results: int,
 ) -> list[Candidate]:
     eligible = [g for g in games if g.state.status == GameStatus.in_progress]
+    window_h = req.minutes / 60.0
 
     candidates = []
     for gws in eligible:
@@ -240,14 +282,16 @@ def _continue_something(
             score += 1.0
             reasons.append(f"{int(playtime_h)}h played")
 
+        remaining, _ = _remaining_hours(gws)
+        score += _time_fit_penalty(remaining, window_h)
+
         affinity_reasons, affinity_delta = _affinity_contribution(game, req.affinities)
         score += affinity_delta
         all_reasons = affinity_reasons + reasons
 
-        remaining = max((hltb or 0.0) - playtime_h, 0.0) if hltb else (hltb or 0.0)
         c = Candidate(
             gws=gws,
-            remaining_hours=remaining,
+            remaining_hours=remaining or 0.0,
             score=score,
             source=RecommendMode.continue_something.value,
             reasons=all_reasons[:3],
@@ -372,6 +416,8 @@ def _long_form_score(
     max_results: int,
     source: str,
 ) -> list[Candidate]:
+    window_h = req.minutes / 60.0
+
     candidates = []
     for gws in eligible:
         hltb = gws.game.hltb_main_hours
@@ -381,11 +427,15 @@ def _long_form_score(
         score, score_reasons = _score_long_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
+
+        remaining, _ = _remaining_hours(gws)
+        score += _time_fit_penalty(remaining, window_h)
+
         hltb_ctx = f"long-form ({_fmt_hours(hltb)})"
         all_reasons = affinity_reasons + score_reasons + [hltb_ctx]
         c = Candidate(
             gws=gws,
-            remaining_hours=hltb,
+            remaining_hours=remaining or hltb,
             score=score,
             source=source,
             reasons=all_reasons[:3],
@@ -562,15 +612,48 @@ def _affinity_contribution(game, affinities: dict) -> tuple[list[str], float]:
 
 
 def _remaining_hours(gws: GameWithState) -> tuple[Optional[float], bool]:
+    """
+    Estimated hours of main-story play left for this game.
+
+    Returns (remaining_h, no_manual_hours_hint).
+    A None remaining_h means HLTB data is unavailable — callers should treat
+    the candidate as time-unknown rather than excluding it.
+
+    Per the v2.5 time-handling spec:
+      - in_progress / played_unclassified: max(hltb - hours_played_manual, 0.5)
+        if manual hours are set; otherwise max(hltb - playtime_minutes/60, 0.5).
+        The hint is True when the fallback Steam-playtime path was used.
+      - never_played, finished, dropped: full HLTB main.
+    """
     game, state = gws.game, gws.state
     hltb = game.hltb_main_hours
     if hltb is None:
         return None, False
-    if state.status == GameStatus.in_progress and state.hours_played_manual is not None:
-        return max(hltb - state.hours_played_manual, 0.5), False
-    if state.status == GameStatus.in_progress:
-        return hltb, True
+
+    progress_states = (GameStatus.in_progress, GameStatus.played_unclassified)
+    if state.status in progress_states:
+        if state.hours_played_manual is not None:
+            return max(hltb - state.hours_played_manual, 0.5), False
+        played_h = game.playtime_minutes / 60.0
+        return max(hltb - played_h, 0.5), True
+
     return hltb, False
+
+
+def _time_fit_penalty(remaining_h: Optional[float], window_h: float) -> float:
+    """
+    Soft scoring penalty for games whose remaining time exceeds the user's
+    available window. Used by Continue something and Start something new where
+    time is a preference, not a hard filter.
+
+    Undershoot is free (you have spare time). Overshoot is penalised at
+    -0.2 per hour, capped at -2.0 so it can never dominate quality/affinity
+    scoring. Returns 0 when remaining time is unknown.
+    """
+    if remaining_h is None or window_h <= 0:
+        return 0.0
+    overshoot = max(remaining_h - window_h, 0.0)
+    return -min(overshoot * 0.2, 2.0)
 
 
 def _build_warnings(gws: GameWithState) -> list[str]:
