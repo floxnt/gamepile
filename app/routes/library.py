@@ -136,30 +136,34 @@ def _build_sort_headers(
 def _apply_filters_and_sort(
     all_games: list[GameWithState],
     status_filter: str,
-    genre_filter: str,
+    tag_filter: str,
     sort: str,
     direction: str,
 ) -> list[GameWithState]:
     if status_filter:
         all_games = [g for g in all_games if g.state.status.value == status_filter]
-    if genre_filter:
-        all_games = [g for g in all_games if genre_filter.lower() in g.game.genres.lower()]
+    if tag_filter:
+        needle = tag_filter.lower()
+        all_games = [
+            g for g in all_games
+            if any(t.lower() == needle for t in g.game.user_tags_list())
+        ]
     return _sort_games(all_games, sort, direction)
 
 
-def _collect_genres(games: list[GameWithState]) -> list[str]:
-    genres: set[str] = set()
+def _collect_tags(games: list[GameWithState]) -> list[str]:
+    tags: set[str] = set()
     for gws in games:
-        for g in gws.game.genre_list():
-            genres.add(g)
-    return sorted(genres)
+        for t in gws.game.user_tags_list():
+            tags.add(t)
+    return sorted(tags, key=str.lower)
 
 
 @router.get("/library", response_class=HTMLResponse)
 async def library_page(
     request: Request,
     status_filter: str = "",
-    genre_filter: str = "",
+    tag_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -167,13 +171,13 @@ async def library_page(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    genres = _collect_genres(all_games)
+    tags = _collect_tags(all_games)
 
-    games = _apply_filters_and_sort(all_games, status_filter, genre_filter, sort, dir)
+    games = _apply_filters_and_sort(all_games, status_filter, tag_filter, sort, dir)
 
     filter_params = {
         "status_filter": status_filter,
-        "genre_filter": genre_filter,
+        "tag_filter": tag_filter,
         "show_removed": "true" if show_removed else "",
     }
     sort_headers = _build_sort_headers(sort, dir, filter_params)
@@ -181,9 +185,9 @@ async def library_page(
     return templates.TemplateResponse(request, "library.html", {
         "games": games,
         "all_statuses": _ALL_STATUSES,
-        "genres": genres,
+        "tags": tags,
         "status_filter": status_filter,
-        "genre_filter": genre_filter,
+        "tag_filter": tag_filter,
         "show_removed": show_removed,
         "sort": sort,
         "dir": dir,
@@ -195,7 +199,7 @@ async def library_page(
 async def library_rows(
     request: Request,
     status_filter: str = "",
-    genre_filter: str = "",
+    tag_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -204,7 +208,7 @@ async def library_rows(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    games = _apply_filters_and_sort(all_games, status_filter, genre_filter, sort, dir)
+    games = _apply_filters_and_sort(all_games, status_filter, tag_filter, sort, dir)
 
     return templates.TemplateResponse(request, "partials/library_rows.html", {
         "games": games,

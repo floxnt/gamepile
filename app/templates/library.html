@@ -17,11 +17,11 @@
     </label>
 
     <label>
-      Genre
-      <select name="genre_filter" onchange="this.form.submit()">
+      Tag
+      <select name="tag_filter" onchange="this.form.submit()">
         <option value="">All</option>
-        {% for g in genres %}
-          <option value="{{ g }}" {% if genre_filter == g %}selected{% endif %}>{{ g }}</option>
+        {% for t in tags %}
+          <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
         {% endfor %}
       </select>
     </label>

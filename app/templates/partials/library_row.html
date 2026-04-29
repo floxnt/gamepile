@@ -18,7 +18,7 @@
       —
     {% endif %}
   </td>
-  <td>{{ gws.game.developer if gws.game.developer else "—" }}</td>
+  <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>
   <td>
     {% if gws.game.hltb_main_hours %}
       {{ "%.1f"|format(gws.game.hltb_main_hours) }}h

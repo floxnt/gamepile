@@ -561,7 +561,9 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   color: var(--muted);
 }
 
-/* Global dark styling for all form inputs — prevents system-theme white bleed */
+/* Global dark styling for all form inputs — prevents system-theme white bleed.
+   appearance:none disables WebKit/GTK's native dropdown chrome which otherwise
+   ignores background/color overrides and renders as the system light theme. */
 select,
 input[type="number"],
 input[type="text"] {
@@ -572,6 +574,24 @@ input[type="text"] {
   padding: 0.3rem 0.5rem;
   font-size: 0.875rem;
   color-scheme: dark;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+select {
+  /* Custom dropdown arrow — replaces the native one we just suppressed */
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 1.6rem;
+}
+
+select:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 /* Option elements inside <select> need explicit dark colors; WebKit won't
@@ -579,10 +599,6 @@ input[type="text"] {
 select option {
   background: var(--bg);
   color: var(--text);
-}
-
-.filter-row select {
-  font-size: 0.875rem;
 }
 
 .library-count {
@@ -600,7 +616,7 @@ select option {
 .library-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
 }
 
 .library-table thead {
@@ -612,7 +628,7 @@ select option {
   text-align: left;
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -621,7 +637,7 @@ select option {
 
 .sort-link {
   display: block;
-  padding: 0.6rem 0.75rem;
+  padding: 0.55rem 0.5rem;
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
@@ -630,17 +646,17 @@ select option {
 
 .sort-link:hover { color: var(--text); text-decoration: none; }
 .sort-link--active { color: var(--text); }
-.sort-link--unsortable { cursor: default; padding: 0.6rem 0.75rem; display: block; }
+.sort-link--unsortable { cursor: default; padding: 0.55rem 0.5rem; display: block; }
 .sort-link--unsortable:hover { color: var(--muted); }
 
 .sort-arrow {
   font-style: normal;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   margin-left: 0.2rem;
 }
 
 .library-table td {
-  padding: 0.55rem 0.75rem;
+  padding: 0.45rem 0.5rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   vertical-align: middle;
@@ -649,17 +665,29 @@ select option {
 .library-table tbody tr:last-child td { border-bottom: none; }
 .library-table tbody tr:hover { background: var(--surface2); }
 
-.game-name { white-space: normal; min-width: 200px; }
+.game-name {
+  white-space: normal;
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.library-developer {
+  white-space: normal;
+  max-width: 140px;
+  line-height: 1.3;
+}
 
 .library-tags {
   white-space: normal;
-  max-width: 220px;
-  font-size: 0.82rem;
+  max-width: 180px;
+  font-size: 0.78rem;
   color: var(--text);
+  line-height: 1.3;
 }
 .library-tags-more {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
+  white-space: nowrap;
 }
 
 /* ===== Inline edit form ===== */
