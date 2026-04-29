@@ -75,6 +75,9 @@ conveys the same information.
 - Status badges use existing color codes (green for finishable,
   blue for in progress, amber for warnings)
 - Do not change global typography or spacing without explicit request
+- Native form elements (<select>, <input>, <textarea>) must be styled
+  to match the dark theme — never use browser defaults. White-on-white
+  selects are a recurring regression to watch for.
 
 ## Navigation
 
