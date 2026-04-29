@@ -355,6 +355,8 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 .badge-cat-tonight  { background: #1a2e1a; color: #7ecf7e; }
 .badge-cat-long     { background: #2a1a3a; color: #b07ef5; }
 .badge-cat-surprise { background: #2a2010; color: #e8b84b; }
+.badge-cat-continue { background: #1e3a5f; color: #5ba3f5; }
+.badge-cat-comfort  { background: #2c1f3a; color: #d2a8ff; }
 
 /* --- Stats + inline actions row (recent pick cards) --- */
 .card-stats-actions {

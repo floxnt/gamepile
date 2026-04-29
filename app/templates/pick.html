@@ -10,11 +10,11 @@
     Your recent picks
   </button>
   <button id="tab-find" class="view-tab" onclick="showFindPickView()">
-    Find tonight's pick
+    Build a Shortlist
   </button>
 </div>
 
-{# Controls panel — hidden until "Find tonight's pick" tab is clicked #}
+{# Controls panel — hidden until "Build a Shortlist" tab is clicked #}
 <section id="controls-panel" class="pick-controls collapsed">
   <form id="pick-form" method="get" action="/">
     <div class="controls-row">
@@ -26,19 +26,24 @@
 
       <div class="mode-toggle">
         <label>
-          <input type="radio" name="mode" value="both"
-            {% if mode == "both" %}checked{% endif %}>
-          Both
+          <input type="radio" name="mode" value="i_only_have_tonight"
+            {% if mode == "i_only_have_tonight" %}checked{% endif %}>
+          I only have tonight
         </label>
         <label>
-          <input type="radio" name="mode" value="short_term"
-            {% if mode == "short_term" %}checked{% endif %}>
-          Short-term
+          <input type="radio" name="mode" value="continue_something"
+            {% if mode == "continue_something" %}checked{% endif %}>
+          Continue something
         </label>
         <label>
-          <input type="radio" name="mode" value="long_term"
-            {% if mode == "long_term" %}checked{% endif %}>
-          Long-term
+          <input type="radio" name="mode" value="comfort_pick"
+            {% if mode == "comfort_pick" %}checked{% endif %}>
+          Comfort pick
+        </label>
+        <label>
+          <input type="radio" name="mode" value="start_something_new"
+            {% if mode == "start_something_new" %}checked{% endif %}>
+          Start something new
         </label>
         <label>
           <input type="radio" name="mode" value="surprise_me"
@@ -78,16 +83,18 @@
 
 <script>
 // ---------------------------------------------------------------------------
-// Surprise mode: dim the time input (it's ignored by the algorithm)
+// Modes that ignore the time slider — dim the time input
 // ---------------------------------------------------------------------------
+const TIME_WINDOW_MODES = new Set(["i_only_have_tonight"]);
+
 function updateTimeInput() {
     const mode = document.querySelector('input[name="mode"]:checked')?.value;
     const label = document.getElementById('minutes-label');
     const input = label?.querySelector('input[name="minutes"]');
     if (!input) return;
-    const isSurprise = mode === 'surprise_me';
-    input.disabled = isSurprise;
-    label.classList.toggle('dimmed', isSurprise);
+    const dim = !TIME_WINDOW_MODES.has(mode);
+    input.disabled = dim;
+    label.classList.toggle('dimmed', dim);
 }
 document.querySelectorAll('input[name="mode"]').forEach(r =>
     r.addEventListener('change', updateTimeInput)
@@ -121,7 +128,6 @@ function findGames() {
     const form = document.getElementById('pick-form');
     const params = new URLSearchParams(new FormData(form));
     params.delete('excluded');
-    // Make sure the find-pick tab is shown as active
     _setActiveTab('tab-find');
     document.getElementById('controls-panel').classList.remove('collapsed');
     _swapMainContent(params);

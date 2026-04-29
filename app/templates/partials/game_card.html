@@ -12,14 +12,17 @@
     <div class="card-header">
       <h2 class="card-title">{{ game.name }}</h2>
       <div class="card-badges">
-        {# Category badge: surprise_me is fixed; tonight/long_term use actual duration #}
+        {# Mode source badge — one per recommender mode #}
         {% if candidate.source == "surprise_me" %}
           <span class="badge badge-cat-surprise">🎲 Surprise pick</span>
-        {% elif candidate.source == "tonight" %}
-          {# Use remaining_hours for tonight — reflects time left, not total game length #}
+        {% elif candidate.source == "i_only_have_tonight" %}
+          {# remaining_hours reflects time left for in-progress games; total HLTB for unplayed #}
           <span class="badge badge-cat-tonight">{{ duration_label(candidate.remaining_hours or game.hltb_main_hours) }}</span>
-        {% elif candidate.source == "long_term" %}
-          {# Use total hltb for long-term — the point is the full commitment size #}
+        {% elif candidate.source == "continue_something" %}
+          <span class="badge badge-cat-continue">▶ Continue</span>
+        {% elif candidate.source == "comfort_pick" %}
+          <span class="badge badge-cat-comfort">🛋️ Comfort pick</span>
+        {% elif candidate.source == "start_something_new" %}
           <span class="badge badge-cat-long">{{ duration_label(game.hltb_main_hours) }}</span>
         {% endif %}
         {# Status badge #}

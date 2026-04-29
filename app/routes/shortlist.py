@@ -7,7 +7,13 @@ from fastapi.responses import HTMLResponse
 from app import database as db
 from app import prompt_state
 from app.affinity import apply_quick_drop_affinity
-from app.recommender import RecommendMode, RecommendRequest, recommend
+from app.recommender import (
+    RecommendMode,
+    RecommendRequest,
+    default_mode_for_library,
+    normalize_mode,
+    recommend,
+)
 from app.templates_config import templates
 
 router = APIRouter()
@@ -30,12 +36,14 @@ def _parse_excluded(request: Request) -> frozenset:
     return frozenset(ids)
 
 
-def _normalize_mode(raw: str) -> str:
-    return "surprise_me" if raw == "surprise" else raw
+def _resolve_mode(raw: Optional[str], games_for_default) -> str:
+    canonical = normalize_mode(raw)
+    if canonical:
+        return canonical
+    return default_mode_for_library(games_for_default)
 
 
-def _build_picks_context(request: Request, minutes: int, mode: str) -> dict:
-    mode = _normalize_mode(mode)
+def _build_picks_context(request: Request, minutes: int, mode: Optional[str]) -> dict:
     include_unplayed = _bool_param(request, "include_unplayed", default=True)
     include_in_progress = _bool_param(request, "include_in_progress", default=True)
     excluded_ids = _parse_excluded(request)
@@ -44,9 +52,11 @@ def _build_picks_context(request: Request, minutes: int, mode: str) -> dict:
         all_games = db.get_games_with_state(conn)
         affinities = db.get_all_affinities(conn)
 
+    canonical_mode = _resolve_mode(mode, all_games)
+
     req = RecommendRequest(
         minutes=minutes,
-        mode=RecommendMode(mode),
+        mode=RecommendMode(canonical_mode),
         include_unplayed=include_unplayed,
         include_in_progress=include_in_progress,
         excluded_ids=excluded_ids,
@@ -60,7 +70,7 @@ def _build_picks_context(request: Request, minutes: int, mode: str) -> dict:
         "picks": picks,
         "picks_appids": picks_appids,
         "minutes": minutes,
-        "mode": mode,
+        "mode": canonical_mode,
         "include_unplayed": include_unplayed,
         "include_in_progress": include_in_progress,
         "has_exclusions": bool(excluded_ids),
@@ -68,23 +78,25 @@ def _build_picks_context(request: Request, minutes: int, mode: str) -> dict:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def pick_page(request: Request):
+async def shortlist_page(request: Request):
     """Full page. Always starts with the recent-picks view — recommendations
     are session-only state loaded via HTMX after the user clicks Find Games."""
     with db.get_db() as conn:
         recent_picks = db.get_recent_picks(conn, limit=8)
         pending_raw = db.get_oldest_pending_pick(conn)
+        all_games = db.get_games_with_state(conn)
 
     pending_pick = None
     if pending_raw and not prompt_state.is_dismissed(pending_raw.id):
         pending_pick = pending_raw
 
+    initial_mode = default_mode_for_library(all_games)
+
     return templates.TemplateResponse(request, "pick.html", {
         "recent_picks": recent_picks,
         "pending_pick": pending_pick,
-        # Default form state used to pre-fill controls when the panel opens
         "minutes": 90,
-        "mode": "both",
+        "mode": initial_mode,
         "include_unplayed": True,
         "include_in_progress": True,
     })
@@ -104,7 +116,7 @@ async def recent_picks_partial(request: Request):
 async def picks_partial(
     request: Request,
     minutes: int = 90,
-    mode: str = "both",
+    mode: Optional[str] = None,
 ):
     """Partial: <div id='main-content'> containing the recommendation cards."""
     ctx = _build_picks_context(request, minutes, mode)
@@ -168,13 +180,11 @@ async def quick_action(
         elif action == "never_recommend":
             db.update_game_state(conn, appid, blacklisted=True, manually_set=True)
 
-    # Recommendation cards get fully dismissed after any action.
     if card_context == "recommendation":
         return HTMLResponse(
             f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>'
         )
 
-    # Recent pick cards reload as updated state.
     if pick_id is None:
         return HTMLResponse(f'<div id="recent-card-{appid}"></div>')
 
@@ -198,9 +208,13 @@ async def mark_picked(request: Request, appid: int):
         body = {}
 
     candidates_at_pick: list[int] = body.get("candidates_at_pick") or []
-    mode_str = _normalize_mode(body.get("mode", "both"))
+    mode_str = normalize_mode(body.get("mode")) or RecommendMode.i_only_have_tonight.value
     minutes_val = int(body.get("minutes", 90))
-    time_window = None if mode_str == "surprise_me" else minutes_val
+    # Time window only meaningful for "I only have tonight"; the four other
+    # modes are intent-driven and ignore the slider.
+    time_window = (
+        minutes_val if mode_str == RecommendMode.i_only_have_tonight.value else None
+    )
 
     with db.get_db() as conn:
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)

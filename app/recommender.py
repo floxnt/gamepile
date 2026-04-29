@@ -1,16 +1,18 @@
 """
-Recommendation engine — v1.
+Recommendation engine — Shortlist (v2.5).
 
-Four modes: short_term, long_term, both, surprise.
+Five user-intent modes:
 
-SHORT-TERM  — fits tonight's time window (±50%).
-LONG-TERM   — worth committing to across sessions (hltb ≥ 8h).
-BOTH        — blended: ~3 short-term + ~2 long-term.
-SURPRISE    — weighted random from the full eligible library.
+I_ONLY_HAVE_TONIGHT — fits tonight's time window (±50%).
+CONTINUE_SOMETHING — surfaces in_progress games, weighted by closeness to completion.
+COMFORT_PICK       — high-playtime games the user has clearly enjoyed; ignores time.
+START_SOMETHING_NEW — never_played + effectively-untouched played_unclassified games
+                      worth committing to (uses the long-form scoring).
+SURPRISE_ME        — weighted random with quality bias.
 
 Every Candidate carries:
-  source    — "tonight" | "long_term" | "surprise" (set in all modes)
-  reasons   — up to 2 human-readable strings explaining the pick
+  source    — mode value (set in all modes)
+  reasons   — up to 2-3 human-readable strings explaining the pick
   warnings  — zero or more amber advisory strings shown on the card
 """
 
@@ -24,10 +26,33 @@ from app.models import GameStatus, GameWithState
 
 
 class RecommendMode(str, Enum):
-    short_term = "short_term"
-    long_term = "long_term"
-    both = "both"
+    i_only_have_tonight = "i_only_have_tonight"
+    continue_something = "continue_something"
+    comfort_pick = "comfort_pick"
+    start_something_new = "start_something_new"
     surprise_me = "surprise_me"
+
+
+# Map legacy/aliased mode strings to current values. Keeps existing bookmarks,
+# pick_history.mode rows, and the deprecated "both" default working.
+_LEGACY_MODE_ALIASES = {
+    "both": RecommendMode.i_only_have_tonight.value,
+    "short_term": RecommendMode.i_only_have_tonight.value,
+    "long_term": RecommendMode.start_something_new.value,
+    "surprise": RecommendMode.surprise_me.value,
+}
+
+
+def normalize_mode(raw: Optional[str]) -> Optional[str]:
+    """Translate legacy mode strings to canonical values; return None if unknown."""
+    if not raw:
+        return None
+    if raw in _LEGACY_MODE_ALIASES:
+        return _LEGACY_MODE_ALIASES[raw]
+    try:
+        return RecommendMode(raw).value
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -39,7 +64,6 @@ class RecommendRequest:
     installed_only: bool = False              # always False in v1 (data not available)
     excluded_ids: frozenset = field(default_factory=frozenset)
     # {(kind, value_lower): (weight, pick_count)} from db.get_all_affinities().
-    # Empty dict = no affinity data yet; scoring is identical to v1 in that case.
     affinities: dict = field(default_factory=dict)
 
 
@@ -49,9 +73,28 @@ class Candidate:
     remaining_hours: float
     score: float = 0.0
     no_manual_hours_hint: bool = False
-    source: Optional[str] = None             # "tonight" | "long_term" | "surprise"
+    source: Optional[str] = None
     reasons: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Default-mode resolution
+# ---------------------------------------------------------------------------
+
+def default_mode_for_library(games: list[GameWithState]) -> str:
+    """
+    Pick the best initial mode for the user's current library shape:
+      in_progress games exist            → continue_something
+      else comfort-eligible games exist  → comfort_pick
+      else                               → i_only_have_tonight
+    """
+    eligible = [g for g in games if not _is_globally_excluded(g)]
+    if any(g.state.status == GameStatus.in_progress for g in eligible):
+        return RecommendMode.continue_something.value
+    if _has_any_comfort_candidate(eligible):
+        return RecommendMode.comfort_pick.value
+    return RecommendMode.i_only_have_tonight.value
 
 
 def recommend(
@@ -59,23 +102,51 @@ def recommend(
     req: RecommendRequest,
     max_results: int = 5,
 ) -> list[Candidate]:
-    # Hard exclusions first: blacklisted games never appear in any mode.
-    games = [g for g in games if not g.state.blacklisted]
+    # Universal exclusions across every mode: blacklisted, not_interested,
+    # strongly-dropped, and the rolling try-again exclusion list.
+    games = [g for g in games if not _is_globally_excluded(g)]
     if req.excluded_ids:
         games = [g for g in games if g.game.appid not in req.excluded_ids]
 
-    if req.mode == RecommendMode.short_term:
+    if req.mode == RecommendMode.i_only_have_tonight:
         return _short_term(games, req, max_results)
-    if req.mode == RecommendMode.long_term:
-        return _long_term(games, req, max_results)
+    if req.mode == RecommendMode.continue_something:
+        return _continue_something(games, req, max_results)
+    if req.mode == RecommendMode.comfort_pick:
+        return _comfort_pick(games, req, max_results)
+    if req.mode == RecommendMode.start_something_new:
+        return _start_something_new(games, req, max_results)
     if req.mode == RecommendMode.surprise_me:
         return _surprise(games, req, max_results)
-    return _both(games, req, max_results)
+    return []
+
+
+def _is_globally_excluded(gws: GameWithState) -> bool:
+    """Universal hard filters applied before any mode-specific eligibility."""
+    state = gws.state
+    if state.blacklisted:
+        return True
+    if state.status == GameStatus.not_interested:
+        return True
+    if state.status == GameStatus.dropped and state.dropped_strength == "strong":
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
-# Short-term
+# I only have tonight (short-term, time-windowed)
 # ---------------------------------------------------------------------------
+
+def _passes_short_term_toggles(gws: GameWithState, req: RecommendRequest) -> bool:
+    state = gws.state
+    if state.status == GameStatus.finished:
+        return False
+    if state.status == GameStatus.never_played and not req.include_unplayed:
+        return False
+    if state.status == GameStatus.in_progress and not req.include_in_progress:
+        return False
+    return True
+
 
 def _short_term(
     games: list[GameWithState],
@@ -87,7 +158,7 @@ def _short_term(
 
     candidates = []
     for gws in games:
-        if not _passes_toggles(gws, req):
+        if not _passes_short_term_toggles(gws, req):
             continue
         remaining, hint = _remaining_hours(gws)
         if remaining is None:
@@ -98,21 +169,18 @@ def _short_term(
         score, score_reasons = _score_short_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
-        # Affinity reasons take priority; "fits window" is always the baseline context.
         all_reasons = affinity_reasons + score_reasons + [f"fits {req.minutes}min window"]
         c = Candidate(
             gws=gws,
             remaining_hours=remaining,
             score=score,
             no_manual_hours_hint=hint,
-            source="tonight",
+            source=RecommendMode.i_only_have_tonight.value,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
         )
         candidates.append(c)
 
-    # Jitter breaks ties between similarly-scored games so repeated Find Games
-    # clicks surface different results rather than the same deterministic top-5.
     for c in candidates:
         c.score += random.uniform(-1.0, 1.0)
 
@@ -146,18 +214,166 @@ def _score_short_term(gws: GameWithState) -> tuple[float, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Long-term
+# Continue something (in-progress only, near-completion bias)
 # ---------------------------------------------------------------------------
 
-def _long_term(
+def _continue_something(
     games: list[GameWithState],
     req: RecommendRequest,
     max_results: int,
 ) -> list[Candidate]:
+    eligible = [g for g in games if g.state.status == GameStatus.in_progress]
+
     candidates = []
-    for gws in games:
-        if not _passes_toggles(gws, req):
-            continue
+    for gws in eligible:
+        game = gws.game
+        playtime_h = game.playtime_minutes / 60.0
+        hltb = game.hltb_main_hours
+
+        score = 0.0
+        reasons: list[str] = []
+        if hltb and hltb > 0:
+            ratio = min(playtime_h / hltb, 1.0)
+            score += ratio * 5.0
+            reasons.append(f"~{int(ratio * 100)}% through main")
+        else:
+            score += 1.0
+            reasons.append(f"{int(playtime_h)}h played")
+
+        affinity_reasons, affinity_delta = _affinity_contribution(game, req.affinities)
+        score += affinity_delta
+        all_reasons = affinity_reasons + reasons
+
+        remaining = max((hltb or 0.0) - playtime_h, 0.0) if hltb else (hltb or 0.0)
+        c = Candidate(
+            gws=gws,
+            remaining_hours=remaining,
+            score=score,
+            source=RecommendMode.continue_something.value,
+            reasons=all_reasons[:3],
+            warnings=_build_warnings(gws),
+        )
+        candidates.append(c)
+
+    for c in candidates:
+        c.score += random.uniform(-0.3, 0.3)
+    candidates.sort(key=lambda c: c.score, reverse=True)
+    return candidates[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Comfort pick (high-playtime favorites, time-window ignored)
+# ---------------------------------------------------------------------------
+
+_COMFORT_STATUSES = (
+    GameStatus.played_unclassified,
+    GameStatus.in_progress,
+    GameStatus.finished,
+)
+_COMFORT_FLOOR_DEFAULT_MIN = 600        # 10h baseline
+_COMFORT_FLOOR_STEP_MIN = 30
+_COMFORT_TARGET_CANDIDATES = 5
+
+
+def _comfort_eligible(gws: GameWithState) -> bool:
+    return gws.state.status in _COMFORT_STATUSES and gws.game.playtime_minutes > 0
+
+
+def _has_any_comfort_candidate(games: list[GameWithState]) -> bool:
+    return any(_comfort_eligible(g) for g in games)
+
+
+def _resolve_comfort_floor(games: list[GameWithState]) -> int:
+    """Top-quartile playtime, floored at 10h, lowered in 30-min steps until 5 qualify."""
+    eligible = [g for g in games if _comfort_eligible(g)]
+    if not eligible:
+        return 0
+
+    playtimes = sorted((g.game.playtime_minutes for g in eligible), reverse=True)
+    quartile_idx = max(0, len(playtimes) // 4 - 1)
+    quartile_floor = playtimes[quartile_idx]
+    floor = max(_COMFORT_FLOOR_DEFAULT_MIN, quartile_floor)
+
+    while floor > 0:
+        count = sum(1 for g in eligible if g.game.playtime_minutes >= floor)
+        if count >= _COMFORT_TARGET_CANDIDATES:
+            return floor
+        floor -= _COMFORT_FLOOR_STEP_MIN
+
+    return 0
+
+
+def _comfort_pick(
+    games: list[GameWithState],
+    req: RecommendRequest,
+    max_results: int,
+) -> list[Candidate]:
+    floor = _resolve_comfort_floor(games)
+    eligible = [
+        g for g in games
+        if _comfort_eligible(g) and g.game.playtime_minutes >= floor
+    ]
+    if not eligible:
+        return []
+
+    now = datetime.utcnow()
+    week_ago = now - timedelta(days=7)
+
+    candidates = []
+    for gws in eligible:
+        game = gws.game
+        score = min(game.playtime_minutes / 3000.0, 5.0)
+        affinity_reasons, affinity_delta = _affinity_contribution(game, req.affinities)
+        score += affinity_delta
+        if game.last_played_steam and game.last_played_steam >= week_ago:
+            score -= 1.0
+
+        hours_played = int(game.playtime_minutes / 60)
+        why = [f"{hours_played} hours played"] + affinity_reasons
+
+        c = Candidate(
+            gws=gws,
+            remaining_hours=game.hltb_main_hours or 0.0,
+            score=score,
+            source=RecommendMode.comfort_pick.value,
+            reasons=why[:3],
+            warnings=_build_warnings(gws),
+        )
+        candidates.append(c)
+
+    return _iterative_variety_select(candidates, max_results)
+
+
+# ---------------------------------------------------------------------------
+# Start something new (long-form unplayed/effectively-untouched)
+# ---------------------------------------------------------------------------
+
+def _start_something_new(
+    games: list[GameWithState],
+    req: RecommendRequest,
+    max_results: int,
+) -> list[Candidate]:
+    eligible = []
+    for g in games:
+        s = g.state.status
+        if s == GameStatus.never_played:
+            eligible.append(g)
+        elif s == GameStatus.played_unclassified and g.game.playtime_minutes < 30:
+            eligible.append(g)
+    return _long_form_score(
+        eligible, req, max_results,
+        source=RecommendMode.start_something_new.value,
+    )
+
+
+def _long_form_score(
+    eligible: list[GameWithState],
+    req: RecommendRequest,
+    max_results: int,
+    source: str,
+) -> list[Candidate]:
+    candidates = []
+    for gws in eligible:
         hltb = gws.game.hltb_main_hours
         if hltb is None or hltb < 8:
             continue
@@ -171,7 +387,7 @@ def _long_term(
             gws=gws,
             remaining_hours=hltb,
             score=score,
-            source="long_term",
+            source=source,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
         )
@@ -215,56 +431,7 @@ def _score_long_term(gws: GameWithState) -> tuple[float, list[str]]:
 
 
 # ---------------------------------------------------------------------------
-# Both
-# ---------------------------------------------------------------------------
-
-def _both(
-    games: list[GameWithState],
-    req: RecommendRequest,
-    max_results: int = 5,
-) -> list[Candidate]:
-    target_short, target_long = 3, 2
-
-    short_pool = _short_term(games, req, max_results=max_results)
-    long_pool = _long_term(games, req, max_results=max_results)
-
-    selected: list[Candidate] = []
-    picked_ids: set[int] = set()
-
-    for c in short_pool:
-        if len(selected) >= target_short:
-            break
-        selected.append(c)
-        picked_ids.add(c.gws.game.appid)
-
-    long_filled = 0
-    for c in long_pool:
-        if long_filled >= target_long:
-            break
-        if c.gws.game.appid not in picked_ids:
-            selected.append(c)
-            picked_ids.add(c.gws.game.appid)
-            long_filled += 1
-
-    for c in long_pool:
-        if len(selected) >= max_results:
-            break
-        if c.gws.game.appid not in picked_ids:
-            selected.append(c)
-            picked_ids.add(c.gws.game.appid)
-
-    for c in short_pool:
-        if len(selected) >= max_results:
-            break
-        if c.gws.game.appid not in picked_ids:
-            selected.append(c)
-            picked_ids.add(c.gws.game.appid)
-
-    return selected
-
-
-# ---------------------------------------------------------------------------
-# Surprise
+# Surprise me (weighted random)
 # ---------------------------------------------------------------------------
 
 def _surprise(
@@ -272,12 +439,11 @@ def _surprise(
     req: RecommendRequest,
     max_results: int = 5,
 ) -> list[Candidate]:
-    eligible = [gws for gws in games if _passes_toggles(gws, req)]
-    if not eligible:
+    if not games:
         return []
 
-    all_quality = [gws for gws in eligible if _is_high_quality(gws.game)]
-    all_unplayed = [gws for gws in eligible if gws.state.status == GameStatus.never_played]
+    all_quality = [gws for gws in games if _is_high_quality(gws.game)]
+    all_unplayed = [gws for gws in games if gws.state.status == GameStatus.never_played]
 
     selected: list[Candidate] = []
     picked_ids: set[int] = set()
@@ -294,7 +460,7 @@ def _surprise(
                 )
             ]
 
-        avail_all = _available(eligible)
+        avail_all = _available(games)
         if not avail_all:
             break
 
@@ -319,7 +485,7 @@ def _surprise(
         c = Candidate(
             gws=pick_gws,
             remaining_hours=remaining,
-            source="surprise_me",
+            source=RecommendMode.surprise_me.value,
             reasons=reasons,
             warnings=_build_warnings(pick_gws),
         )
@@ -351,7 +517,7 @@ def _surprise_reasons(gws: GameWithState, bucket: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Iterative variety selection (shared by short-term)
+# Iterative variety selection (shared by short-term and comfort)
 # ---------------------------------------------------------------------------
 
 def _iterative_variety_select(
@@ -387,26 +553,12 @@ def _iterative_variety_select(
 # ---------------------------------------------------------------------------
 
 def _affinity_contribution(game, affinities: dict) -> tuple[list[str], float]:
-    """Return (reason_strings, score_delta) for one game. Empty when no affinities."""
     if not affinities:
         return [], 0.0
-    # Import here to avoid a circular import at module load time.
     from app.affinity import compute_affinity_score, get_affinity_summary
     delta = compute_affinity_score(game, affinities)
     reasons = get_affinity_summary(game, affinities) if abs(delta) >= 0.1 else []
     return reasons, delta
-
-
-def _passes_toggles(gws: GameWithState, req: RecommendRequest) -> bool:
-    state = gws.state
-    # Default exclusions: terminal/completion statuses.
-    if state.status in (GameStatus.not_interested, GameStatus.finished):
-        return False
-    if state.status == GameStatus.never_played and not req.include_unplayed:
-        return False
-    if state.status == GameStatus.in_progress and not req.include_in_progress:
-        return False
-    return True
 
 
 def _remaining_hours(gws: GameWithState) -> tuple[Optional[float], bool]:
@@ -436,7 +588,6 @@ def _build_warnings(gws: GameWithState) -> list[str]:
 
 
 def _quality_str(game) -> Optional[str]:
-    """Compact quality signal string for the Why line, or None."""
     parts: list[str] = []
     if game.metacritic_score is not None and game.metacritic_score >= 85:
         parts.append(f"MC {game.metacritic_score}")
@@ -453,7 +604,6 @@ def _quality_str(game) -> Optional[str]:
 
 
 def _critic_str(game) -> Optional[str]:
-    """MC/OC critic score string for the Why line."""
     parts: list[str] = []
     if game.metacritic_score is not None and game.metacritic_score >= 85:
         parts.append(f"MC {game.metacritic_score}")
@@ -493,7 +643,6 @@ def _fmt_hours(h: float) -> str:
 
 
 def _fmt_count(n: int) -> str:
-    """1234 → '1.2k', 15000 → '15k', 999 → '999'."""
     if n >= 10_000:
         return f"{n // 1000}k"
     if n >= 1_000:
