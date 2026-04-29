@@ -630,6 +630,8 @@ select option {
 
 .sort-link:hover { color: var(--text); text-decoration: none; }
 .sort-link--active { color: var(--text); }
+.sort-link--unsortable { cursor: default; padding: 0.6rem 0.75rem; display: block; }
+.sort-link--unsortable:hover { color: var(--muted); }
 
 .sort-arrow {
   font-style: normal;
@@ -648,6 +650,17 @@ select option {
 .library-table tbody tr:hover { background: var(--surface2); }
 
 .game-name { white-space: normal; min-width: 200px; }
+
+.library-tags {
+  white-space: normal;
+  max-width: 220px;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.library-tags-more {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 
 /* ===== Inline edit form ===== */
 .inline-edit-form {

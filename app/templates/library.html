@@ -53,19 +53,32 @@
     <table class="library-table">
       <thead>
         <tr>
-          {% for col_key, col in sort_headers.items() %}
-          <th>
-            <a
-              href="/library?{{ col.qs }}"
-              hx-get="/library?{{ col.qs }}"
-              hx-select="#library-content"
-              hx-target="#library-content"
-              hx-swap="outerHTML"
-              hx-push-url="true"
-              class="sort-link{% if col.active %} sort-link--active{% endif %}"
-            >{{ col.label }}{% if col.arrow %} <span class="sort-arrow">{{ col.arrow }}</span>{% endif %}</a>
-          </th>
-          {% endfor %}
+          {% macro sort_header(col) -%}
+            {% set h = sort_headers[col] %}
+            <th>
+              <a
+                href="/library?{{ h.qs }}"
+                hx-get="/library?{{ h.qs }}"
+                hx-select="#library-content"
+                hx-target="#library-content"
+                hx-swap="outerHTML"
+                hx-push-url="true"
+                class="sort-link{% if h.active %} sort-link--active{% endif %}"
+              >{{ h.label }}{% if h.arrow %} <span class="sort-arrow">{{ h.arrow }}</span>{% endif %}</a>
+            </th>
+          {%- endmacro %}
+
+          {{ sort_header("name") }}
+          {{ sort_header("status") }}
+          <th><span class="sort-link sort-link--unsortable">Tags</span></th>
+          {{ sort_header("developer") }}
+          {{ sort_header("hltb_main") }}
+          {{ sort_header("hltb_compl") }}
+          {{ sort_header("playtime") }}
+          {{ sort_header("steam_pct") }}
+          {{ sort_header("steam_reviews") }}
+          {{ sort_header("metacritic") }}
+          {{ sort_header("opencritic") }}
           <th></th>
         </tr>
       </thead>

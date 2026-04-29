@@ -23,24 +23,33 @@ _STATUS_SORT_ORDER = {
     "not_interested":      5,
 }
 
-_SORT_COLUMNS = ["name", "status", "playtime", "hltb_main", "last_played",
-                 "metacritic", "opencritic", "steam_pct"]
+_SORT_COLUMNS = [
+    "name", "status", "developer",
+    "hltb_main", "hltb_compl",
+    "playtime", "steam_pct", "steam_reviews",
+    "metacritic", "opencritic",
+]
+
+# Sentinel values for nulls-last regardless of sort direction.
+_NULL_HIGH = float("inf")
+_NULL_LOW = float("-inf")
 
 
 def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[GameWithState]:
     if sort not in _SORT_COLUMNS:
-        return sorted(games, key=lambda g: g.game.name.lower())
+        sort = "name"
 
     reverse = direction == "desc"
 
-    # Sentinel values for nulls-last regardless of sort direction.
-    NULL_HIGH = float("inf")   # sorts last when ascending
-    NULL_LOW  = float("-inf")  # sorts last when descending (reversed)
-
     def null_last(val):
         if val is None:
-            return NULL_LOW if reverse else NULL_HIGH
+            return _NULL_LOW if reverse else _NULL_HIGH
         return val
+
+    def null_last_str(val):
+        if val is None or val == "":
+            return "￿" if not reverse else ""
+        return val.lower()
 
     def key(gws: GameWithState):
         game, state = gws.game, gws.state
@@ -48,22 +57,39 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             return game.name.lower()
         if sort == "status":
             return _STATUS_SORT_ORDER.get(state.status.value, 99)
+        if sort == "developer":
+            return null_last_str(game.developer)
         if sort == "playtime":
             return null_last(game.playtime_minutes)
         if sort == "hltb_main":
             return null_last(game.hltb_main_hours)
-        if sort == "last_played":
-            v = game.last_played_steam
-            return null_last(v.timestamp() if v is not None else None)
+        if sort == "hltb_compl":
+            return null_last(game.hltb_completionist_hours)
         if sort == "metacritic":
             return null_last(game.metacritic_score)
         if sort == "opencritic":
             return null_last(game.opencritic_score)
         if sort == "steam_pct":
             return null_last(game.steam_review_pct)
+        if sort == "steam_reviews":
+            return null_last(game.steam_review_count)
         return game.name.lower()
 
     return sorted(games, key=key, reverse=reverse)
+
+
+_COLUMN_LABELS: list[tuple[str, str]] = [
+    ("name",          "Title"),
+    ("status",        "Status"),
+    ("developer",     "Developer"),
+    ("hltb_main",     "HLTB Main"),
+    ("hltb_compl",    "HLTB Compl."),
+    ("playtime",      "Playtime"),
+    ("steam_pct",     "Steam %"),
+    ("steam_reviews", "Steam Reviews"),
+    ("metacritic",    "Metacritic"),
+    ("opencritic",    "OpenCritic"),
+]
 
 
 def _build_sort_headers(
@@ -75,40 +101,33 @@ def _build_sort_headers(
     Returns a dict keyed by column ID. Each value has the info the template
     needs to render a sortable column header.
 
-    Three-click cycle per column:
-      no sort  →  asc  →  desc  →  no sort (back to default name-asc)
+    Empty sort param renders as the default sort (Title asc) so the arrow
+    is always visible somewhere. Cycle for the default column is asc ↔ desc;
+    cycle for every other column is asc → desc → default (Title asc).
     """
-    cols = [
-        ("name",       "Name"),
-        ("status",     "Status"),
-        ("playtime",   "Playtime"),
-        ("hltb_main",  "HLTB Main"),
-        ("last_played","Last Played"),
-        ("metacritic", "MC"),
-        ("opencritic", "OC"),
-        ("steam_pct",  "Steam %"),
-    ]
+    effective_sort = current_sort or "name"
+    effective_dir = current_dir if current_sort else "asc"
 
     headers = {}
-    for col_key, label in cols:
-        if current_sort == col_key:
-            if current_dir == "asc":
+    for col_key, label in _COLUMN_LABELS:
+        if effective_sort == col_key:
+            if effective_dir == "asc":
                 next_sort, next_dir, arrow = col_key, "desc", "↑"
             else:
+                # Reset back to the default sort (Title asc).
                 next_sort, next_dir, arrow = "", "asc", "↓"
         else:
             next_sort, next_dir, arrow = col_key, "asc", None
 
         params = {**filter_params, "sort": next_sort, "dir": next_dir}
-        # Keep the URL clean: drop empty-string params.
         params = {k: v for k, v in params.items() if v not in ("", False, None)}
         qs = urllib.parse.urlencode(params)
 
         headers[col_key] = {
-            "label":   label,
-            "arrow":   arrow,
-            "active":  current_sort == col_key,
-            "qs":      qs,           # query string for both /library and /library/rows
+            "label":  label,
+            "arrow":  arrow,
+            "active": effective_sort == col_key,
+            "qs":     qs,
         }
 
     return headers
@@ -148,7 +167,6 @@ async def library_page(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    # Collect genres before filtering so the dropdown always shows all options.
     genres = _collect_genres(all_games)
 
     games = _apply_filters_and_sort(all_games, status_filter, genre_filter, sort, dir)
