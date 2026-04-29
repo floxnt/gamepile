@@ -37,6 +37,7 @@ class Game:
     last_refreshed: datetime
     is_active: bool = True
     user_tags: str = ""                  # comma-separated SteamSpy user tags (top 10 by vote)
+    release_date: Optional[datetime] = None  # parsed from Steam appdetails; drives age-based caching
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

@@ -17,11 +17,12 @@
   </div>
   <div class="refresh-tally">
     Added {{ progress.games_added }} &middot; Updated {{ progress.games_updated }}
-    {% if progress.hltb_fetched or progress.hltb_skipped %}
-      &middot; HLTB {{ progress.hltb_fetched }}↓ {{ progress.hltb_skipped }}⊘
+    {% if progress.hltb_matched or progress.hltb_missed or progress.hltb_skipped %}
+      &middot; HLTB matched {{ progress.hltb_matched }}, missed {{ progress.hltb_missed }}, cached {{ progress.hltb_skipped }}
+      {%- if progress.hltb_transient_recovered %} (recovered {{ progress.hltb_transient_recovered }} via backoff){% endif -%}
     {% endif %}
     {% if progress.errors %}
-      &middot; <span class="error-count">{{ progress.errors | length }} error(s)</span>
+      &middot; <span class="error-count">{{ progress.errors | length }} fatal error(s)</span>
     {% endif %}
   </div>
 </div>
@@ -31,14 +32,19 @@
 </div>
 {% elif progress.completed_at %}
 <div class="refresh-banner refresh-banner--done">
-  {% if progress.force %}Force refresh{% else %}Refresh{% endif %} complete —
+  {% if progress.force %}Force refresh{% else %}Refresh{% endif %} complete
+  {% if progress.elapsed_seconds %}in {{ "%.0f"|format(progress.elapsed_seconds) }}s{% endif %}
+  &mdash;
   {{ progress.games_added }} added, {{ progress.games_updated }} updated
-  {% if progress.hltb_fetched or progress.hltb_skipped %}
-    &middot; HLTB {{ progress.hltb_fetched }}↓ {{ progress.hltb_skipped }}⊘
-    &middot; OC {{ progress.oc_fetched }}↓ {{ progress.oc_skipped }}⊘
+  {% if progress.hltb_matched or progress.hltb_missed or progress.hltb_skipped %}
+    &middot; HLTB matched {{ progress.hltb_matched }}, missed {{ progress.hltb_missed }}, cached {{ progress.hltb_skipped }}
+    {%- if progress.hltb_transient_recovered %} (recovered {{ progress.hltb_transient_recovered }} via backoff){% endif -%}
+  {% endif %}
+  {% if progress.release_date_backfilled %}
+    &middot; release_date backfilled on {{ progress.release_date_backfilled }} game(s)
   {% endif %}
   {% if progress.errors %}
-    , {{ progress.errors | length }} error(s)
+    , {{ progress.errors | length }} fatal error(s)
   {% endif %}
   <button onclick="this.parentElement.remove()" class="btn-close">&times;</button>
 </div>

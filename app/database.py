@@ -111,6 +111,7 @@ def init_db() -> None:
             "ALTER TABLE pick_history ADD COLUMN actually_played_appid INTEGER REFERENCES games(appid)",
             "ALTER TABLE game_state ADD COLUMN blacklisted BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE game_state ADD COLUMN dropped_strength TEXT",
+            "ALTER TABLE games ADD COLUMN release_date TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -202,6 +203,7 @@ def _backfill_inferred_statuses(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 
 def _row_to_game(row: sqlite3.Row) -> Game:
+    keys = row.keys()
     return Game(
         appid=row["appid"],
         name=row["name"],
@@ -222,6 +224,7 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         last_refreshed=_parse_dt(row["last_refreshed"]) or datetime.utcnow(),
         is_active=bool(row["is_active"]),
         user_tags=row["user_tags"] or "",
+        release_date=_parse_dt(row["release_date"]) if "release_date" in keys else None,
     )
 
 
@@ -299,14 +302,14 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             genres, tags, user_tags, developer, publisher,
             metacritic_score, opencritic_score,
             steam_review_pct, steam_review_count,
-            last_refreshed, is_active
+            last_refreshed, is_active, release_date
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
             :genres, :tags, :user_tags, :developer, :publisher,
             :metacritic_score, :opencritic_score,
             :steam_review_pct, :steam_review_count,
-            :last_refreshed, :is_active
+            :last_refreshed, :is_active, :release_date
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -325,7 +328,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             steam_review_pct        = excluded.steam_review_pct,
             steam_review_count      = excluded.steam_review_count,
             last_refreshed          = excluded.last_refreshed,
-            is_active               = excluded.is_active
+            is_active               = excluded.is_active,
+            release_date            = COALESCE(excluded.release_date, games.release_date)
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -346,6 +350,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "last_refreshed": game.last_refreshed.isoformat(),
         "is_active": 1 if game.is_active else 0,
         "user_tags": game.user_tags,
+        "release_date": game.release_date.isoformat() if game.release_date else None,
     })
 
 
@@ -399,7 +404,7 @@ def get_games_with_state(
             g.genres, g.tags, g.user_tags, g.developer, g.publisher,
             g.metacritic_score, g.opencritic_score,
             g.steam_review_pct, g.steam_review_count,
-            g.last_refreshed, g.is_active,
+            g.last_refreshed, g.is_active, g.release_date,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,

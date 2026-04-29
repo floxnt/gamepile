@@ -3,12 +3,14 @@ Steam API wrappers.
 
 Three endpoints used:
   - IPlayerService/GetOwnedGames — full library list with playtime
-  - ISteamApps/appdetails        — genres, tags, Metacritic, developer, publisher
+  - ISteamApps/appdetails        — genres, tags, Metacritic, developer, publisher,
+                                   release date
   - appreviews/{appid}           — positive review percentage + count
 """
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -17,6 +19,37 @@ import httpx
 from app.config import STEAM_API_KEY, STEAM_ID
 
 log = logging.getLogger(__name__)
+
+
+# Steam returns release_date.date as a localised string. English locale only
+# emits a handful of stable formats; everything else (e.g. "Coming Soon",
+# "TBA", "Q4 2024") parses to None and the caller treats the field as absent.
+_RELEASE_DATE_FORMATS = (
+    "%d %b, %Y",   # "21 Aug, 2024"
+    "%b %d, %Y",   # "Aug 21, 2024"
+    "%d %B, %Y",   # "21 August, 2024"
+    "%B %d, %Y",   # "August 21, 2024"
+    "%Y-%m-%d",
+)
+_YEAR_ONLY_RE = re.compile(r"^\s*(\d{4})\s*$")
+
+
+def parse_release_date(date_str: Optional[str]) -> Optional[datetime]:
+    if not date_str or not isinstance(date_str, str):
+        return None
+    s = date_str.strip()
+    for fmt in _RELEASE_DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    m = _YEAR_ONLY_RE.match(s)
+    if m:
+        try:
+            return datetime(int(m.group(1)), 1, 1)
+        except ValueError:
+            return None
+    return None
 
 _OWNED_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 _DETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -77,13 +110,21 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
     developers = info.get("developers") or []
     publishers = info.get("publishers") or []
 
-    return {
+    release = info.get("release_date") or {}
+    release_dt = parse_release_date(release.get("date"))
+
+    out = {
         "genres": genres,
         "tags": tags,
         "metacritic_score": metacritic_score,
         "developer": developers[0] if developers else None,
         "publisher": publishers[0] if publishers else None,
     }
+    # Only emit release_date when it parses cleanly — skipping the key keeps
+    # the merge in sync.py from overwriting an existing good value with None.
+    if release_dt is not None:
+        out["release_date"] = release_dt
+    return out
 
 
 async def fetch_review_summary(client: httpx.AsyncClient, appid: int) -> Optional[dict]:
