@@ -1,12 +1,16 @@
 {# Renders the action set for one backlog row's status. valid_actions is a list
    of (action_key, label) tuples produced by valid_actions_for_status(). The
-   handler endpoint is the shared /games/{appid}/quick-action route. #}
+   handler endpoint is the shared /games/{appid}/quick-action route.
+   primary_action_key (optional) — when set, hides the matching overflow item
+   so the section's primary CTA isn't duplicated in the menu. #}
 {% for action_key, label in valid_actions %}
-  <button
-    hx-post="/games/{{ appid }}/quick-action"
-    hx-vals='{"action": "{{ action_key }}", "card_context": "backlog"}'
-    hx-target="#backlog-row-{{ appid }}"
-    hx-swap="outerHTML"
-    class="overflow-item{% if action_key == 'never_recommend' %} overflow-item--danger{% endif %}"
-  >{{ label }}</button>
+  {% if primary_action_key is not defined or action_key != primary_action_key %}
+    <button
+      hx-post="/games/{{ appid }}/quick-action"
+      hx-vals='{"action": "{{ action_key }}", "card_context": "backlog"}'
+      hx-target="#backlog-row-{{ appid }}"
+      hx-swap="outerHTML"
+      class="overflow-item{% if action_key == 'never_recommend' %} overflow-item--danger{% endif %}"
+    >{{ label }}</button>
+  {% endif %}
 {% endfor %}

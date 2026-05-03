@@ -6,23 +6,43 @@
 
   <h1 class="page-title">Backlog</h1>
 
-  {# Header band — backlog stats summary. Always shown when backlog is non-empty. #}
+  {# Header band — backlog stats summary. Always shown when backlog is non-empty.
+     Per-section counts are conditional so a zero-count bucket doesn't clutter
+     the line; total + hours are always present. #}
   {% if not view.is_empty_no_filters %}
     {% set s = view.header_stats %}
     <div class="backlog-header-band">
-      <span class="band-stat"><strong>{{ s.total_count }}</strong> games</span>
+      <span class="band-stat"><strong>{{ s.total_count }}</strong> games in backlog</span>
       <span class="band-sep">·</span>
-      <span class="band-stat">~<strong>{{ '%0.0f' | format(s.total_hours) | replace(',', ',') }}</strong> hours
+      <span class="band-stat">~<strong>{{ '%0.0f' | format(s.total_hours) }}</strong> hours
         {% if s.games_with_unknown_hltb %}
           <span class="band-aside">+ {{ s.games_with_unknown_hltb }} unknown</span>
         {% endif %}
       </span>
-      <span class="band-sep">·</span>
-      <span class="band-stat">{{ s.in_progress_count }} in progress</span>
-      <span class="band-sep">·</span>
-      <span class="band-stat">{{ s.played_unclassified_count }} barely touched</span>
-      <span class="band-sep">·</span>
-      <span class="band-stat">{{ s.never_played_count }} never played</span>
+      {% if s.in_progress_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.in_progress_count }} picking up</span>
+      {% endif %}
+      {% if s.likely_finished_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.likely_finished_count }} likely finished</span>
+      {% endif %}
+      {% if s.finishing_late_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.finishing_late_count }} in case you haven't finished</span>
+      {% endif %}
+      {% if s.in_progress_unconfirmed_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.in_progress_unconfirmed_count }} unconfirmed in progress</span>
+      {% endif %}
+      {% if s.barely_touched_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.barely_touched_count }} barely touched</span>
+      {% endif %}
+      {% if s.never_played_count %}
+        <span class="band-sep">·</span>
+        <span class="band-stat">{{ s.never_played_count }} never played</span>
+      {% endif %}
     </div>
   {% endif %}
 

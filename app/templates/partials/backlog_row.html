@@ -1,6 +1,12 @@
 {% set game = gws.game %}
 {% set state = gws.state %}
 {% set valid_actions = valid_actions_for_status(state.status) %}
+{# Likely Finished is the only section whose primary CTA differs from the
+   default Add-to-Shortlist pin. The "Mark finished" button there triggers
+   the affinity-boosting confirm_finished action. To avoid duplication, the
+   matching action is hidden from the overflow menu. #}
+{% set primary_is_finish = (section.key == 'likely_finished') %}
+{% set primary_action_key = 'confirm_finished' if primary_is_finish else None %}
 {# played hours: prefer manual override, else Steam playtime #}
 {% set played_h = state.hours_played_manual if state.hours_played_manual is not none else (game.playtime_minutes / 60.0) %}
 {% set hltb = game.hltb_main_hours %}
@@ -60,16 +66,27 @@
         {% endif %}
       </div>
       <div class="row-actions">
-        <span class="pin-button-wrap">
-          {% with appid=game.appid, pinned=state.pinned_for_shortlist %}
-            {% include "partials/backlog_pin_button.html" %}
-          {% endwith %}
-        </span>
+        {% if primary_is_finish %}
+          <button
+            hx-post="/games/{{ game.appid }}/quick-action"
+            hx-vals='{"action": "confirm_finished", "card_context": "backlog"}'
+            hx-target="#backlog-row-{{ game.appid }}"
+            hx-swap="outerHTML"
+            class="btn btn-primary btn-sm"
+            title="Mark finished — applies a positive affinity nudge"
+          >Mark finished</button>
+        {% else %}
+          <span class="pin-button-wrap">
+            {% with appid=game.appid, pinned=state.pinned_for_shortlist %}
+              {% include "partials/backlog_pin_button.html" %}
+            {% endwith %}
+          </span>
+        {% endif %}
         {% if valid_actions %}
           <details class="row-overflow">
             <summary class="btn btn-ghost btn-sm row-overflow-btn">⋯</summary>
             <div class="row-overflow-menu">
-              {% with appid=game.appid, valid_actions=valid_actions %}
+              {% with appid=game.appid, valid_actions=valid_actions, primary_action_key=primary_action_key %}
                 {% include "partials/backlog_overflow_menu.html" %}
               {% endwith %}
             </div>

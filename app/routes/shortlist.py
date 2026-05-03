@@ -6,7 +6,7 @@ from fastapi.responses import HTMLResponse
 
 from app import database as db
 from app import prompt_state
-from app.affinity import apply_quick_drop_affinity
+from app.affinity import apply_quick_drop_affinity, apply_quick_finished_affinity
 from app.recommender import (
     RecommendMode,
     RecommendRequest,
@@ -150,6 +150,8 @@ async def quick_action(
       never_recommend    — blacklisted=True, no affinity
       already_completed  — alias for finished
       mark_in_progress   — mark in progress (used by backlog overflow menu)
+      confirm_finished   — mark finished + +0.5 affinity per label (Backlog
+                           "Mark finished" — high engagement is a positive signal)
     """
     from app.models import GameStatus
 
@@ -165,6 +167,12 @@ async def quick_action(
 
         elif action == "mark_in_progress":
             db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
+
+        elif action == "confirm_finished":
+            db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
+            db.clear_pin(conn, appid)
+            if game:
+                apply_quick_finished_affinity(conn, game)
 
         elif action == "pick":
             # Backlog "I picked this" — status nudge only. No pick_history row

@@ -68,6 +68,12 @@
              onchange="this.form.submit()">
       Include bounced
     </label>
+    <label class="filter-toggle">
+      <input type="checkbox" name="show_forever" value="true"
+             {% if filters.show_forever %}checked{% endif %}
+             onchange="this.form.submit()">
+      Show forever games
+    </label>
     {% if filters.is_active() %}
       <a href="/backlog" class="btn btn-ghost btn-sm">Clear filters</a>
     {% endif %}

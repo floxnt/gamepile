@@ -136,6 +136,24 @@ def apply_quick_drop_affinity(
         db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=False)
 
 
+def apply_quick_finished_affinity(conn: sqlite3.Connection, game: Game) -> None:
+    """Positive affinity nudge from a Backlog "Mark finished" click.
+
+    +0.5 per deduplicated label — equivalent to a 4-star feedback rating.
+    pick_count is NOT incremented because this isn't a Shortlist outcome,
+    just a user-confirmed engagement signal.
+
+    Conservative magnitude: the click confirms an inferred state (1.5x+
+    HLTB main from the Likely Finished section, or any backlog "Mark
+    finished" overflow click). If the user later corrects course, lighter
+    deltas are easier to recover from than +1.0.
+    """
+    delta = 0.5
+    labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
+    for kind, value in labels:
+        db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=False)
+
+
 def apply_did_not_play_affinity(
     conn: sqlite3.Connection,
     picked_game: Game,
