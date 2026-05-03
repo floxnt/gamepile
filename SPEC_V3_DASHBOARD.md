@@ -140,8 +140,26 @@ Cooler on:
 
 ## Schema additions
 
-None. All required data already exists:
-- `pick_history` for picks per week
+Two new nullable columns on `pick_history`, captured at insert time by
+`mark_picked` and used by the Dashboard's picks-per-week eligibility filter:
+
+- `status_at_pick TEXT` — the game's `game_state.status` at the moment of
+  the pick (read before `mark_picked` overwrites with `in_progress`)
+- `was_forever_at_pick BOOLEAN` — `is_forever_game(game)` at the moment of
+  the pick
+
+Both via try/except `ALTER TABLE`. Rows inserted before this migration
+have NULL on both columns. The picks-per-week filter applies a
+charitable NULL-as-include rule for those rows — losing real history is
+worse than approximating, and back-inferring from current state would be
+misleading (the user has acted on those games since). No backfill.
+
+Going forward, `is_backlog_pick(pick)` is the single source of truth for
+"was this pick a backlog progression event": NULL → include; was-forever
+→ exclude; status in {`never_played`, `played_unclassified`, `in_progress`}
+→ include; everything else (finished / dropped / not_interested) → exclude.
+
+The remaining sections still rely on existing columns:
 - `game_state.status` and `game_state.updated_at` for finished this month
 - `affinity` table for taste profile
 

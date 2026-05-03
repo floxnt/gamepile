@@ -15,6 +15,7 @@
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Shortlist</a>
         <a href="/backlog" {% if request.url.path.startswith("/backlog") %}class="active"{% endif %}>Backlog</a>
         <a href="/library" {% if request.url.path == "/library" %}class="active"{% endif %}>Library</a>
+        <a href="/dashboard" {% if request.url.path.startswith("/dashboard") %}class="active"{% endif %}>Dashboard</a>
       </div>
       <div class="refresh-btn-group">
         <button

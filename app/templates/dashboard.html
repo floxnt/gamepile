@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — GamePile{% endblock %}
+
+{% block content %}
+<section class="dashboard-page">
+
+  <h1 class="page-title">Dashboard</h1>
+
+  {# Section 1 — Top-line stats. Three equal-width cards. #}
+  <div class="dashboard-stats">
+    {% with
+      headline_number=data.backlog_count,
+      headline_unit="games in backlog",
+      subtitle=None,
+      tooltip="Games eligible for active progression tracking. Excludes finished, dropped (strong), not interested, blacklisted, and forever-games."
+    %}
+      {% include "partials/dashboard_stat_card.html" %}
+    {% endwith %}
+
+    {% with
+      headline_number=data.picks_per_week,
+      headline_unit="picks/week",
+      subtitle="rolling 7-day, backlog-eligible only",
+      tooltip="Counts only picks of games eligible for backlog tracking. Comfort Pick mode replays of finished games don't count."
+    %}
+      {% include "partials/dashboard_stat_card.html" %}
+    {% endwith %}
+
+    {% with
+      headline_number=data.finished_this_month,
+      headline_unit="finished this month",
+      subtitle="started " + data.month_start_label,
+      tooltip="Games marked finished since the 1st of " + data.month_start_label.split(" ")[0] + "."
+    %}
+      {% include "partials/dashboard_stat_card.html" %}
+    {% endwith %}
+  </div>
+
+  {# Section 2 — Time-since-last-pick callout. Conditional. #}
+  {% if data.callout_visible %}
+    <div class="dashboard-callout">
+      {{ data.days_since_last_pick }} days since your last pick.
+      <a href="/?mode={{ data.callout_mode }}" class="callout-link">Pick something →</a>
+    </div>
+  {% endif %}
+
+  {# Section 3 — Affinity profile. #}
+  <section class="affinity-section">
+    <h2 class="affinity-section-title">Your taste profile</h2>
+
+    {% set ap = data.affinity_profile %}
+    {% if ap.is_empty %}
+      <p class="affinity-empty">
+        Your taste profile builds as you mark games. Pick something from Shortlist and tell us how it went to start.
+      </p>
+    {% else %}
+      {% if ap.genres %}
+        <div class="affinity-category">
+          <div class="affinity-category-label">Genres</div>
+          <div class="affinity-pills">
+            {% for pill in ap.genres %}
+              {% include "partials/affinity_pill.html" %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% if ap.tags %}
+        <div class="affinity-category">
+          <div class="affinity-category-label">Tags</div>
+          <div class="affinity-pills">
+            {% for pill in ap.tags %}
+              {% include "partials/affinity_pill.html" %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% if ap.developers %}
+        <div class="affinity-category">
+          <div class="affinity-category-label">Developers</div>
+          <div class="affinity-pills">
+            {% for pill in ap.developers %}
+              {% include "partials/affinity_pill.html" %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% if ap.negatives %}
+        <div class="affinity-category affinity-category--cooler-on">
+          <div class="affinity-category-label">Cooler on</div>
+          <div class="affinity-pills">
+            {% for pill in ap.negatives %}
+              {% include "partials/affinity_pill.html" %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endif %}
+  </section>
+
+</section>
+{% endblock %}

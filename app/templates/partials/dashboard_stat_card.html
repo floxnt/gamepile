@@ -1,0 +1,13 @@
+{# Single stat card. Inputs:
+     headline_number — string, the big number (e.g. "460")
+     headline_unit   — string or empty, the inline unit (e.g. "picks/week")
+     subtitle        — string or empty, small muted descriptive line
+     tooltip         — string or empty, native title attr on hover
+#}
+<div class="dashboard-stat-card"{% if tooltip %} title="{{ tooltip }}"{% endif %}>
+  <div class="dashboard-stat-headline">
+    <span class="stat-number">{{ headline_number }}</span>
+    {% if headline_unit %}<span class="stat-unit">{{ headline_unit }}</span>{% endif %}
+  </div>
+  {% if subtitle %}<div class="dashboard-stat-subtitle">{{ subtitle }}</div>{% endif %}
+</div>

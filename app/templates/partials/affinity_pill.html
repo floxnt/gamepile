@@ -1,0 +1,6 @@
+{# Single affinity pill. Input: pill — Pill dataclass.
+   Sign rendering uses Unicode "−" (U+2212) for visual symmetry with "+". #}
+<span class="affinity-pill{% if pill.is_negative %} affinity-pill--negative{% endif %}{% if pill.low_confidence %} affinity-pill--low-confidence{% endif %}">
+  <span class="affinity-pill-label">{{ pill.label }}</span>
+  <span class="affinity-pill-weight">{% if pill.weight >= 0 %}+{% else %}−{% endif %}{{ "%.1f"|format(pill.weight | abs) }}</span>
+</span>
