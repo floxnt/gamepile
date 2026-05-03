@@ -107,6 +107,21 @@ during refresh.
   not crash the refresh
 - Manual overrides survive refresh; refresh never resets user state
 
+## Testing against live data
+
+When verifying behavior against the real database, never UPDATE production
+data for testing purposes. Use one of:
+
+- A temp copy: `cp gamepile.db gamepile-test.db` and point the app at it via
+  env override
+- An explicit transaction wrapped around test mutations, with rollback
+- A read-only query that simulates the condition rather than mutating to
+  create it
+
+Test mutations to live data, even with intent to restore, can lose precision
+on timestamps and other fields. Recovery from approximate values is possible
+but never identical to the original.
+
 ## Scope guardrails (what NOT to add without explicit request)
 
 - No achievement tracking (i.e., per-user achievement progress dashboards)
