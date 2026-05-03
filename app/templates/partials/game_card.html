@@ -67,13 +67,7 @@
           <span class="stat-value">{{ game.metacritic_score }}</span>
         </span>
       {% endif %}
-      {% if game.opencritic_score %}
-        <span class="stat-item">
-          <span class="stat-label">OC</span>
-          <span class="stat-value">{{ game.opencritic_score }}</span>
-        </span>
-      {% endif %}
-      {% if not game.hltb_main_hours and not game.playtime_minutes and not game.steam_review_pct and not game.metacritic_score and not game.opencritic_score %}
+      {% if not game.hltb_main_hours and not game.playtime_minutes and not game.steam_review_pct and not game.metacritic_score %}
         <span class="stat-none">No data yet — refresh library</span>
       {% endif %}
     </div>

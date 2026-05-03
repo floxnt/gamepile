@@ -59,7 +59,6 @@
     {% endif %}
   </td>
   <td>{{ gws.game.metacritic_score if gws.game.metacritic_score else "—" }}</td>
-  <td>{{ gws.game.opencritic_score if gws.game.opencritic_score else "—" }}</td>
   <td>
     <button
       hx-get="/games/{{ gws.game.appid }}/edit"

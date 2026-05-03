@@ -27,7 +27,7 @@ _SORT_COLUMNS = [
     "name", "status", "game_type", "developer",
     "hltb_main", "hltb_compl",
     "playtime", "steam_pct", "steam_reviews",
-    "metacritic", "opencritic",
+    "metacritic",
 ]
 
 # Sentinel values for nulls-last regardless of sort direction.
@@ -70,8 +70,6 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             return null_last(game.hltb_completionist_hours)
         if sort == "metacritic":
             return null_last(game.metacritic_score)
-        if sort == "opencritic":
-            return null_last(game.opencritic_score)
         if sort == "steam_pct":
             return null_last(game.steam_review_pct)
         if sort == "steam_reviews":
@@ -92,7 +90,6 @@ _COLUMN_LABELS: list[tuple[str, str]] = [
     ("steam_pct",     "Steam %"),
     ("steam_reviews", "Steam Reviews"),
     ("metacritic",    "Metacritic"),
-    ("opencritic",    "OpenCritic"),
 ]
 
 

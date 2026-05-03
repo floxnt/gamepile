@@ -701,11 +701,12 @@ def _build_warnings(gws: GameWithState) -> list[str]:
 
 
 def _quality_str(game) -> Optional[str]:
+    # OpenCritic removed in v3 (see PROJECT_STATE.md). Metacritic and Steam
+    # review % are the only critic/quality signals; we don't substitute when
+    # Metacritic is missing — letting the field be empty is the right call.
     parts: list[str] = []
     if game.metacritic_score is not None and game.metacritic_score >= 85:
         parts.append(f"MC {game.metacritic_score}")
-    if game.opencritic_score is not None and game.opencritic_score >= 85:
-        parts.append(f"OC {game.opencritic_score}")
     if (
         game.steam_review_pct is not None
         and game.steam_review_pct >= 90
@@ -720,15 +721,11 @@ def _critic_str(game) -> Optional[str]:
     parts: list[str] = []
     if game.metacritic_score is not None and game.metacritic_score >= 85:
         parts.append(f"MC {game.metacritic_score}")
-    if game.opencritic_score is not None and game.opencritic_score >= 85:
-        parts.append(f"OC {game.opencritic_score}")
     return " · ".join(parts) if parts else None
 
 
 def _is_high_quality(game) -> bool:
     if game.metacritic_score is not None and game.metacritic_score >= 85:
-        return True
-    if game.opencritic_score is not None and game.opencritic_score >= 85:
         return True
     if (
         game.steam_review_pct is not None
@@ -741,8 +738,6 @@ def _is_high_quality(game) -> bool:
 
 def _is_critically_acclaimed(game) -> bool:
     if game.metacritic_score is not None and game.metacritic_score >= 85:
-        return True
-    if game.opencritic_score is not None and game.opencritic_score >= 85:
         return True
     return False
 

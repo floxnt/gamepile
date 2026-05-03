@@ -92,7 +92,7 @@ Title bold, single line, truncated with ellipsis if very long
 Status badge color-coded per existing system
 Length badge per the established categories (Finishable tonight / A few sessions / etc.)
 Description italicized, muted, truncated to 100 characters with ellipsis. If null, omit.
-Stats line condensed: HLTB main, playtime, Steam %, MC. OpenCritic only if present and integration is healthy.
+Stats line condensed: HLTB main, playtime, Steam %, MC. (OpenCritic removed in v3.)
 For in_progress games specifically: include a progress percentage and a thin progress bar inline. Format: Played 4.2h / ~32h main (13%) with a ▓▓░░░░░░░░ style bar. If hours_played_manual is set, use that for the played figure; otherwise use Steam playtime.
 Primary action: "Add to Shortlist" — flags this game as a priority for the next Shortlist run. (See "Add to Shortlist behavior" below.)
 Overflow menu (⋯): I picked this / Mark in progress / Mark finished / Bounced off it / Not my thing / Already completed / Never recommend

@@ -48,12 +48,12 @@ Modules:
 - `app/routes/{pick,library,refresh,feedback}.py` — route handlers
   (note: `pick.py` will be renamed to `shortlist.py` as part of v2.5
   rename work, with route prefix changing from `/` to `/shortlist`)
-- `app/fetchers/{steam,hltb,opencritic,steamspy}.py` — external API clients
+- `app/fetchers/{steam,hltb,steamspy}.py` — external API clients
 - `app/templates/` + `app/static/` — UI
 
 ## What's built (v1 + v2)
 
-- Steam library refresh with HLTB, OpenCritic, SteamSpy enrichment
+- Steam library refresh with HLTB, SteamSpy enrichment (OpenCritic removed in v3)
 - Shortlist recommendations across modes
 - Pick history with full context (mode, candidates, time window)
 - Affinity tracking (genres, user tags, developers)
@@ -81,9 +81,6 @@ Modules:
 
 ## Known issues / not yet fixed
 
-- OpenCritic API returning 400 errors (likely RapidAPI gateway
-  migration needed) — target fix in v3; if not cleanly fixable,
-  remove the OpenCritic column entirely
 - Various design refinements from testing (collected in bug rundown)
 
 ## Deferred to v3
@@ -95,7 +92,6 @@ Modules:
   metadata, user state, taste model
 - HLTB game type column added to Library (linear / multiplayer focus
   / no defined endpoint / mixed)
-- OpenCritic integration fix or removal
 - Hook-point and stickiness signals (see below)
 
 ## v3 — Hook-point and stickiness signals
@@ -158,6 +154,27 @@ Surface on cards as a one-line categorical badge.
 
 Display: clean range ("Hook point: hours 3-6") on cards;
 per-source breakdown as expandable detail on game detail page.
+
+## OpenCritic — possible future re-introduction (v3.5+)
+
+OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
+endpoint deprecated), and was removed in v3 after confirming the official
+API now requires a paid RapidAPI subscription incompatible with the
+friend-shareable distribution model.
+
+The methodology argument for OpenCritic remains valid (equal-weight
+aggregation, transparent scoring, "% recommended" metric not available
+from Metacritic). If we want this signal back, the path is web scraping
+opencritic.com/game/{slug} during refresh, similar to the Metacritic
+user-score consideration. Tradeoffs: same ToS gray area, same fragility
+when site structure changes, similar lift to implement.
+
+The games.opencritic_score column is preserved nullable for an eventual
+re-introduction. No data migration needed if we revisit.
+
+Phase 3 hook-point work (LLM extraction from critic reviews) is a
+separate concern that may use OpenCritic as a source via scraping
+public review pages, distinct from numerical score fetching.
 
 ## Deferred to v4
 
@@ -231,7 +248,7 @@ hiding the key behind a server.
 - Per-game detail page
 - v3 hook-point Phase 1: stickiness signals
 - HLTB game type column added to Library
-- OpenCritic integration fix or removal
+- OpenCritic removal (done — see "OpenCritic — possible future re-introduction" below)
 - Possibly: data table refactor
 
 **v4:**

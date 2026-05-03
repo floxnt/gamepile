@@ -58,12 +58,6 @@
         <span class="data-value">{{ game.metacritic_score }}</span>
       </div>
     {% endif %}
-    {% if game.opencritic_score %}
-      <div class="data-row">
-        <span class="data-label">OpenCritic</span>
-        <span class="data-value">{{ game.opencritic_score }}</span>
-      </div>
-    {% endif %}
     {% if game.steam_review_pct and game.steam_review_count %}
       <div class="data-row">
         <span class="data-label">Steam reviews</span>

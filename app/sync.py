@@ -34,7 +34,6 @@ import httpx
 
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
-# OpenCritic disabled: API migrated to RapidAPI (requires paid key) as of 2025.
 from app.fetchers import steam as steam_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
 from app.models import Game
@@ -82,9 +81,6 @@ class RefreshProgress:
     hltb_missed: int = 0             # of those, came back empty (genuine + transient combined)
     hltb_transient_recovered: int = 0  # match found via 5s back-off retry — likely was transient
     hltb_skipped: int = 0            # didn't try (cache hit)
-    # OC fetch disabled (RapidAPI migration); fields kept for progress display compat
-    oc_fetched: int = 0
-    oc_skipped: int = 0
     spy_fetched: int = 0
     spy_skipped: int = 0
     release_date_backfilled: int = 0
@@ -267,11 +263,17 @@ async def _phase_steam(client: httpx.AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 — Enrichment (HLTB, OpenCritic, SteamSpy, Steam reviews)
+# Phase 2 — Enrichment (HLTB, SteamSpy, Steam reviews)
 # ---------------------------------------------------------------------------
 
 async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
-    """Enrich each game with store details, HLTB, OpenCritic, and review data."""
+    """Enrich each game with store details, HLTB, and review data.
+
+    OpenCritic was integrated in v1 and removed in v3 — see PROJECT_STATE.md.
+    The opencritic_score column is preserved nullable in case we revisit;
+    enrichment never writes to it now, so existing values pass through
+    untouched and new games stay NULL.
+    """
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=True)
 
@@ -343,9 +345,6 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 ))
                 hltb_outcomes.append(False)
 
-        # OpenCritic fetch disabled — RapidAPI migration requires paid key (2025).
-        progress.oc_skipped += 1
-
         # --- SteamSpy user tags ---
         if not force and game.user_tags and not _is_stale(effective_game):
             log.debug("SteamSpy cached: %s", game.name)
@@ -379,7 +378,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             developer=updates.get("developer", game.developer),
             publisher=updates.get("publisher", game.publisher),
             metacritic_score=updates.get("metacritic_score", game.metacritic_score),
-            opencritic_score=updates.get("opencritic_score", game.opencritic_score),
+            # opencritic_score: enrichment no longer writes this; pass existing
+            # value through so the column survives refresh.
+            opencritic_score=game.opencritic_score,
             steam_review_pct=updates.get("steam_review_pct", game.steam_review_pct),
             steam_review_count=updates.get("steam_review_count", game.steam_review_count),
             last_refreshed=datetime.utcnow(),

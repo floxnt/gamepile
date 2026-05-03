@@ -61,7 +61,11 @@ Default columns, in order:
 8. Steam % (positive percentage)
 9. Steam Reviews (total review count)
 10. Metacritic (critic score)
-11. OpenCritic (drop column entirely if integration remains broken in v3)
+
+(Removed in v3: OpenCritic. Column dropped after the official API moved
+behind a paid RapidAPI gateway incompatible with the friend-shareable
+distribution model. See PROJECT_STATE.md "OpenCritic — possible future
+re-introduction" for context.)
 
 Do NOT show AppID — internal use only.
 Do NOT show genres column when tags column is present (tags supersede genres).
@@ -93,7 +97,7 @@ When data conflicts, the order of authority is:
 
 1. Manual user override (anything `manually_set = true`)
 2. Steam-owned facts (playtime, ownership, last_played)
-3. External enrichment (HLTB, OpenCritic, Metacritic, SteamSpy)
+3. External enrichment (HLTB, Metacritic, SteamSpy)
 4. Inferred or guessed data
 
 Never overwrite higher-precedence data with lower-precedence data
@@ -101,7 +105,7 @@ during refresh.
 
 ## Data integrity
 
-- The app must function if HLTB, OpenCritic, or SteamSpy fails — these
+- The app must function if HLTB or SteamSpy fails — these
   are enrichment, not core dependencies
 - Steam API failures during refresh should be logged and skipped,
   not crash the refresh

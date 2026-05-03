@@ -68,8 +68,8 @@ Two-column layout:
 **Right column — External enrichment:**
 - HLTB Main / Main+Sides / Completionist (with timestamps last_refreshed)
 - Metacritic critic score (with link to Metacritic page if we ever wire that up)
-- OpenCritic score (or hidden if integration is broken)
 - Steam review summary (% positive + total count + tier label)
+- (OpenCritic was removed in v3 — see PROJECT_STATE.md.)
 
 Below both columns: full Steam description (the longer detailed_description if
 we have it; else short_description used elsewhere). Untruncated, in a readable
