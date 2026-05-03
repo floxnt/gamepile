@@ -236,75 +236,75 @@ GAME_TYPE_TOOLTIPS = {
     GAME_TYPE_MIXED: "Mixed — single-player campaign with multiplayer modes (Halo, Borderlands)",
 }
 
-# SteamSpy user_tags vary in form ("Roguelike" / "Rogue-like" / "Rogue-lite"
-# / "Action Roguelike"). Exact-match against FOREVER_USER_TAGS misses these
-# variants; compute_game_type uses substring matching against this set
-# instead. is_forever_game stays on FOREVER_USER_TAGS exact-match because
-# changing its behavior would shift Backlog classification mid-task.
-_NO_ENDPOINT_TAG_SUBSTRINGS = ("rogue", "sandbox", "open world")
+# Tag substrings that classify a game as no_endpoint on their own,
+# independent of HLTB signals. Roguelike / Roguelite games are
+# definitionally endless by structure (procedural, infinite runs);
+# their tags vary in form ("Roguelike" / "Rogue-like" / "Rogue-lite"
+# / "Action Roguelike"), so we substring-match against "rogue".
+#
+# Open World, Sandbox, and MMO are deliberately NOT here: they describe
+# games with clear endpoints (Witcher 3, Elden Ring, Skyrim) often
+# enough that treating them as standalone no_endpoint signals
+# misclassifies linear games. The HLTB-null and completionist-ratio
+# standalone rules already capture the genuinely-endless cases (Stardew
+# at 7x+ completionist, MMOs typically HLTB-null), so Open World /
+# Sandbox / MMO tags don't need their own trigger.
+_STANDALONE_NO_ENDPOINT_TAG_SUBSTRINGS = ("rogue",)
 
 
-def _has_no_endpoint_tag(game) -> bool:
+def _has_standalone_no_endpoint_tag(game) -> bool:
     for tag in game.user_tags_list():
         tag_lower = tag.lower()
-        for needle in _NO_ENDPOINT_TAG_SUBSTRINGS:
+        for needle in _STANDALONE_NO_ENDPOINT_TAG_SUBSTRINGS:
             if needle in tag_lower:
                 return True
     return False
 
 
 def compute_game_type(game) -> str:
-    """Classify a game as linear / multiplayer / no_endpoint / mixed.
+    """Classify a game as linear / multiplayer / no_endpoint.
 
-    Rules (per docs/PROJECT_STATE.md "Game-type detection for hook analysis"):
-      Multiplayer focus  — multi-player Steam category AND no single-player
-      Mixed              — both categories present (Halo, Borderlands)
-      No defined endpoint — single-player only AND any of:
-          - HLTB main is missing/zero
-          - HLTB completionist > 7x HLTB main (same threshold as is_forever_game)
-          - user_tags includes a forever-style tag (Sandbox / Roguelike /
-            Roguelite / Open World) — applies even with HLTB main set, since a
-            "Sandbox" game may technically have a main path but lacks a
-            traditional endpoint
-      Linear             — single-player only, HLTB main exists, none of the
-          no-endpoint signals fire
+    Rules:
+      multiplayer  — Multi-player Steam category AND no Single-player category
+      no_endpoint  — any of:
+                     - HLTB main is missing/zero (no main story to track)
+                     - HLTB completionist > 7x HLTB main (definitionally endless;
+                       same 7x threshold as is_forever_game)
+                     - user_tags include a Roguelike/Roguelite variant
+                       (substring "rogue" — definitionally endless by structure)
+      linear       — fall-through: HLTB main exists, ratio under 7x, no rogue
+                     tag. Multiplayer Steam category alongside Single-player
+                     does NOT push to a separate "mixed" bucket — Steam fires
+                     Multi-player for almost any game with co-op or leaderboards
+                     (Elden Ring, Witcher 3, DS3 all have it), so a separate
+                     Mixed bucket would just collect mostly-linear games.
 
-    Resolution order matters — no_endpoint wins over Mixed because Steam's
-    Multi-player category fires for almost any game with co-op or online
-    leaderboards (Stardew, DS3, Elden Ring all have it). If the no_endpoint
-    signals fired only after Mixed was decided, those games would all be
-    Mixed and the column would be uninformative. The spec example "Stardew
-    Valley → No defined endpoint" requires this ordering.
+    The GAME_TYPE_MIXED constant is preserved (it has CSS / template
+    bindings) but compute_game_type no longer returns it. If a future
+    refinement re-introduces Mixed, the bindings are ready to use.
 
-    Shares the 7x completionist:main threshold and FOREVER_USER_TAGS set with
-    is_forever_game; differs in two places: (a) Mixed is its own bucket here
-    rather than being subsumed under Linear-with-multiplayer, and (b) the
-    user-tag check fires regardless of HLTB-main presence (forever-detection
-    requires HLTB-null AND tags to fire — the umbrella signal there is
-    HLTB-null itself).
+    Open World, Sandbox, and MMO tags do NOT trigger no_endpoint on their
+    own (refinement after Elden Ring / Witcher 3 / Skyrim were misclassified).
+    Genuinely-endless games carrying those tags hit the HLTB-null or
+    completionist-ratio rules anyway (Stardew at 7x+ completionist; MMOs
+    are typically HLTB-null). Roguelike/Roguelite stay standalone because
+    they're definitionally endless regardless of HLTB.
     """
     cats = {t.lower() for t in game.tag_list()}
     has_mp = "multi-player" in cats
     has_sp = "single-player" in cats
 
-    # Pure-multiplayer wins outright.
     if has_mp and not has_sp:
         return GAME_TYPE_MULTIPLAYER
 
-    # No-endpoint signals override Mixed/Linear. Order: HLTB null → completionist
-    # ratio → forever-style user tags. Any one suffices.
     h = game.hltb_main_hours
     if h is None or h <= 0:
         return GAME_TYPE_NO_ENDPOINT
     if game.hltb_completionist_hours and game.hltb_completionist_hours > 7 * h:
         return GAME_TYPE_NO_ENDPOINT
-    if _has_no_endpoint_tag(game):
+    if _has_standalone_no_endpoint_tag(game):
         return GAME_TYPE_NO_ENDPOINT
 
-    # No no-endpoint signal fired. Both sp+mp categories → Mixed (Halo,
-    # Borderlands). Single-player only → Linear.
-    if has_mp and has_sp:
-        return GAME_TYPE_MIXED
     return GAME_TYPE_LINEAR
 
 
