@@ -88,6 +88,7 @@ class RefreshProgress:
     spy_fetched: int = 0
     spy_skipped: int = 0
     release_date_backfilled: int = 0
+    description_backfilled: int = 0
     errors: list[str] = field(default_factory=list)
     hltb_misses: list[HltbMissEntry] = field(default_factory=list)
     started_at: Optional[datetime] = None
@@ -185,12 +186,13 @@ async def run_refresh(force: bool = False) -> None:
         log.info(
             "Refresh complete in %.1fs — added %d, updated %d, "
             "HLTB matched %d / missed %d / skipped %d (recovered %d via backoff), "
-            "release_date backfilled %d, errors %d",
+            "release_date backfilled %d, description backfilled %d, errors %d",
             progress.elapsed_seconds or 0.0,
             progress.games_added, progress.games_updated,
             progress.hltb_matched, progress.hltb_missed, progress.hltb_skipped,
             progress.hltb_transient_recovered,
             progress.release_date_backfilled,
+            progress.description_backfilled,
             len(progress.errors),
         )
 
@@ -283,6 +285,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
 
         updates: dict = {}
         had_release_date = game.release_date is not None
+        had_description = game.description is not None
 
         # --- Steam store details (always fetch — cheap and changes) ---
         progress.phase = f"Store details ({i+1}/{progress.total_games})"
@@ -291,6 +294,8 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             updates.update(details)
             if not had_release_date and details.get("release_date") is not None:
                 progress.release_date_backfilled += 1
+            if not had_description and details.get("description") is not None:
+                progress.description_backfilled += 1
 
         # Resolve the effective release_date for this game (post-merge) so
         # cache decisions below use the freshest available value.
@@ -380,6 +385,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             last_refreshed=datetime.utcnow(),
             is_active=True,
             release_date=updates.get("release_date", game.release_date),
+            description=updates.get("description", game.description),
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -419,4 +425,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         last_refreshed=game.last_refreshed,
         is_active=game.is_active,
         release_date=release_date,
+        description=game.description,
     )

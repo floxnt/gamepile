@@ -385,6 +385,15 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   flex-shrink: 0;
 }
 
+/* --- Description (Shortlist cards only) --- */
+.card-description {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
 /* --- Stats line --- */
 .card-stats-line {
   display: flex;

@@ -43,6 +43,9 @@
   {% if progress.release_date_backfilled %}
     &middot; release_date backfilled on {{ progress.release_date_backfilled }} game(s)
   {% endif %}
+  {% if progress.description_backfilled %}
+    &middot; description backfilled on {{ progress.description_backfilled }} game(s)
+  {% endif %}
   {% if progress.errors %}
     , {{ progress.errors | length }} fatal error(s)
   {% endif %}

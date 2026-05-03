@@ -4,7 +4,7 @@ Steam API wrappers.
 Three endpoints used:
   - IPlayerService/GetOwnedGames — full library list with playtime
   - ISteamApps/appdetails        — genres, tags, Metacritic, developer, publisher,
-                                   release date
+                                   release date, short_description
   - appreviews/{appid}           — positive review percentage + count
 """
 
@@ -75,13 +75,16 @@ async def fetch_owned_games(client: httpx.AsyncClient) -> list[dict]:
 async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[dict]:
     """
     Return store details for one appid, or None on failure.
-    Returned dict has keys: genres, tags, metacritic_score, developer, publisher.
+    Returned dict has keys: genres, tags, metacritic_score, developer, publisher,
+    description (and release_date when parseable).
     """
     await asyncio.sleep(_STORE_DELAY)
     try:
+        # ``basic`` is required for short_description; it bundles a handful of
+        # other fields we ignore. The request count is unchanged.
         resp = await client.get(_DETAILS_URL, params={
             "appids": appid,
-            "filters": "genres,categories,metacritic,developers,publishers,release_date",
+            "filters": "basic,genres,categories,metacritic,developers,publishers,release_date",
             "l": "english",
         }, timeout=20)
         resp.raise_for_status()
@@ -113,6 +116,8 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
     release = info.get("release_date") or {}
     release_dt = parse_release_date(release.get("date"))
 
+    short_desc = (info.get("short_description") or "").strip() or None
+
     out = {
         "genres": genres,
         "tags": tags,
@@ -124,6 +129,8 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
     # the merge in sync.py from overwriting an existing good value with None.
     if release_dt is not None:
         out["release_date"] = release_dt
+    if short_desc is not None:
+        out["description"] = short_desc
     return out
 
 

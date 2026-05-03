@@ -34,6 +34,10 @@
       </div>
     </div>
 
+    {% if game.description %}
+      <p class="card-description">{{ game.description | truncate(180, true, '…', 0) }}</p>
+    {% endif %}
+
     {# Stats line #}
     <div class="card-stats-line">
       {% if game.hltb_main_hours %}
