@@ -493,6 +493,11 @@ def update_game_state(
         if status is not None:
             updates.append("status = ?")
             params.append(status.value)
+            # If status is being moved away from dropped, clear the orphan
+            # dropped_strength so it doesn't dangle. Caller-supplied
+            # dropped_strength below overrides this if provided alongside.
+            if status != GameStatus.dropped and dropped_strength is None:
+                updates.append("dropped_strength = NULL")
         if hours_played_manual is not None:
             updates.append("hours_played_manual = ?")
             params.append(hours_played_manual)
@@ -583,8 +588,11 @@ def reset_status_to_inferred(conn: sqlite3.Connection, appid: int) -> Optional[G
     new_status = infer_status(row["playtime_minutes"], row["hltb_main_hours"], last_played)
     now = datetime.utcnow().isoformat()
     _ensure_state_row(conn, appid)
+    # Also clear dropped_strength: if we're re-inferring to anything that
+    # isn't `dropped` (and infer_status never returns dropped), the
+    # dropped_strength field becomes meaningless and would otherwise dangle.
     conn.execute(
-        "UPDATE game_state SET status = ?, manually_set = 0, updated_at = ? WHERE appid = ?",
+        "UPDATE game_state SET status = ?, manually_set = 0, dropped_strength = NULL, updated_at = ? WHERE appid = ?",
         (new_status.value, now, appid),
     )
     return new_status
