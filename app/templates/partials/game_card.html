@@ -10,7 +10,7 @@
   <div class="card-body">
 
     <div class="card-header">
-      <h2 class="card-title">{{ game.name }}</h2>
+      <h2 class="card-title"><a href="/games/{{ game.appid }}" class="title-link">{{ game.name }}</a></h2>
       <div class="card-badges">
         {# Mode source badge — one per recommender mode #}
         {% if candidate.source == "surprise_me" %}
@@ -117,6 +117,7 @@
       <details class="card-overflow">
         <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
         <div class="card-overflow-menu">
+          <a href="/games/{{ game.appid }}" class="overflow-item">View details</a>
           <button
             hx-post="/games/{{ game.appid }}/quick-action"
             hx-vals='{"action": "already_completed", "card_context": "recommendation"}'

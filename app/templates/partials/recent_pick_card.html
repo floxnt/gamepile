@@ -11,7 +11,7 @@
   <div class="card-body">
 
     <div class="card-header">
-      <h2 class="card-title">{{ game.name }}</h2>
+      <h2 class="card-title"><a href="/games/{{ game.appid }}" class="title-link">{{ game.name }}</a></h2>
       <div class="card-badges">
         <span class="badge badge-{{ state.status.value }}">
           {{ state.status.value | replace("_", " ") | title }}
@@ -94,6 +94,7 @@
           <details class="card-overflow">
             <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
             <div class="card-overflow-menu">
+              <a href="/games/{{ game.appid }}" class="overflow-item">View details</a>
               <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Give detailed feedback</a>
               <button
                 hx-post="/games/{{ game.appid }}/quick-action"
@@ -108,6 +109,7 @@
           <details class="card-overflow">
             <summary class="btn btn-ghost btn-sm card-overflow-btn">⋯</summary>
             <div class="card-overflow-menu">
+              <a href="/games/{{ game.appid }}" class="overflow-item">View details</a>
               <a href="/feedback/{{ pick.id }}/step1" class="overflow-item">Update feedback</a>
               <button
                 hx-post="/games/{{ game.appid }}/quick-action"

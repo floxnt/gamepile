@@ -27,7 +27,7 @@
     <div class="row-head">
       <h3 class="row-title">
         {% if state.pinned_for_shortlist %}<span class="row-pin-icon" title="Pinned for next Shortlist run">📌</span>{% endif %}
-        {{ game.name }}
+        <a href="/games/{{ game.appid }}" class="title-link">{{ game.name }}</a>
       </h3>
       <div class="row-badges">
         {% if state.status.value != 'never_played' %}

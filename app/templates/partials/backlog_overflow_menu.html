@@ -3,6 +3,7 @@
    handler endpoint is the shared /games/{appid}/quick-action route.
    primary_action_key (optional) — when set, hides the matching overflow item
    so the section's primary CTA isn't duplicated in the menu. #}
+<a href="/games/{{ appid }}" class="overflow-item">View details</a>
 {% for action_key, label in valid_actions %}
   {% if primary_action_key is not defined or action_key != primary_action_key %}
     <button

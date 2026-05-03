@@ -1,7 +1,7 @@
 {% set tag_list = gws.game.user_tags_list() %}
 <tr id="row-{{ gws.game.appid }}">
   <td class="game-name">
-    {{ gws.game.name }}
+    <a href="/games/{{ gws.game.appid }}" class="title-link">{{ gws.game.name }}</a>
     {% if not gws.game.is_active %}
       <span class="badge badge-removed">removed</span>
     {% endif %}
