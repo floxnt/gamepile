@@ -113,6 +113,8 @@ def init_db() -> None:
             "ALTER TABLE game_state ADD COLUMN dropped_strength TEXT",
             "ALTER TABLE games ADD COLUMN release_date TEXT",
             "ALTER TABLE games ADD COLUMN description TEXT",
+            "ALTER TABLE game_state ADD COLUMN pinned_for_shortlist BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE game_state ADD COLUMN pinned_at TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -231,6 +233,7 @@ def _row_to_game(row: sqlite3.Row) -> Game:
 
 
 def _row_to_state(row: sqlite3.Row) -> GameState:
+    keys = row.keys()
     return GameState(
         appid=row["appid"],
         status=GameStatus(row["status"]),
@@ -240,7 +243,9 @@ def _row_to_state(row: sqlite3.Row) -> GameState:
         manually_set=bool(row["manually_set"]) if row["manually_set"] is not None else False,
         has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
         blacklisted=bool(row["blacklisted"]) if row["blacklisted"] is not None else False,
-        dropped_strength=row["dropped_strength"] if "dropped_strength" in row.keys() else None,
+        dropped_strength=row["dropped_strength"] if "dropped_strength" in keys else None,
+        pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if "pinned_for_shortlist" in keys and row["pinned_for_shortlist"] is not None else False,
+        pinned_at=_parse_dt(row["pinned_at"]) if "pinned_at" in keys else None,
     )
 
 
@@ -414,7 +419,9 @@ def get_games_with_state(
             gs.manually_set,
             gs.has_technical_issue,
             gs.blacklisted,
-            gs.dropped_strength
+            gs.dropped_strength,
+            gs.pinned_for_shortlist,
+            gs.pinned_at
         FROM games g
         LEFT JOIN game_state gs ON g.appid = gs.appid
         {where}
@@ -434,6 +441,8 @@ def get_games_with_state(
             has_technical_issue=bool(row["has_technical_issue"]) if row["has_technical_issue"] is not None else False,
             blacklisted=bool(row["blacklisted"]) if row["blacklisted"] is not None else False,
             dropped_strength=row["dropped_strength"],
+            pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if row["pinned_for_shortlist"] is not None else False,
+            pinned_at=_parse_dt(row["pinned_at"]),
         )
         result.append(GameWithState(game=game, state=state))
     return result
@@ -494,6 +503,55 @@ def update_game_state(
             f"UPDATE game_state SET {', '.join(updates)} WHERE appid = ?",
             params,
         )
+
+
+# ---------------------------------------------------------------------------
+# Backlog → Shortlist pin
+# ---------------------------------------------------------------------------
+
+def set_pin(conn: sqlite3.Connection, appid: int) -> None:
+    """Pin a game for the next Shortlist run; idempotent.
+
+    Inserts a game_state row if one doesn't exist (status defaults to never_played
+    for the rare race where a game is pinned before its state row is created).
+    """
+    now = datetime.utcnow().isoformat()
+    existing = conn.execute(
+        "SELECT appid FROM game_state WHERE appid = ?", (appid,)
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE game_state SET pinned_for_shortlist = 1, pinned_at = ?, updated_at = ? WHERE appid = ?",
+            (now, now, appid),
+        )
+    else:
+        conn.execute("""
+            INSERT INTO game_state (appid, status, pinned_for_shortlist, pinned_at, updated_at)
+            VALUES (?, 'never_played', 1, ?, ?)
+        """, (appid, now, now))
+
+
+def clear_pin(conn: sqlite3.Connection, appid: int) -> None:
+    """Clear a game's pin; idempotent (no-op if the game is not pinned)."""
+    conn.execute(
+        "UPDATE game_state SET pinned_for_shortlist = 0, pinned_at = NULL, updated_at = ? WHERE appid = ?",
+        (datetime.utcnow().isoformat(), appid),
+    )
+
+
+def expire_pins(conn: sqlite3.Connection, max_age_days: int = 14) -> int:
+    """Clear pins older than max_age_days. Returns count cleared.
+
+    Called at Backlog page load AND at the start of every Shortlist generation —
+    expired pins must never get one final boost before being swept.
+    """
+    cutoff = (datetime.utcnow() - timedelta(days=max_age_days)).isoformat()
+    cursor = conn.execute(
+        "UPDATE game_state SET pinned_for_shortlist = 0, pinned_at = NULL "
+        "WHERE pinned_for_shortlist = 1 AND pinned_at IS NOT NULL AND pinned_at < ?",
+        (cutoff,),
+    )
+    return cursor.rowcount
 
 
 def maybe_refine_inferred_status(

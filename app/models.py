@@ -69,6 +69,11 @@ class GameState:
     blacklisted: bool = False
     # Only set when status == dropped. "soft" = bounced off; "strong" = not my thing.
     dropped_strength: Optional[str] = None
+    # Backlog → Shortlist priority pin. When true, the game receives PIN_SCORE_BOOST
+    # in every Shortlist mode except Surprise me. Cleared automatically on "I picked
+    # this", on manual unpin, or after 14 days.
+    pinned_for_shortlist: bool = False
+    pinned_at: Optional[datetime] = None
 
 
 @dataclass
