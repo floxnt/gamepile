@@ -38,6 +38,15 @@ class RecommendMode(str, Enum):
     surprise_me = "surprise_me"
 
 
+# Score boost applied to games pinned via the Backlog view's "Add to Shortlist"
+# button. Calibrated so a low-base pinned game (0–2) reliably clears the 5th-
+# place cut in every mode, while a top-tier organic competitor (~base 5 +
+# affinity 5 = 10) still beats a low-base pinned game (~6–8) by 2–4 points —
+# i.e. pins push to top-5 reliably without auto-winning.
+# Surprise me is excluded by design (no additive scoring there).
+PIN_SCORE_BOOST = 6.0
+
+
 # Map legacy/aliased mode strings to current values. Keeps existing bookmarks,
 # pick_history.mode rows, and the deprecated "both" default working.
 _LEGACY_MODE_ALIASES = {
@@ -191,10 +200,12 @@ def _short_term(
         score, score_reasons = _score_short_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
+        pin_reasons, pin_delta = _pin_contribution(gws)
+        score += pin_delta
         fit_reason = f"fits {req.minutes}min window"
         if spread_used > 0.25:
             fit_reason = f"close to {req.minutes}min window"
-        all_reasons = affinity_reasons + score_reasons + [fit_reason]
+        all_reasons = pin_reasons + affinity_reasons + score_reasons + [fit_reason]
         candidates.append(Candidate(
             gws=gws,
             remaining_hours=remaining,
@@ -209,9 +220,11 @@ def _short_term(
         score, score_reasons = _score_short_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
+        pin_reasons, pin_delta = _pin_contribution(gws)
+        score += pin_delta
         # No "fits window" reason — duration unknown. Existing _build_warnings
         # already adds a "duration unknown" amber tag.
-        all_reasons = affinity_reasons + score_reasons
+        all_reasons = pin_reasons + affinity_reasons + score_reasons
         candidates.append(Candidate(
             gws=gws,
             remaining_hours=0.0,
@@ -287,7 +300,9 @@ def _continue_something(
 
         affinity_reasons, affinity_delta = _affinity_contribution(game, req.affinities)
         score += affinity_delta
-        all_reasons = affinity_reasons + reasons
+        pin_reasons, pin_delta = _pin_contribution(gws)
+        score += pin_delta
+        all_reasons = pin_reasons + affinity_reasons + reasons
 
         c = Candidate(
             gws=gws,
@@ -369,11 +384,13 @@ def _comfort_pick(
         score = min(game.playtime_minutes / 3000.0, 5.0)
         affinity_reasons, affinity_delta = _affinity_contribution(game, req.affinities)
         score += affinity_delta
+        pin_reasons, pin_delta = _pin_contribution(gws)
+        score += pin_delta
         if game.last_played_steam and game.last_played_steam >= week_ago:
             score -= 1.0
 
         hours_played = int(game.playtime_minutes / 60)
-        why = [f"{hours_played} hours played"] + affinity_reasons
+        why = pin_reasons + [f"{hours_played} hours played"] + affinity_reasons
 
         c = Candidate(
             gws=gws,
@@ -427,12 +444,14 @@ def _long_form_score(
         score, score_reasons = _score_long_term(gws)
         affinity_reasons, affinity_delta = _affinity_contribution(gws.game, req.affinities)
         score += affinity_delta
+        pin_reasons, pin_delta = _pin_contribution(gws)
+        score += pin_delta
 
         remaining, _ = _remaining_hours(gws)
         score += _time_fit_penalty(remaining, window_h)
 
         hltb_ctx = f"long-form ({_fmt_hours(hltb)})"
-        all_reasons = affinity_reasons + score_reasons + [hltb_ctx]
+        all_reasons = pin_reasons + affinity_reasons + score_reasons + [hltb_ctx]
         c = Candidate(
             gws=gws,
             remaining_hours=remaining or hltb,
@@ -609,6 +628,17 @@ def _affinity_contribution(game, affinities: dict) -> tuple[list[str], float]:
     delta = compute_affinity_score(game, affinities)
     reasons = get_affinity_summary(game, affinities) if abs(delta) >= 0.1 else []
     return reasons, delta
+
+
+def _pin_contribution(gws: GameWithState) -> tuple[list[str], float]:
+    """Pin boost for games flagged in the Backlog view.
+
+    Mirrors _affinity_contribution shape so callers can compose the same way.
+    Surprise me does not call this — it has no additive scoring.
+    """
+    if gws.state.pinned_for_shortlist:
+        return ["pinned from backlog"], PIN_SCORE_BOOST
+    return [], 0.0
 
 
 def _remaining_hours(gws: GameWithState) -> tuple[Optional[float], bool]:
