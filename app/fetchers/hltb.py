@@ -31,7 +31,8 @@ BACKOFF_WAIT_SECONDS = 5.0
 
 # Trailing edition / version suffixes — stripped from the cleaned query when
 # the raw query has already failed. Listed longest-first so e.g. "Game of the
-# Year Edition" matches before "Edition".
+# Year Edition" matches before "Edition". Match is case-insensitive (set on
+# the regex), so duplicate-cased entries aren't needed.
 _EDITION_SUFFIXES = [
     "Game of the Year Edition",
     "Anniversary Edition",
@@ -42,12 +43,15 @@ _EDITION_SUFFIXES = [
     "Premium Edition",
     "Standard Edition",
     "Special Edition",
+    "Reloaded Edition",
     "Deluxe Edition",
     "Gold Edition",
     "GOTY Edition",
+    "The Original Classic",
+    "Original Classic",
     "GOTY",
-    "REMASTERED",
     "Remastered",
+    "Remaster",
     "Legacy",
 ]
 _TRADEMARK_RE = re.compile(r"[™®©]")
@@ -56,19 +60,45 @@ _EDITION_RE = re.compile(
     r"\s*[-:–—]?\s*(?:" + "|".join(re.escape(s) for s in _EDITION_SUFFIXES) + r")\s*$",
     re.IGNORECASE,
 )
+# Trailing dash + optional function word (after edition strip). Catches
+# residues like "Nioh 2 – The" where the suffix word ("Complete Edition")
+# was already stripped, leaving the connector.
+_DANGLING_TRAILING_RE = re.compile(
+    r"\s*[-–—]\s*(?:The|A|An|Of)?\s*$",
+    re.IGNORECASE,
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def clean_title(name: str) -> str:
-    """Strip trademark symbols, trailing year parens, edition suffixes, and
-    collapse whitespace. Repeated until the title stabilises so nested
-    suffixes (e.g. ``Foo: GOTY Edition Remastered``) reduce in one call."""
+    """Normalize a Steam title for HLTB lookup.
+
+    Pipeline:
+      1. Replace ™/®/© with a space (not empty), so ``ACE COMBAT™7``
+         becomes ``ACE COMBAT 7`` rather than ``ACE COMBAT7``.
+      2. Strip trailing ``(YYYY)``.
+      3. Loop edition-suffix and dangling-trailing strips until stable so
+         compound cases (``Foo - The Complete Edition`` →
+         strip ``Complete Edition`` → ``Foo - The`` → strip ``- The``) and
+         repeated suffixes (``Foo GOTY Edition Remastered``) collapse in
+         one call.
+      4. Collapse repeated whitespace and trim.
+
+    Internal hyphens within compound words (``Rain-Slick``) are preserved —
+    the dangling-trailing regex is anchored to the end of the string with
+    surrounding-whitespace required, so mid-word hyphens never match.
+    """
+    cur = _TRADEMARK_RE.sub(" ", name)
     prev = None
-    cur = _TRADEMARK_RE.sub("", name)
-    cur = _YEAR_PARENS_RE.sub("", cur)
+    # Year + edition + dangling-trailing all run in the same loop. Year
+    # strip is anchored to end-of-string, so it must re-run after an
+    # edition strip exposes the year as trailing (e.g. "Foo (2024) GOTY
+    # Edition" → strip GOTY → strip year → "Foo").
     while prev != cur:
         prev = cur
+        cur = _YEAR_PARENS_RE.sub("", cur)
         cur = _EDITION_RE.sub("", cur)
+        cur = _DANGLING_TRAILING_RE.sub("", cur)
     cur = _WHITESPACE_RE.sub(" ", cur).strip()
     return cur
 
