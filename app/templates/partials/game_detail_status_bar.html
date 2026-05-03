@@ -1,0 +1,46 @@
+{# Section 2 — Status bar. HTMX swap target for /status and /reset_status. #}
+<section
+  id="game-detail-status-bar"
+  class="game-detail-status-bar"
+>
+  <form
+    class="status-bar-form"
+    hx-post="/games/{{ game.appid }}/status"
+    hx-target="#game-detail-status-bar"
+    hx-swap="outerHTML"
+  >
+    <label class="status-bar-label">
+      Status
+      <select name="status" onchange="this.form.requestSubmit()">
+        {% for value, label, is_current in status_options %}
+          <option value="{{ value }}"{% if is_current %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  <div class="status-bar-meta">
+    {% if state.manually_set %}
+      <span class="status-bar-indicator status-bar-indicator--manual"
+            title="You explicitly set this status. Auto-inference won't override it.">
+        ● Manually set
+      </span>
+      <button
+        class="btn btn-ghost btn-sm status-bar-reset"
+        hx-post="/games/{{ game.appid }}/reset_status"
+        hx-target="#game-detail-status-bar"
+        hx-swap="outerHTML"
+        title="Clear manually-set and re-run inference against current playtime + HLTB."
+      >Reset to auto-inferred</button>
+    {% else %}
+      <span class="status-bar-indicator status-bar-indicator--auto"
+            title="Auto-inferred from Steam playtime + HLTB. Will update on refresh.">
+        ○ Auto-inferred
+      </span>
+    {% endif %}
+
+    {% if game.last_refreshed %}
+      <span class="status-bar-meta-item">Last refreshed: {{ relative_time(game.last_refreshed) }}</span>
+    {% endif %}
+  </div>
+</section>

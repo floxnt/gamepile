@@ -1,0 +1,83 @@
+{# Section 3 — Game data, read-only. Two-column grid; description below. #}
+<section class="game-detail-data">
+  <div class="game-detail-data-column">
+    <h3 class="data-column-title">Steam</h3>
+    <div class="data-row">
+      <span class="data-label">Playtime</span>
+      <span class="data-value">{{ game.playtime_minutes | fmt_minutes }}</span>
+    </div>
+    <div class="data-row">
+      <span class="data-label">Last played</span>
+      <span class="data-value">{{ relative_time(game.last_played_steam) }}</span>
+    </div>
+    {% if game.installed is not none %}
+      <div class="data-row">
+        <span class="data-label">Installed</span>
+        <span class="data-value">{{ "Yes" if game.installed else "No" }}</span>
+      </div>
+    {% endif %}
+    {% if game.genres %}
+      <div class="data-row">
+        <span class="data-label">Genres</span>
+        <span class="data-value">{{ game.genres }}</span>
+      </div>
+    {% endif %}
+    {% if game.user_tags %}
+      <div class="data-row data-row--wrap">
+        <span class="data-label">Tags</span>
+        <span class="data-value">
+          {% for tag in game.user_tags_list()[:10] %}
+            <span class="data-tag">{{ tag }}</span>
+          {% endfor %}
+        </span>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="game-detail-data-column">
+    <h3 class="data-column-title">External</h3>
+    <div class="data-row">
+      <span class="data-label">HLTB Main</span>
+      <span class="data-value">{{ game.hltb_main_hours | fmt_hltb }}</span>
+    </div>
+    {% if game.hltb_main_extra_hours %}
+      <div class="data-row">
+        <span class="data-label">HLTB Main+Extra</span>
+        <span class="data-value">{{ game.hltb_main_extra_hours | fmt_hltb }}</span>
+      </div>
+    {% endif %}
+    {% if game.hltb_completionist_hours %}
+      <div class="data-row">
+        <span class="data-label">HLTB Completionist</span>
+        <span class="data-value">{{ game.hltb_completionist_hours | fmt_hltb }}</span>
+      </div>
+    {% endif %}
+    {% if game.metacritic_score %}
+      <div class="data-row">
+        <span class="data-label">Metacritic</span>
+        <span class="data-value">{{ game.metacritic_score }}</span>
+      </div>
+    {% endif %}
+    {% if game.opencritic_score %}
+      <div class="data-row">
+        <span class="data-label">OpenCritic</span>
+        <span class="data-value">{{ game.opencritic_score }}</span>
+      </div>
+    {% endif %}
+    {% if game.steam_review_pct and game.steam_review_count %}
+      <div class="data-row">
+        <span class="data-label">Steam reviews</span>
+        <span class="data-value">
+          {{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})
+          <span class="data-aside">— {{ review_label(game.steam_review_pct, game.steam_review_count) }}</span>
+        </span>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+{% if game.description %}
+  <section class="game-detail-description">
+    <p>{{ game.description }}</p>
+  </section>
+{% endif %}

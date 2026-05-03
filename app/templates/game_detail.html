@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ game.name }} — GamePile{% endblock %}
+
+{% block content %}
+<section class="game-detail-page">
+
+  {# Section 1 — Header #}
+  {% include "partials/game_detail_header.html" %}
+
+  {# Section 2 — Status bar (HTMX swap target) #}
+  {% include "partials/game_detail_status_bar.html" %}
+
+  {# Section 3 — Game data (read-only) #}
+  {% include "partials/game_detail_data.html" %}
+
+  {# Section 4 — Personal #}
+  <section class="game-detail-personal">
+    <h2 class="game-detail-section-title">Personal</h2>
+    {% include "partials/game_detail_notes.html" %}
+    {% include "partials/game_detail_rating.html" %}
+    {% include "partials/game_detail_hours.html" %}
+  </section>
+
+  {# Section 5 — Affinity contributions #}
+  {% include "partials/game_detail_affinity.html" %}
+
+  {# Section 6 — Pick history (hidden when zero picks) #}
+  {% if pick_rows %}
+    <section class="game-detail-pick-history">
+      <h2 class="game-detail-section-title">Pick history ({{ pick_rows | length }})</h2>
+      <ul class="pick-history-list">
+        {% for row in pick_rows %}
+          {% include "partials/game_detail_pick_history_row.html" %}
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+</section>
+{% endblock %}

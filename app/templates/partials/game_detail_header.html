@@ -1,0 +1,24 @@
+{# Section 1 — Header. Cover art + title block + meta. #}
+<header class="game-detail-header">
+  <img
+    src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/library_600x900.jpg"
+    alt="{{ game.name }}"
+    class="game-detail-cover"
+    onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/header.jpg'"
+  >
+  <div class="game-detail-title-block">
+    <h1 class="game-detail-title">{{ game.name }}</h1>
+    <div class="game-detail-meta">
+      {% if game.developer %}<span class="meta-item">{{ game.developer }}</span>{% endif %}
+      {% if game.release_date %}
+        {% if game.developer %}<span class="meta-sep">·</span>{% endif %}
+        <span class="meta-item">{{ game.release_date.year }}</span>
+      {% endif %}
+      <span class="meta-sep">·</span>
+      <span class="badge badge-cat-tonight">{{ duration_label(game.hltb_main_hours) }}</span>
+      {% if is_forever %}
+        <span class="badge badge-length">Forever game</span>
+      {% endif %}
+    </div>
+  </div>
+</header>

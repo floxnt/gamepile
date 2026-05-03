@@ -1,0 +1,26 @@
+{# Section 5 — Affinity contributions. Reuses the affinity_pill partial
+   from Dashboard. Heading is "This game's taste profile" (per Q5
+   refinement) — it shows the global affinity weights for this game's
+   labels, not a per-game contribution attribution. #}
+<section class="game-detail-affinity affinity-section">
+  <h2 class="affinity-section-title">This game's taste profile</h2>
+  {% if not affinity_has_any %}
+    <p class="affinity-empty">
+      No taste data yet. Pick this game from Shortlist and tell us how it
+      went to start tracking.
+    </p>
+  {% else %}
+    {% for category in affinity_categories %}
+      {% if category.pills %}
+        <div class="affinity-category">
+          <div class="affinity-category-label">{{ category.name }}</div>
+          <div class="affinity-pills">
+            {% for pill in category.pills %}
+              {% include "partials/affinity_pill.html" %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+</section>

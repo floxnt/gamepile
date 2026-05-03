@@ -1,0 +1,39 @@
+{# Manual hours-played override. HTMX swap target. #}
+<div id="game-detail-hours" class="personal-field">
+  <label class="personal-field-label" for="hours-input-{{ game.appid }}">
+    Hours played (your estimate)
+  </label>
+  <form
+    hx-post="/games/{{ game.appid }}/hours_played_manual"
+    hx-target="#game-detail-hours"
+    hx-swap="outerHTML"
+    class="personal-field-form-inline"
+  >
+    <input
+      id="hours-input-{{ game.appid }}"
+      type="number"
+      name="hours"
+      step="0.1"
+      min="0"
+      value="{{ state.hours_played_manual or '' }}"
+      class="personal-field-number"
+      placeholder="e.g. 12"
+    >
+    <span class="personal-field-suffix">hours</span>
+    <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+    {% if state.hours_played_manual is not none %}
+      <button
+        type="submit" name="clear" value="1"
+        class="btn btn-ghost btn-sm"
+        formnovalidate
+      >Clear</button>
+    {% endif %}
+    {% if saved is defined and saved %}
+      <span class="personal-field-saved">Saved.</span>
+    {% endif %}
+  </form>
+  <p class="personal-field-hint">
+    Use this if your Steam playtime is wrong (idled, played elsewhere, didn't track).
+    Overrides Steam playtime in the recommender's remaining-time calculation.
+  </p>
+</div>

@@ -1,0 +1,17 @@
+{# One pick_history row, formatted for display. Input: row (PickHistoryRow). #}
+<li class="pick-history-row">
+  <div class="pick-history-meta">
+    <span class="pick-history-date">{{ row.date_label }}</span>
+    <span class="pick-history-sep">·</span>
+    <span class="pick-history-mode">{{ row.mode_label }}</span>
+    <span class="pick-history-sep">·</span>
+    <span class="pick-history-window">{{ row.window_label }}</span>
+  </div>
+  <div class="pick-history-outcome">
+    <span class="pick-history-arrow">→</span>
+    {{ row.outcome_label }}
+    {% if row.retroactive_pick_label %}
+      <span class="pick-history-retro">{{ row.retroactive_pick_label }}</span>
+    {% endif %}
+  </div>
+</li>

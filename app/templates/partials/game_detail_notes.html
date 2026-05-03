@@ -1,0 +1,23 @@
+{# Personal notes form. HTMX swap target. #}
+<div id="game-detail-notes" class="personal-field">
+  <label class="personal-field-label" for="notes-input-{{ game.appid }}">Notes</label>
+  <form
+    hx-post="/games/{{ game.appid }}/notes"
+    hx-target="#game-detail-notes"
+    hx-swap="outerHTML"
+  >
+    <textarea
+      id="notes-input-{{ game.appid }}"
+      name="notes"
+      rows="4"
+      class="personal-field-textarea"
+      placeholder="Anything you want to remember about this game…"
+    >{{ state.notes or "" }}</textarea>
+    <div class="personal-field-actions">
+      <button type="submit" class="btn btn-secondary btn-sm">Save</button>
+      {% if saved is defined and saved %}
+        <span class="personal-field-saved">Saved.</span>
+      {% endif %}
+    </div>
+  </form>
+</div>
