@@ -96,3 +96,9 @@ templates.env.filters["fmt_count"] = _fmt_count
 templates.env.filters["fmt_hltb"] = _fmt_hltb
 templates.env.globals["review_label"] = _review_label
 templates.env.globals["duration_label"] = _duration_label
+
+# relative_time lives in app.game_detail (pure-functional). Imported here so
+# templates can call it as a Jinja global without each route having to inject
+# it into context.
+from app.game_detail import relative_time as _relative_time  # noqa: E402
+templates.env.globals["relative_time"] = _relative_time

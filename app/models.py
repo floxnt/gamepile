@@ -74,6 +74,9 @@ class GameState:
     # this", on manual unpin, or after 14 days.
     pinned_for_shortlist: bool = False
     pinned_at: Optional[datetime] = None
+    # 1-5 user rating set via the Game Detail page; NULL when the user
+    # hasn't rated. Distinct from the recommender's affinity weight.
+    personal_rating: Optional[int] = None
 
 
 @dataclass

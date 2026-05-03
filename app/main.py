@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import database as db
-from app.routes import backlog, dashboard, feedback, library, refresh, shortlist
+from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, shortlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +32,7 @@ app.include_router(shortlist.router)
 app.include_router(library.router)
 app.include_router(backlog.router)
 app.include_router(dashboard.router)
+app.include_router(game_detail.router)
 app.include_router(refresh.router)
 app.include_router(feedback.router)
 

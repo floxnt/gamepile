@@ -121,6 +121,10 @@ def init_db() -> None:
             # existing data, no backfill).
             "ALTER TABLE pick_history ADD COLUMN status_at_pick TEXT",
             "ALTER TABLE pick_history ADD COLUMN was_forever_at_pick BOOLEAN",
+            # User-set 1-5 personal rating, surfaced via the Game Detail page.
+            # The existing `notes` column is reused for personal notes (was
+            # added in v1 but never wired to UI) — no separate column added.
+            "ALTER TABLE game_state ADD COLUMN personal_rating INTEGER",
         ]:
             try:
                 conn.execute(ddl)
@@ -252,6 +256,7 @@ def _row_to_state(row: sqlite3.Row) -> GameState:
         dropped_strength=row["dropped_strength"] if "dropped_strength" in keys else None,
         pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if "pinned_for_shortlist" in keys and row["pinned_for_shortlist"] is not None else False,
         pinned_at=_parse_dt(row["pinned_at"]) if "pinned_at" in keys else None,
+        personal_rating=row["personal_rating"] if "personal_rating" in keys else None,
     )
 
 
@@ -427,7 +432,8 @@ def get_games_with_state(
             gs.blacklisted,
             gs.dropped_strength,
             gs.pinned_for_shortlist,
-            gs.pinned_at
+            gs.pinned_at,
+            gs.personal_rating
         FROM games g
         LEFT JOIN game_state gs ON g.appid = gs.appid
         {where}
@@ -449,6 +455,7 @@ def get_games_with_state(
             dropped_strength=row["dropped_strength"],
             pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if row["pinned_for_shortlist"] is not None else False,
             pinned_at=_parse_dt(row["pinned_at"]),
+            personal_rating=row["personal_rating"],
         )
         result.append(GameWithState(game=game, state=state))
     return result
@@ -509,6 +516,87 @@ def update_game_state(
             f"UPDATE game_state SET {', '.join(updates)} WHERE appid = ?",
             params,
         )
+
+
+# ---------------------------------------------------------------------------
+# Game Detail page helpers
+# ---------------------------------------------------------------------------
+
+def _ensure_state_row(conn: sqlite3.Connection, appid: int) -> None:
+    """Insert a default state row if one doesn't exist. Used by the
+    set_* helpers below so editing a never-touched game just works."""
+    conn.execute("""
+        INSERT OR IGNORE INTO game_state (appid, status, manually_set, updated_at)
+        VALUES (?, 'never_played', 0, ?)
+    """, (appid, datetime.utcnow().isoformat()))
+
+
+def set_notes(conn: sqlite3.Connection, appid: int, notes: Optional[str]) -> None:
+    """Save personal notes. Empty string and None both clear the field
+    (an empty notes textarea is functionally 'no notes')."""
+    _ensure_state_row(conn, appid)
+    value = notes.strip() if notes else None
+    if not value:
+        value = None
+    conn.execute(
+        "UPDATE game_state SET notes = ?, updated_at = ? WHERE appid = ?",
+        (value, datetime.utcnow().isoformat(), appid),
+    )
+
+
+def set_personal_rating(conn: sqlite3.Connection, appid: int, rating: Optional[int]) -> None:
+    """Save 1-5 personal rating. None clears the field. Out-of-range values
+    are rejected silently — caller validates beforehand."""
+    if rating is not None and not (1 <= rating <= 5):
+        return
+    _ensure_state_row(conn, appid)
+    conn.execute(
+        "UPDATE game_state SET personal_rating = ?, updated_at = ? WHERE appid = ?",
+        (rating, datetime.utcnow().isoformat(), appid),
+    )
+
+
+def set_hours_played_manual(conn: sqlite3.Connection, appid: int, hours: Optional[float]) -> None:
+    """Save manual-override hours played. None clears the field."""
+    _ensure_state_row(conn, appid)
+    conn.execute(
+        "UPDATE game_state SET hours_played_manual = ?, updated_at = ? WHERE appid = ?",
+        (hours, datetime.utcnow().isoformat(), appid),
+    )
+
+
+def reset_status_to_inferred(conn: sqlite3.Connection, appid: int) -> Optional[GameStatus]:
+    """Clear manually_set and re-run infer_status against current playtime
+    + HLTB + last_played. Returns the new status, or None if the game
+    doesn't exist. Does not refuse to demote from 'finished' — the user
+    explicitly chose Reset, and infer_status only ever returns
+    never_played / played_unclassified / in_progress anyway.
+    """
+    row = conn.execute("""
+        SELECT g.playtime_minutes, g.hltb_main_hours, g.last_played_steam
+        FROM games g WHERE g.appid = ?
+    """, (appid,)).fetchone()
+    if not row:
+        return None
+
+    last_played = _parse_dt(row["last_played_steam"])
+    new_status = infer_status(row["playtime_minutes"], row["hltb_main_hours"], last_played)
+    now = datetime.utcnow().isoformat()
+    _ensure_state_row(conn, appid)
+    conn.execute(
+        "UPDATE game_state SET status = ?, manually_set = 0, updated_at = ? WHERE appid = ?",
+        (new_status.value, now, appid),
+    )
+    return new_status
+
+
+def get_picks_for_appid(conn: sqlite3.Connection, appid: int) -> list[PickHistory]:
+    """All pick_history rows for one game, newest first."""
+    rows = conn.execute(
+        "SELECT * FROM pick_history WHERE appid = ? ORDER BY picked_at DESC",
+        (appid,),
+    ).fetchall()
+    return [_row_to_pick_history(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
