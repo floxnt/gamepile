@@ -182,7 +182,10 @@ def is_forever_game(game) -> bool:
 
     Conditions (any one triggers):
       1. HLTB main is null or zero — no story to finish
-      2. HLTB completionist > 5x HLTB main — game is mostly side content / grind
+      2. HLTB completionist > 7x HLTB main — game is mostly side content / grind.
+         Tuned up from 5x: at 5x, structurally finishable games with plentiful
+         optional content (e.g. Aimlabs at 5.3x) got swept in; 7x catches the
+         truly endless games while leaving those alone.
       3. User tags include a forever-style tag AND HLTB main is missing
          (subsumed by #1 in practice; kept for spec literalness)
       4. Steam categories show Multi-player without Single-player
@@ -192,7 +195,7 @@ def is_forever_game(game) -> bool:
         return True
 
     if game.hltb_completionist_hours and h > 0:
-        if game.hltb_completionist_hours > 5 * h:
+        if game.hltb_completionist_hours > 7 * h:
             return True
 
     user_tags = {t.lower() for t in game.user_tags_list()}
@@ -315,24 +318,27 @@ def _section_for_game(gws: GameWithState) -> Optional[str]:
     """Determine which section a game lives in, ignoring user filters.
 
     Order of resolution (precedence):
-      in_progress wins over forever  — actively playing a forever game still
-                                       belongs at the top of the backlog
+      forever wins over everything — Backlog is a progression surface and a
+                                     forever game has no progress to track.
+                                     This holds even for in_progress (the
+                                     user already engages with active
+                                     forever games via Steam recent activity
+                                     and the game's own UI) and dropped-soft.
       dropped (soft) → its own section
-      forever check applies to played_unclassified + never_played
+      in_progress    → its own section
       played_unclassified → ratio-based subdivision
-      never_played → its own section
+      never_played   → its own section
     """
-    s = gws.state.status
+    if is_forever_game(gws.game):
+        return SECTION_FOREVER_GAMES
 
-    if s == GameStatus.in_progress:
-        return SECTION_IN_PROGRESS
+    s = gws.state.status
 
     if s == GameStatus.dropped and gws.state.dropped_strength == "soft":
         return SECTION_DROPPED_SOFT
 
-    if s in (GameStatus.played_unclassified, GameStatus.never_played):
-        if is_forever_game(gws.game):
-            return SECTION_FOREVER_GAMES
+    if s == GameStatus.in_progress:
+        return SECTION_IN_PROGRESS
 
     if s == GameStatus.played_unclassified:
         ratio = playtime_ratio(gws)
