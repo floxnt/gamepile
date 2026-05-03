@@ -49,6 +49,9 @@ def _build_picks_context(request: Request, minutes: int, mode: Optional[str]) ->
     excluded_ids = _parse_excluded(request)
 
     with db.get_db() as conn:
+        # Sweep expired pins (>14 days) before loading games — must happen
+        # before get_games_with_state so swept pins don't get one final boost.
+        db.expire_pins(conn)
         all_games = db.get_games_with_state(conn)
         affinities = db.get_all_affinities(conn)
 
@@ -132,14 +135,16 @@ async def quick_action(
     card_context: str = Form("recommendation"),  # "recent_pick" | "recommendation"
 ):
     """
-    Quick-action buttons on both card types.
+    Quick-action buttons used by Shortlist cards, recent-pick cards, and
+    backlog rows.
 
     Actions:
-      finished         — mark finished, no affinity (correcting historical data)
-      bounced          — dropped + soft(-0.5) affinity per genre/tag/dev
-      not_my_thing     — dropped + strong(-1.0) affinity per genre/tag/dev
-      never_recommend  — blacklisted=True, no affinity
-      already_completed — alias for finished on recommendation cards
+      finished           — mark finished, no affinity (correcting historical data)
+      bounced            — dropped + soft(-0.5) affinity per genre/tag/dev
+      not_my_thing       — dropped + strong(-1.0) affinity per genre/tag/dev
+      never_recommend    — blacklisted=True, no affinity
+      already_completed  — alias for finished
+      mark_in_progress   — mark in progress (used by backlog overflow menu)
     """
     from app.models import GameStatus
 
@@ -152,6 +157,15 @@ async def quick_action(
             db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
             if pick_id:
                 db.update_pick_outcome(conn, pick_id, outcome="played_and_finished")
+
+        elif action == "mark_in_progress":
+            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
+
+        elif action == "pick":
+            # Backlog "I picked this" — status nudge only. No pick_history row
+            # (this isn't a recommendation outcome) and any pin auto-clears.
+            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
+            db.clear_pin(conn, appid)
 
         elif action == "bounced":
             db.update_game_state(
@@ -183,6 +197,14 @@ async def quick_action(
     if card_context == "recommendation":
         return HTMLResponse(
             f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>'
+        )
+
+    if card_context == "backlog":
+        # Dismiss the row in-place. Section counts and stats become slightly
+        # stale until the user reloads /backlog — acceptable given the
+        # alternative (re-rendering the whole page on every action) is heavy.
+        return HTMLResponse(
+            f'<div id="backlog-row-{appid}" class="backlog-row backlog-row--dismissed"></div>'
         )
 
     if pick_id is None:
@@ -218,6 +240,9 @@ async def mark_picked(request: Request, appid: int):
 
     with db.get_db() as conn:
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
+        # Picking a game from Shortlist auto-clears any backlog pin on it —
+        # the user has already acted on the surface, no need to keep boosting.
+        db.clear_pin(conn, appid)
         game = db.get_game_by_appid(conn, appid)
         game_name = game.name if game else f"App {appid}"
         db.insert_pick_history(
