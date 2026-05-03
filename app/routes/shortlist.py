@@ -251,12 +251,21 @@ async def mark_picked(request: Request, appid: int):
         minutes_val if mode_str == RecommendMode.i_only_have_tonight.value else None
     )
 
+    from app.backlog import is_forever_game
+
     with db.get_db() as conn:
+        # Capture pre-pick eligibility for the Dashboard's picks-per-week
+        # filter. Read BEFORE update_game_state so we record the state the
+        # user actually acted on, not the in_progress state we're about to set.
+        pre = db.get_game_with_state_by_appid(conn, appid)
+        status_at_pick = pre.state.status.value if pre else None
+        was_forever_at_pick = is_forever_game(pre.game) if pre else None
+
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
         # Picking a game from Shortlist auto-clears any backlog pin on it —
         # the user has already acted on the surface, no need to keep boosting.
         db.clear_pin(conn, appid)
-        game = db.get_game_by_appid(conn, appid)
+        game = pre.game if pre else None
         game_name = game.name if game else f"App {appid}"
         db.insert_pick_history(
             conn,
@@ -265,6 +274,8 @@ async def mark_picked(request: Request, appid: int):
             mode=mode_str,
             time_window_minutes=time_window,
             candidates_at_pick=candidates_at_pick,
+            status_at_pick=status_at_pick,
+            was_forever_at_pick=was_forever_at_pick,
         )
 
     return templates.TemplateResponse(request, "partials/game_card_confirm.html", {

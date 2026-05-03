@@ -119,6 +119,12 @@ class PickHistory:
     # Did-not-play branch (step 1.5 / 1.6):
     did_not_play_reason: Optional[str]        # no_time | changed_mood | picked_another_game | technical_issue
     actually_played_appid: Optional[int]      # FK to games — set via step 1.6 library search
+    # Eligibility-at-pick-time snapshot, captured by mark_picked. Both NULL on
+    # rows inserted before the v3 Dashboard work — treated as "include" by the
+    # Dashboard picks-per-week filter (no backfill from current state, since
+    # current state is unreliable signal for past intent).
+    status_at_pick: Optional[str] = None      # one of GameStatus values; NULL on legacy rows
+    was_forever_at_pick: Optional[bool] = None  # is_forever_game(game) at pick time
 
 
 @dataclass

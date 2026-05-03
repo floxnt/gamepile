@@ -115,6 +115,12 @@ def init_db() -> None:
             "ALTER TABLE games ADD COLUMN description TEXT",
             "ALTER TABLE game_state ADD COLUMN pinned_for_shortlist BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE game_state ADD COLUMN pinned_at TEXT",
+            # Eligibility-at-pick-time capture for the Dashboard's
+            # picks-per-week calculation. Both nullable; historical rows
+            # NULL on both columns are treated as "include" (charitable to
+            # existing data, no backfill).
+            "ALTER TABLE pick_history ADD COLUMN status_at_pick TEXT",
+            "ALTER TABLE pick_history ADD COLUMN was_forever_at_pick BOOLEAN",
         ]:
             try:
                 conn.execute(ddl)
@@ -625,11 +631,23 @@ def insert_pick_history(
     mode: str,
     time_window_minutes: Optional[int],
     candidates_at_pick: list[int],
+    status_at_pick: Optional[str] = None,
+    was_forever_at_pick: Optional[bool] = None,
 ) -> int:
+    """Insert a pick_history row.
+
+    status_at_pick / was_forever_at_pick capture eligibility at the moment of
+    the pick — populated by the caller from pre-pick game state. Both are
+    optional so legacy callers / tests don't need to provide them; rows
+    inserted without them are treated as "include" by the Dashboard
+    picks-per-week filter.
+    """
     cursor = conn.execute("""
-        INSERT INTO pick_history
-            (appid, game_name, picked_at, time_window_minutes, mode, candidates_at_pick, outcome)
-        VALUES (?, ?, ?, ?, ?, ?, NULL)
+        INSERT INTO pick_history (
+            appid, game_name, picked_at, time_window_minutes, mode,
+            candidates_at_pick, outcome, status_at_pick, was_forever_at_pick
+        )
+        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
     """, (
         appid,
         game_name,
@@ -637,8 +655,27 @@ def insert_pick_history(
         time_window_minutes,
         mode,
         json.dumps(candidates_at_pick),
+        status_at_pick,
+        1 if was_forever_at_pick else (0 if was_forever_at_pick is False else None),
     ))
     return cursor.lastrowid
+
+
+def get_picks_since(conn: sqlite3.Connection, threshold_dt: datetime) -> list[PickHistory]:
+    """Return pick_history rows with picked_at >= threshold_dt, oldest first."""
+    rows = conn.execute(
+        "SELECT * FROM pick_history WHERE picked_at >= ? ORDER BY picked_at ASC",
+        (threshold_dt.isoformat(),),
+    ).fetchall()
+    return [_row_to_pick_history(r) for r in rows]
+
+
+def get_most_recent_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
+    """Return the single most recent pick_history row, or None if empty."""
+    row = conn.execute(
+        "SELECT * FROM pick_history ORDER BY picked_at DESC LIMIT 1"
+    ).fetchone()
+    return _row_to_pick_history(row) if row else None
 
 
 def get_oldest_pending_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
@@ -720,6 +757,11 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
         would_have_picked_other_appid=row["would_have_picked_other_appid"],
         did_not_play_reason=row["did_not_play_reason"] if "did_not_play_reason" in keys else None,
         actually_played_appid=row["actually_played_appid"] if "actually_played_appid" in keys else None,
+        status_at_pick=row["status_at_pick"] if "status_at_pick" in keys else None,
+        was_forever_at_pick=(
+            bool(row["was_forever_at_pick"]) if "was_forever_at_pick" in keys and row["was_forever_at_pick"] is not None
+            else None
+        ),
     )
 
 
@@ -789,6 +831,33 @@ def get_all_affinities(conn: sqlite3.Connection) -> dict:
 def get_game_by_appid(conn: sqlite3.Connection, appid: int) -> Optional[Game]:
     row = conn.execute("SELECT * FROM games WHERE appid = ?", (appid,)).fetchone()
     return _row_to_game(row) if row else None
+
+
+def get_game_with_state_by_appid(
+    conn: sqlite3.Connection, appid: int
+) -> Optional[GameWithState]:
+    """Return one game's current data + state, or None if the game isn't known.
+
+    Used by mark_picked to capture eligibility-at-pick-time without round-
+    tripping through get_games_with_state's full library scan.
+    """
+    game = get_game_by_appid(conn, appid)
+    if game is None:
+        return None
+    gs_row = conn.execute(
+        "SELECT * FROM game_state WHERE appid = ?", (appid,)
+    ).fetchone()
+    state = (
+        _row_to_state(gs_row) if gs_row
+        else GameState(
+            appid=appid,
+            status=GameStatus.never_played,
+            hours_played_manual=None,
+            notes=None,
+            updated_at=datetime.utcnow(),
+        )
+    )
+    return GameWithState(game=game, state=state)
 
 
 def upsert_affinity_delta(
