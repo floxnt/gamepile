@@ -102,3 +102,15 @@ templates.env.globals["duration_label"] = _duration_label
 # it into context.
 from app.game_detail import relative_time as _relative_time  # noqa: E402
 templates.env.globals["relative_time"] = _relative_time
+
+# compute_game_type is registered as a Jinja global so the Library row template
+# can render the Type badge per-row without each route handler having to
+# pre-attach it to every gws. The label/tooltip dicts come along for badge text.
+from app.backlog import (  # noqa: E402
+    GAME_TYPE_LABELS as _GAME_TYPE_LABELS,
+    GAME_TYPE_TOOLTIPS as _GAME_TYPE_TOOLTIPS,
+    compute_game_type as _compute_game_type,
+)
+templates.env.globals["compute_game_type"] = _compute_game_type
+templates.env.globals["game_type_labels"] = _GAME_TYPE_LABELS
+templates.env.globals["game_type_tooltips"] = _GAME_TYPE_TOOLTIPS

@@ -211,6 +211,103 @@ def is_forever_game(game) -> bool:
     return False
 
 
+# Game-type values used by compute_game_type and the Library Type column.
+# String constants instead of an enum so templates can dispatch via dict
+# lookup without importing the enum.
+GAME_TYPE_LINEAR = "linear"
+GAME_TYPE_MULTIPLAYER = "multiplayer"
+GAME_TYPE_NO_ENDPOINT = "no_endpoint"
+GAME_TYPE_MIXED = "mixed"
+
+# Short labels used by the Library Type column. Long forms ("Multiplayer
+# focus", "No defined endpoint") are reserved for hover tooltips so the
+# column doesn't crowd at narrow widths.
+GAME_TYPE_LABELS = {
+    GAME_TYPE_LINEAR: "Linear",
+    GAME_TYPE_MULTIPLAYER: "Multiplayer",
+    GAME_TYPE_NO_ENDPOINT: "No endpoint",
+    GAME_TYPE_MIXED: "Mixed",
+}
+
+GAME_TYPE_TOOLTIPS = {
+    GAME_TYPE_LINEAR: "Linear / story-driven — has a defined main path",
+    GAME_TYPE_MULTIPLAYER: "Multiplayer focus — no single-player campaign",
+    GAME_TYPE_NO_ENDPOINT: "No defined endpoint — sandbox, roguelike, or open-ended",
+    GAME_TYPE_MIXED: "Mixed — single-player campaign with multiplayer modes (Halo, Borderlands)",
+}
+
+# SteamSpy user_tags vary in form ("Roguelike" / "Rogue-like" / "Rogue-lite"
+# / "Action Roguelike"). Exact-match against FOREVER_USER_TAGS misses these
+# variants; compute_game_type uses substring matching against this set
+# instead. is_forever_game stays on FOREVER_USER_TAGS exact-match because
+# changing its behavior would shift Backlog classification mid-task.
+_NO_ENDPOINT_TAG_SUBSTRINGS = ("rogue", "sandbox", "open world")
+
+
+def _has_no_endpoint_tag(game) -> bool:
+    for tag in game.user_tags_list():
+        tag_lower = tag.lower()
+        for needle in _NO_ENDPOINT_TAG_SUBSTRINGS:
+            if needle in tag_lower:
+                return True
+    return False
+
+
+def compute_game_type(game) -> str:
+    """Classify a game as linear / multiplayer / no_endpoint / mixed.
+
+    Rules (per docs/PROJECT_STATE.md "Game-type detection for hook analysis"):
+      Multiplayer focus  — multi-player Steam category AND no single-player
+      Mixed              — both categories present (Halo, Borderlands)
+      No defined endpoint — single-player only AND any of:
+          - HLTB main is missing/zero
+          - HLTB completionist > 7x HLTB main (same threshold as is_forever_game)
+          - user_tags includes a forever-style tag (Sandbox / Roguelike /
+            Roguelite / Open World) — applies even with HLTB main set, since a
+            "Sandbox" game may technically have a main path but lacks a
+            traditional endpoint
+      Linear             — single-player only, HLTB main exists, none of the
+          no-endpoint signals fire
+
+    Resolution order matters — no_endpoint wins over Mixed because Steam's
+    Multi-player category fires for almost any game with co-op or online
+    leaderboards (Stardew, DS3, Elden Ring all have it). If the no_endpoint
+    signals fired only after Mixed was decided, those games would all be
+    Mixed and the column would be uninformative. The spec example "Stardew
+    Valley → No defined endpoint" requires this ordering.
+
+    Shares the 7x completionist:main threshold and FOREVER_USER_TAGS set with
+    is_forever_game; differs in two places: (a) Mixed is its own bucket here
+    rather than being subsumed under Linear-with-multiplayer, and (b) the
+    user-tag check fires regardless of HLTB-main presence (forever-detection
+    requires HLTB-null AND tags to fire — the umbrella signal there is
+    HLTB-null itself).
+    """
+    cats = {t.lower() for t in game.tag_list()}
+    has_mp = "multi-player" in cats
+    has_sp = "single-player" in cats
+
+    # Pure-multiplayer wins outright.
+    if has_mp and not has_sp:
+        return GAME_TYPE_MULTIPLAYER
+
+    # No-endpoint signals override Mixed/Linear. Order: HLTB null → completionist
+    # ratio → forever-style user tags. Any one suffices.
+    h = game.hltb_main_hours
+    if h is None or h <= 0:
+        return GAME_TYPE_NO_ENDPOINT
+    if game.hltb_completionist_hours and game.hltb_completionist_hours > 7 * h:
+        return GAME_TYPE_NO_ENDPOINT
+    if _has_no_endpoint_tag(game):
+        return GAME_TYPE_NO_ENDPOINT
+
+    # No no-endpoint signal fired. Both sp+mp categories → Mixed (Halo,
+    # Borderlands). Single-player only → Linear.
+    if has_mp and has_sp:
+        return GAME_TYPE_MIXED
+    return GAME_TYPE_LINEAR
+
+
 def playtime_ratio(gws: GameWithState) -> Optional[float]:
     """Return playtime / HLTB-main as a ratio. None if HLTB main missing."""
     h = gws.game.hltb_main_hours

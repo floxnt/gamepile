@@ -18,6 +18,10 @@
       —
     {% endif %}
   </td>
+  <td class="library-game-type">
+    {% set gt = compute_game_type(gws.game) %}
+    <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
+  </td>
   <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>
   <td>
     {% if gws.game.hltb_main_hours %}

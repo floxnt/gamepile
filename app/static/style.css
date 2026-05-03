@@ -358,6 +358,15 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
 .badge-cat-continue { background: #1e3a5f; color: #5ba3f5; }
 .badge-cat-comfort  { background: #2c1f3a; color: #d2a8ff; }
 
+/* Library Type column. Reuses the existing cat-* color values rather than
+   introducing new tokens (per design contract). Linear uses the green
+   "finishable" hue, Multiplayer the blue "continuing" hue, No-endpoint the
+   amber "warn" hue, Mixed the purple middle-ground hue. */
+.badge-type-linear        { background: #1a2e1a; color: #7ecf7e; }
+.badge-type-multiplayer   { background: #1e3a5f; color: #5ba3f5; }
+.badge-type-no_endpoint   { background: #2a2010; color: #e8b84b; }
+.badge-type-mixed         { background: #2c1f3a; color: #d2a8ff; }
+
 /* --- Stats + inline actions row (recent pick cards) --- */
 .card-stats-actions {
   display: flex;

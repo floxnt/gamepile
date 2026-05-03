@@ -24,7 +24,7 @@ _STATUS_SORT_ORDER = {
 }
 
 _SORT_COLUMNS = [
-    "name", "status", "developer",
+    "name", "status", "game_type", "developer",
     "hltb_main", "hltb_compl",
     "playtime", "steam_pct", "steam_reviews",
     "metacritic", "opencritic",
@@ -57,6 +57,9 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             return game.name.lower()
         if sort == "status":
             return _STATUS_SORT_ORDER.get(state.status.value, 99)
+        if sort == "game_type":
+            from app.backlog import compute_game_type
+            return compute_game_type(game)
         if sort == "developer":
             return null_last_str(game.developer)
         if sort == "playtime":
@@ -81,6 +84,7 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
 _COLUMN_LABELS: list[tuple[str, str]] = [
     ("name",          "Title"),
     ("status",        "Status"),
+    ("game_type",     "Type"),
     ("developer",     "Developer"),
     ("hltb_main",     "HLTB Main"),
     ("hltb_compl",    "HLTB Compl."),
