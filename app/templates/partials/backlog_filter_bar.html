@@ -1,0 +1,75 @@
+{# All filter and sort controls live inside one big <form> so any change
+   re-submits the entire URL state. The form opens here and closes in the
+   parent template (backlog.html) AFTER the section list, so per-section
+   sort dropdowns also belong to it. #}
+
+<div class="backlog-filters">
+  <div class="filter-group">
+    <span class="filter-group-label">Time fit</span>
+    {% for key, label in time_fit_labels.items() %}
+      <label class="filter-chip{% if key in filters.time_fit %} filter-chip--active{% endif %}">
+        <input type="checkbox" name="time_fit" value="{{ key }}"
+               {% if key in filters.time_fit %}checked{% endif %}
+               onchange="this.form.submit()">
+        {{ label }}
+      </label>
+    {% endfor %}
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-group-label">Tags</span>
+    {% set rendered_tags = [] %}
+    {% for tag in view.top_tags %}
+      {% set _ = rendered_tags.append(tag.lower()) %}
+      <label class="filter-chip{% if tag.lower() in filters.tags %} filter-chip--active{% endif %}">
+        <input type="checkbox" name="tag" value="{{ tag }}"
+               {% if tag.lower() in filters.tags %}checked{% endif %}
+               onchange="this.form.submit()">
+        {{ tag }}
+      </label>
+    {% endfor %}
+    {# Render any active tags that aren't in the top-15 list (set via URL or search). #}
+    {% for tag in filters.tags %}
+      {% if tag not in rendered_tags %}
+        <label class="filter-chip filter-chip--active">
+          <input type="checkbox" name="tag" value="{{ tag }}" checked
+                 onchange="this.form.submit()">
+          {{ tag }}
+        </label>
+      {% endif %}
+    {% endfor %}
+    <input type="text" name="tag" class="filter-tag-search"
+           placeholder="Add tag…"
+           onchange="if(this.value.trim()){this.form.submit()}else{this.removeAttribute('name')}">
+  </div>
+
+  <div class="filter-group">
+    <span class="filter-group-label">Status</span>
+    {% for key, label in status_chip_labels.items() %}
+      <label class="filter-chip{% if key in filters.statuses %} filter-chip--active{% endif %}">
+        <input type="checkbox" name="status" value="{{ key }}"
+               {% if key in filters.statuses %}checked{% endif %}
+               onchange="this.form.submit()">
+        {{ label }}
+      </label>
+    {% endfor %}
+  </div>
+
+  <div class="filter-group filter-group--toggles">
+    <label class="filter-toggle">
+      <input type="checkbox" name="has_hltb" value="true"
+             {% if filters.has_hltb %}checked{% endif %}
+             onchange="this.form.submit()">
+      Has HLTB data
+    </label>
+    <label class="filter-toggle">
+      <input type="checkbox" name="include_bounced" value="true"
+             {% if filters.include_bounced %}checked{% endif %}
+             onchange="this.form.submit()">
+      Include bounced
+    </label>
+    {% if filters.is_active() %}
+      <a href="/backlog" class="btn btn-ghost btn-sm">Clear filters</a>
+    {% endif %}
+  </div>
+</div>

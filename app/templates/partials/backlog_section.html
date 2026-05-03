@@ -1,0 +1,27 @@
+{# Renders one collapsible <details> section. The per-section sort <select>
+   lives inside the <details> body (so it disappears when collapsed — clean,
+   and side-steps the issue of clicks on a control inside <summary> also
+   toggling the disclosure). #}
+<details class="backlog-section" open id="section-{{ section.key }}">
+  <summary class="backlog-section-header">
+    <span class="section-title">{{ section.title }}</span>
+    <span class="section-count">({{ section.rows | length }})</span>
+  </summary>
+  <div class="backlog-section-body">
+    <div class="backlog-section-controls">
+      <label class="section-sort-label">
+        Sort
+        <select name="{{ section.key }}_sort" onchange="this.form.submit()">
+          {% for key in sort_keys %}
+            <option value="{{ key }}" {% if section.sort_key == key %}selected{% endif %}>{{ sort_labels[key] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <div class="backlog-rows">
+      {% for gws in section.rows %}
+        {% include "partials/backlog_row.html" %}
+      {% endfor %}
+    </div>
+  </div>
+</details>

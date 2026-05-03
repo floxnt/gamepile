@@ -1,0 +1,82 @@
+{% set game = gws.game %}
+{% set state = gws.state %}
+{% set valid_actions = valid_actions_for_status(state.status) %}
+{# played hours: prefer manual override, else Steam playtime #}
+{% set played_h = state.hours_played_manual if state.hours_played_manual is not none else (game.playtime_minutes / 60.0) %}
+{% set hltb = game.hltb_main_hours %}
+{% set show_progress = state.status.value == 'in_progress' and hltb and hltb > 0 %}
+{% if show_progress %}
+  {% set pct = ((played_h / hltb) * 100) | round | int %}
+  {% if pct > 100 %}{% set pct = 100 %}{% endif %}
+{% endif %}
+<article class="backlog-row" id="backlog-row-{{ game.appid }}">
+  <img
+    src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/library_600x900.jpg"
+    alt="{{ game.name }}"
+    class="row-cover"
+    onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/header.jpg'"
+  >
+  <div class="row-body">
+
+    <div class="row-head">
+      <h3 class="row-title">
+        {% if state.pinned_for_shortlist %}<span class="row-pin-icon" title="Pinned for next Shortlist run">📌</span>{% endif %}
+        {{ game.name }}
+      </h3>
+      <div class="row-badges">
+        {% if state.status.value != 'never_played' %}
+          <span class="badge badge-{{ state.status.value }}">{{ state.status.value | replace('_', ' ') | title }}</span>
+        {% endif %}
+        <span class="badge badge-cat-tonight">{{ duration_label(hltb) }}</span>
+      </div>
+    </div>
+
+    {% if game.description %}
+      <p class="row-description">{{ game.description | truncate(100, true, '…', 0) }}</p>
+    {% endif %}
+
+    {% if show_progress %}
+      <div class="row-progress">
+        <span class="row-progress-text">
+          Played {{ '%.1f'|format(played_h) }}h / ~{{ hltb | fmt_hltb }} main ({{ pct }}%)
+        </span>
+        <div class="row-progress-bar"><div class="row-progress-fill" style="width: {{ pct }}%"></div></div>
+      </div>
+    {% endif %}
+
+    <div class="row-foot">
+      <div class="row-stats">
+        {% if hltb %}<span class="stat-item"><span class="stat-value">Main {{ hltb | fmt_hltb }}</span></span>{% endif %}
+        {% if game.playtime_minutes and not show_progress %}
+          <span class="stat-item"><span class="stat-label">Played</span> <span class="stat-value">{{ game.playtime_minutes | fmt_minutes }}</span></span>
+        {% endif %}
+        {% if game.steam_review_pct and game.steam_review_count %}
+          <span class="stat-item" title="{{ review_label(game.steam_review_pct, game.steam_review_count) }}">
+            <span class="stat-value">{{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})</span>
+          </span>
+        {% endif %}
+        {% if game.metacritic_score %}
+          <span class="stat-item"><span class="stat-label">MC</span> <span class="stat-value">{{ game.metacritic_score }}</span></span>
+        {% endif %}
+      </div>
+      <div class="row-actions">
+        <span class="pin-button-wrap">
+          {% with appid=game.appid, pinned=state.pinned_for_shortlist %}
+            {% include "partials/backlog_pin_button.html" %}
+          {% endwith %}
+        </span>
+        {% if valid_actions %}
+          <details class="row-overflow">
+            <summary class="btn btn-ghost btn-sm row-overflow-btn">⋯</summary>
+            <div class="row-overflow-menu">
+              {% with appid=game.appid, valid_actions=valid_actions %}
+                {% include "partials/backlog_overflow_menu.html" %}
+              {% endwith %}
+            </div>
+          </details>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</article>

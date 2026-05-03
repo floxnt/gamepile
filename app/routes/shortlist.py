@@ -83,7 +83,11 @@ def _build_picks_context(request: Request, minutes: int, mode: Optional[str]) ->
 @router.get("/", response_class=HTMLResponse)
 async def shortlist_page(request: Request):
     """Full page. Always starts with the recent-picks view — recommendations
-    are session-only state loaded via HTMX after the user clicks Find Games."""
+    are session-only state loaded via HTMX after the user clicks Find Games.
+
+    Optional ?mode=<canonical> query param preselects the radio (used by the
+    empty-Backlog CTA to deep-link into Comfort Pick).
+    """
     with db.get_db() as conn:
         recent_picks = db.get_recent_picks(conn, limit=8)
         pending_raw = db.get_oldest_pending_pick(conn)
@@ -93,7 +97,8 @@ async def shortlist_page(request: Request):
     if pending_raw and not prompt_state.is_dismissed(pending_raw.id):
         pending_pick = pending_raw
 
-    initial_mode = default_mode_for_library(all_games)
+    requested_mode = normalize_mode(request.query_params.get("mode"))
+    initial_mode = requested_mode or default_mode_for_library(all_games)
 
     return templates.TemplateResponse(request, "pick.html", {
         "recent_picks": recent_picks,

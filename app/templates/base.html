@@ -13,6 +13,7 @@
       <a href="/" class="nav-brand">GamePile</a>
       <div class="nav-links">
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Shortlist</a>
+        <a href="/backlog" {% if request.url.path.startswith("/backlog") %}class="active"{% endif %}>Backlog</a>
         <a href="/library" {% if request.url.path == "/library" %}class="active"{% endif %}>Library</a>
       </div>
       <div class="refresh-btn-group">

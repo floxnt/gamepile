@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Backlog — GamePile{% endblock %}
+
+{% block content %}
+<section class="backlog-page">
+
+  <h1 class="page-title">Backlog</h1>
+
+  {# Header band — backlog stats summary. Always shown when backlog is non-empty. #}
+  {% if not view.is_empty_no_filters %}
+    {% set s = view.header_stats %}
+    <div class="backlog-header-band">
+      <span class="band-stat"><strong>{{ s.total_count }}</strong> games</span>
+      <span class="band-sep">·</span>
+      <span class="band-stat">~<strong>{{ '%0.0f' | format(s.total_hours) | replace(',', ',') }}</strong> hours
+        {% if s.games_with_unknown_hltb %}
+          <span class="band-aside">+ {{ s.games_with_unknown_hltb }} unknown</span>
+        {% endif %}
+      </span>
+      <span class="band-sep">·</span>
+      <span class="band-stat">{{ s.in_progress_count }} in progress</span>
+      <span class="band-sep">·</span>
+      <span class="band-stat">{{ s.played_unclassified_count }} barely touched</span>
+      <span class="band-sep">·</span>
+      <span class="band-stat">{{ s.never_played_count }} never played</span>
+    </div>
+  {% endif %}
+
+  {# Single form wraps both the filter bar AND the section sort dropdowns —
+     any control change submits the whole URL state. #}
+  <form method="get" action="/backlog" class="backlog-form">
+
+    {% include "partials/backlog_filter_bar.html" %}
+
+    {% if view.contradictory_filter_warning %}
+      <div class="backlog-warning">{{ view.contradictory_filter_warning }}</div>
+    {% endif %}
+
+    {% if view.is_empty_no_filters %}
+      <div class="backlog-empty">
+        <p>Your backlog is clear.</p>
+        <p>Try <a href="/?mode=comfort_pick" class="btn-link">Comfort Pick →</a> to revisit favorites,
+           or refresh your library if you've added games on Steam.</p>
+      </div>
+    {% elif view.is_empty_due_to_filters %}
+      <div class="backlog-empty">
+        <p>No games match your current filters.</p>
+        <p><a href="/backlog" class="btn btn-secondary btn-sm">Clear filters</a></p>
+      </div>
+    {% else %}
+      {% for section in view.sections %}
+        {% include "partials/backlog_section.html" %}
+      {% endfor %}
+    {% endif %}
+
+  </form>
+
+</section>
+{% endblock %}

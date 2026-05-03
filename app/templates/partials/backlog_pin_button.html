@@ -1,0 +1,16 @@
+{% if pinned %}
+  <button
+    hx-post="/backlog/{{ appid }}/unpin"
+    hx-target="closest .pin-button-wrap"
+    hx-swap="innerHTML"
+    class="btn btn-sm pin-button pin-button--pinned"
+    title="Pinned for next Shortlist run. Click to unpin."
+  >📌 Pinned</button>
+{% else %}
+  <button
+    hx-post="/backlog/{{ appid }}/pin"
+    hx-target="closest .pin-button-wrap"
+    hx-swap="innerHTML"
+    class="btn btn-sm btn-primary pin-button"
+  >Add to Shortlist</button>
+{% endif %}

@@ -31,6 +31,10 @@
             {{ state.status.value | replace("_", " ") | title }}
           </span>
         {% endif %}
+        {# Pin badge — surfaces backlog → shortlist intent on the resulting card #}
+        {% if state.pinned_for_shortlist %}
+          <span class="badge badge-pin">📌 Pinned from backlog</span>
+        {% endif %}
       </div>
     </div>
 
