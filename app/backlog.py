@@ -18,6 +18,20 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from app.affinity import compute_affinity_score
+# Game-type classification logic moved to app.game_type — re-exported below
+# so existing import paths (`from app.backlog import is_forever_game` /
+# `compute_game_type`) keep working. The four-type label/tooltip dicts are
+# also re-exported for templates_config callers that haven't been switched.
+from app.game_type import (  # noqa: F401
+    GAME_TYPE_LINEAR,
+    GAME_TYPE_MIXED,
+    GAME_TYPE_MULTIPLAYER,
+    GAME_TYPE_NO_ENDPOINT,
+    GAME_TYPE_LABELS,
+    GAME_TYPE_TOOLTIPS,
+    classify_game as compute_game_type,
+    is_forever_game,
+)
 from app.models import GameStatus, GameWithState
 
 
@@ -121,7 +135,9 @@ RATIO_LIKELY_FINISHED = 1.5
 RATIO_FINISHING_LATE = 0.7
 RATIO_BARELY_TOUCHED = 0.1
 
-# User-tag set treated as "forever-style" when HLTB main is missing.
+# Legacy constant kept for any external callers that imported it directly.
+# The new app/game_type.py uses substring-based detection instead of an
+# exact-match set, so this is informational rather than load-bearing.
 FOREVER_USER_TAGS = frozenset({"roguelike", "roguelite", "sandbox", "open world"})
 
 
@@ -171,141 +187,6 @@ class BacklogView:
     contradictory_filter_warning: Optional[str]
     is_empty_no_filters: bool
     is_empty_due_to_filters: bool
-
-
-# ---------------------------------------------------------------------------
-# Forever-game detection
-# ---------------------------------------------------------------------------
-
-def is_forever_game(game) -> bool:
-    """Detect games with no defined end state.
-
-    Conditions (any one triggers):
-      1. HLTB main is null or zero — no story to finish
-      2. HLTB completionist > 7x HLTB main — game is mostly side content / grind.
-         Tuned up from 5x: at 5x, structurally finishable games with plentiful
-         optional content (e.g. Aimlabs at 5.3x) got swept in; 7x catches the
-         truly endless games while leaving those alone.
-      3. User tags include a forever-style tag AND HLTB main is missing
-         (subsumed by #1 in practice; kept for spec literalness)
-      4. Steam categories show Multi-player without Single-player
-    """
-    h = game.hltb_main_hours
-    if h is None or h <= 0:
-        return True
-
-    if game.hltb_completionist_hours and h > 0:
-        if game.hltb_completionist_hours > 7 * h:
-            return True
-
-    user_tags = {t.lower() for t in game.user_tags_list()}
-    if (FOREVER_USER_TAGS & user_tags) and game.hltb_main_hours is None:
-        return True
-
-    cats = {t.lower() for t in game.tag_list()}
-    has_multiplayer = "multi-player" in cats
-    has_singleplayer = "single-player" in cats
-    if has_multiplayer and not has_singleplayer:
-        return True
-
-    return False
-
-
-# Game-type values used by compute_game_type and the Library Type column.
-# String constants instead of an enum so templates can dispatch via dict
-# lookup without importing the enum.
-GAME_TYPE_LINEAR = "linear"
-GAME_TYPE_MULTIPLAYER = "multiplayer"
-GAME_TYPE_NO_ENDPOINT = "no_endpoint"
-GAME_TYPE_MIXED = "mixed"
-
-# Short labels used by the Library Type column. Long forms ("Multiplayer
-# focus", "No defined endpoint") are reserved for hover tooltips so the
-# column doesn't crowd at narrow widths.
-GAME_TYPE_LABELS = {
-    GAME_TYPE_LINEAR: "Linear",
-    GAME_TYPE_MULTIPLAYER: "Multiplayer",
-    GAME_TYPE_NO_ENDPOINT: "No endpoint",
-    GAME_TYPE_MIXED: "Mixed",
-}
-
-GAME_TYPE_TOOLTIPS = {
-    GAME_TYPE_LINEAR: "Linear / story-driven — has a defined main path",
-    GAME_TYPE_MULTIPLAYER: "Multiplayer focus — no single-player campaign",
-    GAME_TYPE_NO_ENDPOINT: "No defined endpoint — sandbox, roguelike, or open-ended",
-    GAME_TYPE_MIXED: "Mixed — single-player campaign with multiplayer modes (Halo, Borderlands)",
-}
-
-# Tag substrings that classify a game as no_endpoint on their own,
-# independent of HLTB signals. Roguelike / Roguelite games are
-# definitionally endless by structure (procedural, infinite runs);
-# their tags vary in form ("Roguelike" / "Rogue-like" / "Rogue-lite"
-# / "Action Roguelike"), so we substring-match against "rogue".
-#
-# Open World, Sandbox, and MMO are deliberately NOT here: they describe
-# games with clear endpoints (Witcher 3, Elden Ring, Skyrim) often
-# enough that treating them as standalone no_endpoint signals
-# misclassifies linear games. The HLTB-null and completionist-ratio
-# standalone rules already capture the genuinely-endless cases (Stardew
-# at 7x+ completionist, MMOs typically HLTB-null), so Open World /
-# Sandbox / MMO tags don't need their own trigger.
-_STANDALONE_NO_ENDPOINT_TAG_SUBSTRINGS = ("rogue",)
-
-
-def _has_standalone_no_endpoint_tag(game) -> bool:
-    for tag in game.user_tags_list():
-        tag_lower = tag.lower()
-        for needle in _STANDALONE_NO_ENDPOINT_TAG_SUBSTRINGS:
-            if needle in tag_lower:
-                return True
-    return False
-
-
-def compute_game_type(game) -> str:
-    """Classify a game as linear / multiplayer / no_endpoint.
-
-    Rules:
-      multiplayer  — Multi-player Steam category AND no Single-player category
-      no_endpoint  — any of:
-                     - HLTB main is missing/zero (no main story to track)
-                     - HLTB completionist > 7x HLTB main (definitionally endless;
-                       same 7x threshold as is_forever_game)
-                     - user_tags include a Roguelike/Roguelite variant
-                       (substring "rogue" — definitionally endless by structure)
-      linear       — fall-through: HLTB main exists, ratio under 7x, no rogue
-                     tag. Multiplayer Steam category alongside Single-player
-                     does NOT push to a separate "mixed" bucket — Steam fires
-                     Multi-player for almost any game with co-op or leaderboards
-                     (Elden Ring, Witcher 3, DS3 all have it), so a separate
-                     Mixed bucket would just collect mostly-linear games.
-
-    The GAME_TYPE_MIXED constant is preserved (it has CSS / template
-    bindings) but compute_game_type no longer returns it. If a future
-    refinement re-introduces Mixed, the bindings are ready to use.
-
-    Open World, Sandbox, and MMO tags do NOT trigger no_endpoint on their
-    own (refinement after Elden Ring / Witcher 3 / Skyrim were misclassified).
-    Genuinely-endless games carrying those tags hit the HLTB-null or
-    completionist-ratio rules anyway (Stardew at 7x+ completionist; MMOs
-    are typically HLTB-null). Roguelike/Roguelite stay standalone because
-    they're definitionally endless regardless of HLTB.
-    """
-    cats = {t.lower() for t in game.tag_list()}
-    has_mp = "multi-player" in cats
-    has_sp = "single-player" in cats
-
-    if has_mp and not has_sp:
-        return GAME_TYPE_MULTIPLAYER
-
-    h = game.hltb_main_hours
-    if h is None or h <= 0:
-        return GAME_TYPE_NO_ENDPOINT
-    if game.hltb_completionist_hours and game.hltb_completionist_hours > 7 * h:
-        return GAME_TYPE_NO_ENDPOINT
-    if _has_standalone_no_endpoint_tag(game):
-        return GAME_TYPE_NO_ENDPOINT
-
-    return GAME_TYPE_LINEAR
 
 
 def playtime_ratio(gws: GameWithState) -> Optional[float]:

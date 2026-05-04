@@ -46,6 +46,10 @@ class Game:
     review_playtime_median: Optional[int] = None       # minutes; median of author.playtime_at_review across the fetched review sample
     stickiness_ratio: Optional[float] = None           # 0.0-1.0; fraction of reviewers with >=20h at review time
     playtime_median_avg_ratio: Optional[float] = None  # 0.0-1.0; SteamSpy median_forever / average_forever
+    # v3 game-type classification (see app/game_type.py)
+    game_type: Optional[str] = None                    # one of GAME_TYPE_* constants; cached classify_game result
+    game_type_manual: bool = False                     # user override; when True, refresh inference doesn't override
+    app_type: Optional[str] = None                     # raw Steam appdetails type ("game" / "dlc" / "demo" / "music" / etc.)
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

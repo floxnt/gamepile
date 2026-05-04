@@ -138,6 +138,12 @@ def init_db() -> None:
             # Lets Phase 1b weight strong-pattern matches differently from
             # fallback / weak-pattern picks.
             "ALTER TABLE games ADD COLUMN completion_rate_confidence TEXT",
+            # v3 game-type classification: cached classification + manual
+            # override flag + raw Steam app type ("game" / "dlc" / etc.)
+            # used by the classifier.
+            "ALTER TABLE games ADD COLUMN game_type TEXT",
+            "ALTER TABLE games ADD COLUMN game_type_manual BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE games ADD COLUMN app_type TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -258,6 +264,9 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         review_playtime_median=row["review_playtime_median"] if "review_playtime_median" in keys else None,
         stickiness_ratio=row["stickiness_ratio"] if "stickiness_ratio" in keys else None,
         playtime_median_avg_ratio=row["playtime_median_avg_ratio"] if "playtime_median_avg_ratio" in keys else None,
+        game_type=row["game_type"] if "game_type" in keys else None,
+        game_type_manual=bool(row["game_type_manual"]) if "game_type_manual" in keys and row["game_type_manual"] is not None else False,
+        app_type=row["app_type"] if "app_type" in keys else None,
     )
 
 
@@ -341,7 +350,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             steam_review_pct, steam_review_count,
             last_refreshed, is_active, release_date, description,
             completion_rate, completion_rate_confidence, cliff_metric,
-            review_playtime_median, stickiness_ratio, playtime_median_avg_ratio
+            review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
+            game_type, game_type_manual, app_type
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -350,7 +360,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :steam_review_pct, :steam_review_count,
             :last_refreshed, :is_active, :release_date, :description,
             :completion_rate, :completion_rate_confidence, :cliff_metric,
-            :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio
+            :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
+            :game_type, :game_type_manual, :app_type
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -380,7 +391,14 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             cliff_metric               = COALESCE(excluded.cliff_metric, games.cliff_metric),
             review_playtime_median     = COALESCE(excluded.review_playtime_median, games.review_playtime_median),
             stickiness_ratio           = COALESCE(excluded.stickiness_ratio, games.stickiness_ratio),
-            playtime_median_avg_ratio  = COALESCE(excluded.playtime_median_avg_ratio, games.playtime_median_avg_ratio)
+            playtime_median_avg_ratio  = COALESCE(excluded.playtime_median_avg_ratio, games.playtime_median_avg_ratio),
+            -- Game-type classification: COALESCE on game_type so cache-skipped
+            -- iterations don't nullify, and so callers that omit game_type
+            -- (sync.py when game_type_manual=1) preserve the user's override.
+            -- Caller is the primary safety; this COALESCE is the secondary.
+            game_type                  = COALESCE(excluded.game_type, games.game_type),
+            game_type_manual           = excluded.game_type_manual,
+            app_type                   = COALESCE(excluded.app_type, games.app_type)
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -409,6 +427,9 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "review_playtime_median": game.review_playtime_median,
         "stickiness_ratio": game.stickiness_ratio,
         "playtime_median_avg_ratio": game.playtime_median_avg_ratio,
+        "game_type": game.game_type,
+        "game_type_manual": 1 if game.game_type_manual else 0,
+        "app_type": game.app_type,
     })
 
 
@@ -465,6 +486,7 @@ def get_games_with_state(
             g.last_refreshed, g.is_active, g.release_date, g.description,
             g.completion_rate, g.completion_rate_confidence, g.cliff_metric,
             g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
+            g.game_type, g.game_type_manual, g.app_type,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,

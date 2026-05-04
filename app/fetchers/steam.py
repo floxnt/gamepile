@@ -76,7 +76,12 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
     """
     Return store details for one appid, or None on failure.
     Returned dict has keys: genres, tags, metacritic_score, developer, publisher,
-    description (and release_date when parseable).
+    description, app_type (and release_date when parseable).
+
+    app_type comes straight from Steam's `data.type` field — values include
+    "game", "dlc", "demo", "music", "video", "advertising", "mod", etc.
+    Used by app/game_type.classify_game to identify expansions and
+    software/utility apps.
     """
     await asyncio.sleep(_STORE_DELAY)
     try:
@@ -118,6 +123,8 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
 
     short_desc = (info.get("short_description") or "").strip() or None
 
+    app_type = (info.get("type") or "").strip().lower() or None
+
     out = {
         "genres": genres,
         "tags": tags,
@@ -131,6 +138,15 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
         out["release_date"] = release_dt
     if short_desc is not None:
         out["description"] = short_desc
+    if app_type is not None:
+        out["app_type"] = app_type
+    # Surface the coming_soon flag — passed to classify_game alongside
+    # playtime to detect Early Access games whose Steam release date is
+    # still "coming soon" but the user has access. Not a DB column;
+    # sync.py pops this key out of updates before the Game-construction
+    # merge so it never tries to land in the schema.
+    if release.get("coming_soon"):
+        out["coming_soon"] = True
     return out
 
 
