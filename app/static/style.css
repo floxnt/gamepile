@@ -1735,3 +1735,60 @@ select option {
   color: var(--accent);
   text-decoration: none;
 }
+
+/* ===== Game detail — Engagement signals (Phase 1a raw data) ===== */
+.game-detail-engagement {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.95rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.engagement-subtitle {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 0.5rem;
+}
+
+.engagement-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+}
+
+.engagement-label {
+  color: var(--muted);
+  min-width: 14rem;
+  font-size: 0.78rem;
+}
+
+.engagement-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.engagement-value--missing {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.engagement-aside {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-left: 0.4rem;
+}
+
+.engagement-aside--high {
+  color: var(--success);
+}
+
+.engagement-aside--low {
+  color: var(--warn);
+}

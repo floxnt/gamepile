@@ -114,3 +114,7 @@ from app.backlog import (  # noqa: E402
 templates.env.globals["compute_game_type"] = _compute_game_type
 templates.env.globals["game_type_labels"] = _GAME_TYPE_LABELS
 templates.env.globals["game_type_tooltips"] = _GAME_TYPE_TOOLTIPS
+
+# Phase 1a engagement-signals display helper used by game_detail_engagement.html.
+from app.hook_metrics import qualitative_ratio_hint as _qualitative_ratio_hint  # noqa: E402
+templates.env.globals["qualitative_ratio_hint"] = _qualitative_ratio_hint
