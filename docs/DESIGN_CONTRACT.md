@@ -54,13 +54,15 @@ Default columns, in order:
 1. Title (sortable, default sort ascending)
 2. Status (badge, color-coded by state)
 3. Tags (from SteamSpy user_tags, truncated with "+N more" overflow)
-4. Developer
-5. HLTB Main
-6. HLTB Compl.
-7. Playtime
-8. Steam % (positive percentage)
-9. Steam Reviews (total review count)
-10. Metacritic (critic score)
+4. Type (game-type badge: linear / multiplayer / no_endpoint — see
+   PROJECT_STATE.md "Game-type detection")
+5. Developer
+6. HLTB Main
+7. HLTB Compl.
+8. Playtime
+9. Steam % (positive percentage)
+10. Steam Reviews (total review count)
+11. Metacritic (critic score)
 
 (Removed in v3: OpenCritic. Column dropped after the official API moved
 behind a paid RapidAPI gateway incompatible with the friend-shareable
