@@ -59,8 +59,16 @@ Apply rules top-to-bottom; first match wins.
    Steam categories include "MMO"
 6. **multiplayer** — Multi-player Steam categories AND no Single-player
    category (existing rule from `compute_game_type`)
-7. **mixed** — Both Single-player AND multiplayer Steam categories,
-   AND HLTB main is present (existing rule)
+7. **mixed** — Single-player Steam category AND HLTB main is present
+   AND `Co-op` substring (case-insensitive) appears in SteamSpy
+   user_tags. Steam-side multiplayer subcategories alone don't qualify:
+   Souls-likes (Elden Ring, DS3, Sekiro) carry every Co-op/PvP/Online
+   subcategory but aren't genuinely Mixed; pre-cross-plat dedicated MP
+   games (Borderlands 2, L4D2, Destiny 2) have identical Steam-side
+   profiles to Souls-likes. The SteamSpy `Co-op` user_tag empirically
+   discriminates the two (5/5 mixed-intent vs 0/6 linear-intent across
+   the verified sample). Niche indies with empty user_tags fall through
+   to linear by default — defensive direction.
 8. **sandbox** — User tags include "Sandbox" AND HLTB main is present
    AND completionist:main ratio < 7x
 9. **no_endpoint** — Roguelike/Roguelite tag, OR completionist:main > 7x,

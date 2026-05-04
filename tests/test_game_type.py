@@ -178,9 +178,64 @@ def test_multiplayer_only():
     assert classify_game(g) == GAME_TYPE_MULTIPLAYER
 
 
-def test_mixed_both_categories_with_hltb():
-    g = _game(categories="Single-player,Multi-player", hltb_main=20.0, hltb_compl=40.0)
+def test_mixed_requires_coop_user_tag():
+    """sp + HLTB + Co-op user_tag → mixed. Steam categories alone aren't
+    enough — the user_tag is what discriminates genuinely-Mixed games
+    from Souls-style "single-player with co-op invasions"."""
+    g = _game(
+        categories="Single-player,Multi-player",
+        user_tags="Co-op,FPS,Multiplayer",
+        hltb_main=20.0, hltb_compl=40.0,
+    )
     assert classify_game(g) == GAME_TYPE_MIXED
+
+
+def test_mixed_via_online_coop_user_tag():
+    """'Online Co-Op' substring also catches the rule (case-insensitive)."""
+    g = _game(
+        categories="Single-player,Multi-player",
+        user_tags="Online Co-Op,Multiplayer,Action",
+        hltb_main=20.0, hltb_compl=40.0,
+    )
+    assert classify_game(g) == GAME_TYPE_MIXED
+
+
+def test_souls_style_falls_through_to_linear():
+    """The motivating regression — Souls-likes carry every Steam Co-op /
+    PvP subcategory but never the SteamSpy 'Co-op' user_tag. They land
+    in linear under the new rule, matching user intent."""
+    g = _game(
+        name="Some Souls-like",
+        categories="Single-player,Multi-player,Co-op,Online Co-op,PvP,Online PvP",
+        user_tags="Souls-like,Difficult,Atmospheric,Lore-Rich,RPG,Multiplayer",
+        hltb_main=30.0, hltb_compl=80.0,
+    )
+    assert classify_game(g) == GAME_TYPE_LINEAR
+
+
+def test_mixed_falls_through_when_user_tags_empty():
+    """Niche indies with sparse SteamSpy data default to linear —
+    defensive direction (better to misclassify a rare co-op indie as
+    linear than every Souls-like as mixed)."""
+    g = _game(
+        categories="Single-player,Multi-player,Co-op",
+        user_tags="",  # no SteamSpy data
+        hltb_main=20.0, hltb_compl=40.0,
+    )
+    assert classify_game(g) == GAME_TYPE_LINEAR
+
+
+def test_mixed_requires_hltb_main():
+    """Co-op user_tag without HLTB main → falls through to linear or
+    unknown depending on other signals."""
+    g = _game(
+        categories="Single-player,Multi-player",
+        user_tags="Co-op,Multiplayer",
+        hltb_main=None, hltb_compl=None,
+    )
+    # Falls through; no HLTB → not mixed. Lands in unknown (no rogue tag,
+    # no completionist ratio computable, no openworld+null match).
+    assert classify_game(g) == GAME_TYPE_UNKNOWN
 
 
 def test_sandbox_with_tag_under_threshold():
@@ -379,7 +434,11 @@ TESTS = [
     test_mmo_via_user_tag,
     test_mmo_via_steam_category,
     test_multiplayer_only,
-    test_mixed_both_categories_with_hltb,
+    test_mixed_requires_coop_user_tag,
+    test_mixed_via_online_coop_user_tag,
+    test_souls_style_falls_through_to_linear,
+    test_mixed_falls_through_when_user_tags_empty,
+    test_mixed_requires_hltb_main,
     test_sandbox_with_tag_under_threshold,
     test_sandbox_at_exact_7x_threshold_inclusive,
     test_sandbox_above_threshold_falls_to_no_endpoint,

@@ -137,6 +137,25 @@ NON_GAME_APP_TYPES: frozenset = frozenset({
 # (case-insensitive substring).
 MMO_PATTERNS: tuple = ("mmo", "massively multiplayer")
 
+# SteamSpy user_tag substring used to discriminate "genuinely Mixed"
+# (single-player campaign + meaningful multiplayer modes — Halo MCC,
+# Borderlands, L4D2, Destiny 2) from "predominantly single-player with
+# light multiplayer features" (Souls-likes, etc.).
+#
+# Steam categories alone can't make this distinction: Souls-likes carry
+# the same Multi-player / Co-op / PvP subcategory profile as legitimately-
+# mixed games because of FromSoftware's invasion / summoning system.
+# But the "Co-op" SteamSpy user_tag is set only when player-perceived
+# co-op is a real feature — a 5/5 vs 0/6 split across the verified
+# sample (Halo MCC / Borderlands 2+3 / L4D2 / Destiny 2 all have
+# "Co-op"; Elden Ring / DS3 / Sekiro / Cyberpunk / Witcher 3 / Skyrim
+# all do not, despite Souls-likes carrying every relevant Steam
+# subcategory).
+#
+# Substring match catches "Co-op" and "Online Co-Op" both. Case-
+# insensitive — see _has_coop_user_tag helper.
+COOP_USER_TAG_SUBSTRING = "co-op"
+
 # User-tag substrings that mark a game as no_endpoint regardless of HLTB
 # data (Roguelike / Roguelite / Rogue-like / Rogue-lite / Action Roguelike).
 # Substring match is intentional — SteamSpy tags vary in form.
@@ -212,6 +231,24 @@ def _is_mmo(game) -> bool:
            _has_substring(_category_set(game), MMO_PATTERNS)
 
 
+def _has_coop_user_tag(game) -> bool:
+    """True when "Co-op" (or "Online Co-Op", etc.) appears in SteamSpy
+    user_tags. Case-insensitive substring match. The discriminator
+    between genuinely-Mixed games and Souls-style "single-player with
+    co-op invasions" — see COOP_USER_TAG_SUBSTRING for the empirical
+    rationale.
+
+    Niche indies with no SteamSpy votes return False (empty tag list),
+    falling through to linear by default. Defensive: misclassifying a
+    rare co-op indie as linear is less bad than misclassifying every
+    Souls-like as mixed.
+    """
+    for t in game.user_tags_list():
+        if COOP_USER_TAG_SUBSTRING in t.lower():
+            return True
+    return False
+
+
 def _is_no_endpoint_tag(game) -> bool:
     return _has_substring(_user_tag_set(game), NO_ENDPOINT_TAG_SUBSTRINGS)
 
@@ -281,8 +318,20 @@ def classify_game(game, coming_soon: bool = False) -> str:
     if has_mp and not has_sp:
         return GAME_TYPE_MULTIPLAYER
 
-    # Rule 7: mixed — both sp and mp categories AND HLTB main present.
-    if has_mp and has_sp and game.hltb_main_hours:
+    # Rule 7: mixed — Single-player Steam category AND HLTB main present
+    # AND "Co-op" in SteamSpy user_tags. The user_tag check is what
+    # discriminates genuinely-Mixed games (Halo MCC, Borderlands, L4D2,
+    # Destiny 2 — all carry Co-op as a SteamSpy user_tag) from
+    # Souls-style games (Elden Ring, DS3, Sekiro — none carry Co-op
+    # despite all carrying every relevant Steam subcategory).
+    #
+    # Steam category subcategories are NOT used here — they're identical
+    # between Souls-likes and pre-cross-plat dedicated-MP games (e.g.
+    # Borderlands 2 has the same 'Multi-player + Co-op' profile as DS3),
+    # so they can't carry the discrimination. The SteamSpy user_tag
+    # reflects player-perceived co-op rather than developer-set Steam
+    # categories.
+    if has_sp and game.hltb_main_hours and _has_coop_user_tag(game):
         return GAME_TYPE_MIXED
 
     # Rule 8: sandbox — Sandbox tag AND HLTB main present AND
