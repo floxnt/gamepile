@@ -1804,3 +1804,36 @@ select option {
 .engagement-aside--low {
   color: var(--warn);
 }
+
+/* Type line + caveat (added in checkpoint 4 of v3 game-type work) */
+.engagement-type-line {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.82rem;
+  margin-bottom: 0.4rem;
+}
+
+.engagement-type-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.engagement-type-aside {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.engagement-caveat {
+  font-size: 0.82rem;
+  color: var(--warn);
+  font-style: italic;
+  margin: 0 0 0.6rem 0;
+  padding: 0.4rem 0.6rem;
+  background: rgba(230, 168, 23, 0.08);
+  border-left: 2px solid var(--warn);
+  border-radius: 3px;
+}

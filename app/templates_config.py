@@ -120,6 +120,13 @@ templates.env.globals["game_type_tooltips"] = _GAME_TYPE_TOOLTIPS
 # Backwards-compat alias for templates that haven't been switched yet.
 templates.env.globals["compute_game_type"] = _resolve_type
 
+# Game Detail Engagement section — display rules per type. Used by
+# game_detail_engagement.html to gate which Phase 1a metrics show
+# for which game types (software hides everything; multiplayer hides
+# completion-rate; etc.) and to surface the type-specific caveat.
+from app.game_type import engagement_display_rules as _engagement_display_rules  # noqa: E402
+templates.env.globals["engagement_display_rules"] = _engagement_display_rules
+
 # Phase 1a engagement-signals display helper used by game_detail_engagement.html.
 from app.hook_metrics import qualitative_ratio_hint as _qualitative_ratio_hint  # noqa: E402
 templates.env.globals["qualitative_ratio_hint"] = _qualitative_ratio_hint

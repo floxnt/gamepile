@@ -1,97 +1,146 @@
-{# Phase 1a engagement signals — raw numeric display.
+{# Phase 1a engagement signals — type-aware raw numeric display.
+
+   Display rules drive which metrics show for which game types:
+   - software: section collapses to a single explanatory line, no metrics
+   - multiplayer / mmo / no_endpoint / sandbox: hide completion + cliff
+     (achievement metrics don't apply); show review/stickiness/ratio
+   - beta_playtest / early_access: show all but with a "data unstable"
+     caveat under the header
+   - linear / mixed / expansion / unknown: show all (with caveat for
+     expansion + unknown)
+
+   Section visibility:
+   - Hidden entirely when ALL display-eligible metrics are NULL AND
+     the game type isn't software (software always shows the
+     explanatory line so the user knows the section was deliberately
+     suppressed, not just empty data).
 
    Phase 1b will replace this with a categorical "stickiness" badge
    after threshold tuning. Until then we show the underlying numbers
-   so the user (and us) can see the actual distribution and decide
-   how to weight each signal.
-
-   Section is hidden entirely when ALL five metrics are NULL — keeps
-   noise off the page for games with no data (software, MP-only,
-   beta builds). Per-row "no data" still shows when only some
-   metrics are missing.
+   so the actual distribution informs threshold choices.
 #}
+{% set gt = resolve_type(game) %}
+{% set rules = engagement_display_rules(gt) %}
+
 {% set has_completion = game.completion_rate is not none %}
 {% set has_cliff = game.cliff_metric is not none %}
 {% set has_review_median = game.review_playtime_median is not none %}
 {% set has_stickiness = game.stickiness_ratio is not none %}
 {% set has_pt_ratio = game.playtime_median_avg_ratio is not none %}
-{% set any_metric = has_completion or has_cliff or has_review_median or has_stickiness or has_pt_ratio %}
 
-{% if any_metric %}
+{# Per-row visibility: row renders when both rule allows AND data exists. #}
+{% set show_completion_row = rules.show_completion_rate and has_completion %}
+{% set show_cliff_row = rules.show_cliff_metric and has_cliff %}
+{% set show_review_median_row = rules.show_review_playtime and has_review_median %}
+{% set show_stickiness_row = rules.show_stickiness_ratio and has_stickiness %}
+{% set show_pt_ratio_row = rules.show_playtime_ratio and has_pt_ratio %}
+{% set any_visible_row = show_completion_row or show_cliff_row or show_review_median_row or show_stickiness_row or show_pt_ratio_row %}
+
+{# Software shows section regardless (with the explanatory caveat).
+   All other types: hide if no eligible row would render. #}
+{% if gt == "software" or any_visible_row %}
 <section class="game-detail-engagement">
   <h2 class="game-detail-section-title">
     Engagement signals
     <span class="engagement-subtitle">Phase 1a — raw data</span>
   </h2>
 
-  <div class="engagement-row">
-    <span class="engagement-label">Completion rate</span>
-    {% if has_completion %}
-      <span class="engagement-value">
-        {{ "%.1f"|format(game.completion_rate * 100) }}%
-        {% if game.completion_rate_confidence == "high" %}
-          <span class="engagement-aside engagement-aside--high">high confidence</span>
-        {% elif game.completion_rate_confidence == "low" %}
-          <span class="engagement-aside engagement-aside--low">low confidence</span>
+  {# Type line — always shown when section is visible. #}
+  <div class="engagement-type-line">
+    <span class="engagement-type-label">Type:</span>
+    <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
+    {% if game.game_type_manual %}
+      <span class="engagement-type-aside">(manually set)</span>
+    {% endif %}
+  </div>
+
+  {# Caveat — surface once if rules.caveat_text is populated. #}
+  {% if rules.caveat_text %}
+    <p class="engagement-caveat">{{ rules.caveat_text }}</p>
+  {% endif %}
+
+  {% if gt == "software" %}
+    {# Section content fully suppressed for software/utilities. The
+       caveat above already says so; nothing else to render. #}
+  {% else %}
+
+    {% if rules.show_completion_rate %}
+      <div class="engagement-row">
+        <span class="engagement-label">Completion rate</span>
+        {% if has_completion %}
+          <span class="engagement-value">
+            {{ "%.1f"|format(game.completion_rate * 100) }}%
+            {% if game.completion_rate_confidence == "high" %}
+              <span class="engagement-aside engagement-aside--high">high confidence</span>
+            {% elif game.completion_rate_confidence == "low" %}
+              <span class="engagement-aside engagement-aside--low">low confidence</span>
+            {% endif %}
+          </span>
+        {% else %}
+          <span class="engagement-value engagement-value--missing">no data</span>
         {% endif %}
-      </span>
-    {% else %}
-      <span class="engagement-value engagement-value--missing">no data</span>
+      </div>
     {% endif %}
-  </div>
 
-  <div class="engagement-row">
-    <span class="engagement-label">Achievement cliff</span>
-    {% if has_cliff %}
-      <span class="engagement-value">{{ "%.1f"|format(game.cliff_metric) }} pt drop</span>
-    {% else %}
-      <span class="engagement-value engagement-value--missing">no data</span>
-    {% endif %}
-  </div>
-
-  <div class="engagement-row">
-    <span class="engagement-label">Review playtime median</span>
-    {% if has_review_median %}
-      <span class="engagement-value">{{ "%.1f"|format(game.review_playtime_median / 60) }} hours</span>
-    {% else %}
-      <span class="engagement-value engagement-value--missing">no data</span>
-    {% endif %}
-  </div>
-
-  <div class="engagement-row">
-    {# Threshold scales with HLTB main when present (0.5x main hours), or
-       falls back to flat 20h. Surface the actual threshold so the user
-       knows what "sticky" means for this specific game. #}
-    {% if game.hltb_main_hours %}
-      {% set sticky_threshold_h = (game.hltb_main_hours * 0.5) %}
-    {% else %}
-      {% set sticky_threshold_h = 20.0 %}
-    {% endif %}
-    <span class="engagement-label">Sticky reviewers (≥{{ sticky_threshold_h | fmt_hltb }})</span>
-    {% if has_stickiness %}
-      <span class="engagement-value">
-        {{ "%.0f"|format(game.stickiness_ratio * 100) }}%
-        {% if game.steam_review_count %}
-          <span class="engagement-aside">of {{ game.steam_review_count | fmt_count }} reviews</span>
+    {% if rules.show_cliff_metric %}
+      <div class="engagement-row">
+        <span class="engagement-label">Achievement cliff</span>
+        {% if has_cliff %}
+          <span class="engagement-value">{{ "%.1f"|format(game.cliff_metric) }} pt drop</span>
+        {% else %}
+          <span class="engagement-value engagement-value--missing">no data</span>
         {% endif %}
-      </span>
-    {% else %}
-      <span class="engagement-value engagement-value--missing">no data</span>
+      </div>
     {% endif %}
-  </div>
 
-  <div class="engagement-row">
-    <span class="engagement-label">Playtime median:average</span>
-    {% if has_pt_ratio %}
-      {% set hint = qualitative_ratio_hint(game.playtime_median_avg_ratio) %}
-      <span class="engagement-value">
-        {{ "%.2f"|format(game.playtime_median_avg_ratio) }}
-        {% if hint %}<span class="engagement-aside">({{ hint }})</span>{% endif %}
-      </span>
-    {% else %}
-      <span class="engagement-value engagement-value--missing">no data</span>
+    {% if rules.show_review_playtime %}
+      <div class="engagement-row">
+        <span class="engagement-label">Review playtime median</span>
+        {% if has_review_median %}
+          <span class="engagement-value">{{ "%.1f"|format(game.review_playtime_median / 60) }} hours</span>
+        {% else %}
+          <span class="engagement-value engagement-value--missing">no data</span>
+        {% endif %}
+      </div>
     {% endif %}
-  </div>
+
+    {% if rules.show_stickiness_ratio %}
+      <div class="engagement-row">
+        {% if game.hltb_main_hours %}
+          {% set sticky_threshold_h = (game.hltb_main_hours * 0.5) %}
+        {% else %}
+          {% set sticky_threshold_h = 20.0 %}
+        {% endif %}
+        <span class="engagement-label">Sticky reviewers (≥{{ sticky_threshold_h | fmt_hltb }})</span>
+        {% if has_stickiness %}
+          <span class="engagement-value">
+            {{ "%.0f"|format(game.stickiness_ratio * 100) }}%
+            {% if game.steam_review_count %}
+              <span class="engagement-aside">of {{ game.steam_review_count | fmt_count }} reviews</span>
+            {% endif %}
+          </span>
+        {% else %}
+          <span class="engagement-value engagement-value--missing">no data</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if rules.show_playtime_ratio %}
+      <div class="engagement-row">
+        <span class="engagement-label">Playtime median:average</span>
+        {% if has_pt_ratio %}
+          {% set hint = qualitative_ratio_hint(game.playtime_median_avg_ratio) %}
+          <span class="engagement-value">
+            {{ "%.2f"|format(game.playtime_median_avg_ratio) }}
+            {% if hint %}<span class="engagement-aside">({{ hint }})</span>{% endif %}
+          </span>
+        {% else %}
+          <span class="engagement-value engagement-value--missing">no data</span>
+        {% endif %}
+      </div>
+    {% endif %}
+
+  {% endif %}
 
 </section>
 {% endif %}
