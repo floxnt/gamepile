@@ -32,11 +32,14 @@ from typing import Optional
 
 import httpx
 
+from dataclasses import fields as dc_fields, replace as dc_replace
+
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
 from app.fetchers import steam as steam_fetcher
 from app.fetchers import steam_achievements as achievements_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
+from app.game_type import classify_game
 from app.hook_metrics import (
     compute_cliff_metric,
     compute_completion_rate,
@@ -424,6 +427,26 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                     updates["cliff_metric"] = cliff
                 progress.achievements_fetched += 1
 
+        # --- Game-type classification ---
+        # The `coming_soon` flag from appdetails informs early_access detection
+        # but is NOT a Game-row column — pop it out of `updates` so the
+        # downstream Game() construction doesn't see it.
+        coming_soon = updates.pop("coming_soon", False)
+
+        # Manual-override safety: when the user has set game_type via the
+        # Game Detail Type dropdown (game_type_manual=True), refresh
+        # inference must not override. This is the primary safety; the
+        # COALESCE in upsert_game's UPDATE is the secondary layer.
+        if not game.game_type_manual:
+            # Build a temporary merged Game with this iteration's `updates`
+            # applied so classify_game sees freshly-fetched genres /
+            # app_type / user_tags rather than the stale row values.
+            valid_field_names = {f.name for f in dc_fields(Game)}
+            merge_overrides = {k: v for k, v in updates.items() if k in valid_field_names}
+            merged = dc_replace(game, **merge_overrides) if merge_overrides else game
+            new_type = classify_game(merged, coming_soon=coming_soon)
+            updates["game_type"] = new_type
+
         # Always write, even when sources were cached, so last_refreshed advances.
         enriched = Game(
             appid=game.appid,
@@ -458,6 +481,12 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             review_playtime_median=updates.get("review_playtime_median"),
             stickiness_ratio=updates.get("stickiness_ratio"),
             playtime_median_avg_ratio=updates.get("playtime_median_avg_ratio"),
+            # Game-type classification. game_type is omitted from `updates`
+            # entirely when game_type_manual=True (set above), so passing
+            # None preserves the user override via the upsert COALESCE.
+            game_type=updates.get("game_type"),
+            game_type_manual=game.game_type_manual,
+            app_type=updates.get("app_type", game.app_type),
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -504,4 +533,7 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         review_playtime_median=game.review_playtime_median,
         stickiness_ratio=game.stickiness_ratio,
         playtime_median_avg_ratio=game.playtime_median_avg_ratio,
+        game_type=game.game_type,
+        game_type_manual=game.game_type_manual,
+        app_type=game.app_type,
     )
