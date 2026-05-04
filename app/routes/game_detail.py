@@ -11,8 +11,22 @@ from app.game_detail import (
     parse_status_form_value,
     valid_status_transitions,
 )
+from app.game_type import (
+    ALL_GAME_TYPES,
+    GAME_TYPE_LABELS,
+    resolve_type,
+)
 from app.models import GameStatus
 from app.templates_config import templates
+
+
+def _build_game_type_options(game) -> list:
+    """[(value, label, is_current), ...] for the Type dropdown.
+    Unlike statuses (which gate options on transitions), all 11 game
+    types are always selectable — the user can correct any
+    misclassification."""
+    current = resolve_type(game)
+    return [(t, GAME_TYPE_LABELS[t], t == current) for t in ALL_GAME_TYPES]
 
 router = APIRouter()
 
@@ -47,6 +61,7 @@ def _build_full_context(appid: int) -> Optional[dict]:
         "affinity_has_any": any(c.pills for c in affinity_categories),
         "pick_rows": pick_rows,
         "status_options": status_options,
+        "game_type_options": _build_game_type_options(gws.game),
         "is_forever": is_forever_game(gws.game),
     }
 
@@ -61,6 +76,7 @@ def _status_bar_context(appid: int) -> Optional[dict]:
         "game": gws.game,
         "state": gws.state,
         "status_options": valid_status_transitions(gws.state.status, gws.state.dropped_strength),
+        "game_type_options": _build_game_type_options(gws.game),
     }
 
 
@@ -109,6 +125,37 @@ async def reset_status(request: Request, appid: int):
     """
     with db.get_db() as conn:
         result = db.reset_status_to_inferred(conn, appid)
+    if result is None:
+        raise HTTPException(status_code=404)
+    ctx = _status_bar_context(appid)
+    return templates.TemplateResponse(request, "partials/game_detail_status_bar.html", ctx)
+
+
+@router.post("/games/{appid}/game_type", response_class=HTMLResponse)
+async def update_game_type(
+    request: Request,
+    appid: int,
+    game_type: str = Form(...),
+):
+    """Set game_type via dropdown; marks game_type_manual=True so refresh
+    inference doesn't override on subsequent runs."""
+    if game_type not in ALL_GAME_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unknown game_type: {game_type}")
+    with db.get_db() as conn:
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(status_code=404)
+        db.set_game_type(conn, appid, game_type, manual=True)
+    ctx = _status_bar_context(appid)
+    return templates.TemplateResponse(request, "partials/game_detail_status_bar.html", ctx)
+
+
+@router.post("/games/{appid}/reset_game_type", response_class=HTMLResponse)
+async def reset_game_type(request: Request, appid: int):
+    """Clear game_type_manual and immediately re-run classify_game.
+    Mirrors reset_status — clearing the flag without re-classifying
+    leaves the cached value stale until next refresh."""
+    with db.get_db() as conn:
+        result = db.reset_game_type_to_inferred(conn, appid)
     if result is None:
         raise HTTPException(status_code=404)
     ctx = _status_bar_context(appid)

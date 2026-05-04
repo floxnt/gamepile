@@ -660,6 +660,39 @@ def reset_status_to_inferred(conn: sqlite3.Connection, appid: int) -> Optional[G
     return new_status
 
 
+def set_game_type(conn: sqlite3.Connection, appid: int, game_type: str, *, manual: bool) -> None:
+    """Persist a game_type for one game. `manual` controls whether
+    refresh inference may override on subsequent runs."""
+    conn.execute(
+        "UPDATE games SET game_type = ?, game_type_manual = ? WHERE appid = ?",
+        (game_type, 1 if manual else 0, appid),
+    )
+
+
+def reset_game_type_to_inferred(conn: sqlite3.Connection, appid: int) -> Optional[str]:
+    """Clear game_type_manual and immediately re-run classify_game(game)
+    against the current row state. Returns the new game_type, or None
+    if the game doesn't exist.
+
+    Mirrors reset_status_to_inferred — clearing the manual flag without
+    re-running inference would leave the game in a stale-cached state
+    until next refresh, which is surprising UX.
+    """
+    # Lazy import: classify_game lives in app.game_type and pulls
+    # nothing else from app.* — avoid module-level circular concerns.
+    from app.game_type import classify_game
+
+    game = get_game_by_appid(conn, appid)
+    if game is None:
+        return None
+    new_type = classify_game(game)
+    conn.execute(
+        "UPDATE games SET game_type = ?, game_type_manual = 0 WHERE appid = ?",
+        (new_type, appid),
+    )
+    return new_type
+
+
 def get_picks_for_appid(conn: sqlite3.Connection, appid: int) -> list[PickHistory]:
     """All pick_history rows for one game, newest first."""
     rows = conn.execute(

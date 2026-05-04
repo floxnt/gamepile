@@ -103,17 +103,22 @@ templates.env.globals["duration_label"] = _duration_label
 from app.game_detail import relative_time as _relative_time  # noqa: E402
 templates.env.globals["relative_time"] = _relative_time
 
-# compute_game_type is registered as a Jinja global so the Library row template
-# can render the Type badge per-row without each route handler having to
-# pre-attach it to every gws. The label/tooltip dicts come along for badge text.
-from app.backlog import (  # noqa: E402
+# Game-type classification helpers are registered as Jinja globals so the
+# Library row template can render badges per-row without each route having
+# to pre-attach the type. resolve_type is the public entry point — it
+# falls back to classify_game(game) when game.game_type is NULL (the
+# migration window before the first refresh after the schema landed).
+# The label/tooltip dicts cover all 11 types (full taxonomy).
+from app.game_type import (  # noqa: E402
     GAME_TYPE_LABELS as _GAME_TYPE_LABELS,
     GAME_TYPE_TOOLTIPS as _GAME_TYPE_TOOLTIPS,
-    compute_game_type as _compute_game_type,
+    resolve_type as _resolve_type,
 )
-templates.env.globals["compute_game_type"] = _compute_game_type
+templates.env.globals["resolve_type"] = _resolve_type
 templates.env.globals["game_type_labels"] = _GAME_TYPE_LABELS
 templates.env.globals["game_type_tooltips"] = _GAME_TYPE_TOOLTIPS
+# Backwards-compat alias for templates that haven't been switched yet.
+templates.env.globals["compute_game_type"] = _resolve_type
 
 # Phase 1a engagement-signals display helper used by game_detail_engagement.html.
 from app.hook_metrics import qualitative_ratio_hint as _qualitative_ratio_hint  # noqa: E402

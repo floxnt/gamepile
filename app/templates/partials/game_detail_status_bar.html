@@ -1,4 +1,6 @@
-{# Section 2 — Status bar. HTMX swap target for /status and /reset_status. #}
+{# Section 2 — Status bar. HTMX swap target for /status, /reset_status,
+   /game_type, /reset_game_type. All four endpoints return THIS partial
+   so any of them re-render the bar in place. #}
 <section
   id="game-detail-status-bar"
   class="game-detail-status-bar"
@@ -19,11 +21,27 @@
     </label>
   </form>
 
+  <form
+    class="status-bar-form"
+    hx-post="/games/{{ game.appid }}/game_type"
+    hx-target="#game-detail-status-bar"
+    hx-swap="outerHTML"
+  >
+    <label class="status-bar-label">
+      Type
+      <select name="game_type" onchange="this.form.requestSubmit()">
+        {% for value, label, is_current in game_type_options %}
+          <option value="{{ value }}"{% if is_current %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
   <div class="status-bar-meta">
     {% if state.manually_set %}
       <span class="status-bar-indicator status-bar-indicator--manual"
             title="You explicitly set this status. Auto-inference won't override it.">
-        ● Manually set
+        ● Status manually set
       </span>
       <button
         class="btn btn-ghost btn-sm status-bar-reset"
@@ -31,10 +49,26 @@
         hx-target="#game-detail-status-bar"
         hx-swap="outerHTML"
         title="Clear manually-set and re-run inference against current playtime + HLTB."
-      >Reset to auto-inferred</button>
-    {% else %}
+      >Reset status</button>
+    {% endif %}
+
+    {% if game.game_type_manual %}
+      <span class="status-bar-indicator status-bar-indicator--manual"
+            title="You explicitly set this type. Refresh inference won't override it.">
+        ● Type manually set
+      </span>
+      <button
+        class="btn btn-ghost btn-sm status-bar-reset"
+        hx-post="/games/{{ game.appid }}/reset_game_type"
+        hx-target="#game-detail-status-bar"
+        hx-swap="outerHTML"
+        title="Clear manually-set type and re-run classify_game against current row state."
+      >Reset type</button>
+    {% endif %}
+
+    {% if not state.manually_set and not game.game_type_manual %}
       <span class="status-bar-indicator status-bar-indicator--auto"
-            title="Auto-inferred from Steam playtime + HLTB. Will update on refresh.">
+            title="Auto-inferred from Steam playtime + HLTB and SteamSpy / Steam categories.">
         ○ Auto-inferred
       </span>
     {% endif %}
