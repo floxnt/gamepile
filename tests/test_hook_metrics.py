@@ -245,14 +245,43 @@ def test_review_playtime_median_empty():
     assert compute_review_playtime_median([]) is None
 
 
-def test_stickiness_ratio_basic():
-    # 5 of 10 reviews >= 1200 minutes (20h)
+def test_stickiness_ratio_hltb_relative():
+    """With hltb_main_hours present, threshold = 0.5 × main × 60 minutes.
+    For a 10h main story, threshold = 300 minutes."""
+    pts = [60, 120, 180, 240, 280] + [300, 360, 420, 480, 540]
+    # 5 of 10 reviews >= 300 minutes (which is 0.5 × 10h × 60)
+    assert compute_stickiness_ratio(pts, hltb_main_hours=10.0) == 0.5
+
+
+def test_stickiness_ratio_hltb_relative_short_game():
+    """A 4-hour walking sim: threshold = 120 minutes; reviewer at 6h is sticky."""
+    pts = [30] * 5 + [360] * 5  # 6h × 60 = 360 minutes
+    assert compute_stickiness_ratio(pts, hltb_main_hours=4.0) == 0.5
+
+
+def test_stickiness_ratio_hltb_relative_long_game():
+    """A 200-hour CRPG: threshold = 6000 minutes (100h); reviewer at 25h is NOT sticky."""
+    pts = [60, 120, 180, 240, 300, 360, 420, 480, 540, 1500]  # 1500 min = 25h
+    # None reach 6000 min (100h)
+    assert compute_stickiness_ratio(pts, hltb_main_hours=200.0) == 0.0
+
+
+def test_stickiness_ratio_fallback_to_flat_when_hltb_null():
+    """No hltb_main_hours → flat 20-hour (1200-min) cutoff so the metric
+    stays useful for games we lack HLTB main for."""
     pts = [100, 200, 300, 400, 500] + [STICKY_PLAYTIME_THRESHOLD_MIN] * 5
+    assert compute_stickiness_ratio(pts, hltb_main_hours=None) == 0.5
+    # Default arg also triggers fallback.
     assert compute_stickiness_ratio(pts) == 0.5
 
 
+def test_stickiness_ratio_fallback_to_flat_when_hltb_zero():
+    pts = [100] * 5 + [STICKY_PLAYTIME_THRESHOLD_MIN] * 5
+    assert compute_stickiness_ratio(pts, hltb_main_hours=0) == 0.5
+
+
 def test_stickiness_ratio_threshold_inclusive():
-    """A reviewer at exactly 1200 minutes counts as sticky."""
+    """A reviewer at exactly the threshold counts as sticky."""
     pts = [STICKY_PLAYTIME_THRESHOLD_MIN] * MIN_REVIEWS_FOR_STATS
     assert compute_stickiness_ratio(pts) == 1.0
 
@@ -260,6 +289,7 @@ def test_stickiness_ratio_threshold_inclusive():
 def test_stickiness_ratio_too_few():
     pts = [STICKY_PLAYTIME_THRESHOLD_MIN] * (MIN_REVIEWS_FOR_STATS - 1)
     assert compute_stickiness_ratio(pts) is None
+    assert compute_stickiness_ratio(pts, hltb_main_hours=10.0) is None
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +357,11 @@ TESTS = [
     test_review_playtime_median_basic,
     test_review_playtime_median_too_few,
     test_review_playtime_median_empty,
-    test_stickiness_ratio_basic,
+    test_stickiness_ratio_hltb_relative,
+    test_stickiness_ratio_hltb_relative_short_game,
+    test_stickiness_ratio_hltb_relative_long_game,
+    test_stickiness_ratio_fallback_to_flat_when_hltb_null,
+    test_stickiness_ratio_fallback_to_flat_when_hltb_zero,
     test_stickiness_ratio_threshold_inclusive,
     test_stickiness_ratio_too_few,
     test_playtime_median_avg_ratio_basic,

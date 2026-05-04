@@ -46,7 +46,18 @@ STRONG_MATCH_PCT_CAP = 50.0
 # Minimum reviews required for review-derived metrics to be meaningful.
 MIN_REVIEWS_FOR_STATS = 10
 
-# 20 hours = 1200 minutes; reviewers above this threshold count as "sticky".
+# Stickiness threshold: reviewers with playtime_at_review at or above
+# STICKY_HLTB_FRACTION × HLTB-main-in-minutes count as "sticky" — i.e.,
+# they played at least half the main story before reviewing, which is a
+# reasonable proxy for "informed opinion" that scales with game length.
+# A flat 20-hour cutoff is arbitrary across very different games (a 4h
+# walking sim's reviewer at 6h is sticky; a 200h CRPG's reviewer at 25h
+# is barely past the prologue).
+STICKY_HLTB_FRACTION = 0.5
+
+# Fallback for games without HLTB main data (~9% of the library): use a
+# flat 20-hour cutoff so we still emit a stickiness number rather than
+# NULL.
 STICKY_PLAYTIME_THRESHOLD_MIN = 1200
 
 # Cliff-metric discard rules — discard top N achievements (which nearly
@@ -202,11 +213,29 @@ def compute_review_playtime_median(playtimes_min: list) -> Optional[int]:
     return int(statistics.median(playtimes_min))
 
 
-def compute_stickiness_ratio(playtimes_min: list) -> Optional[float]:
-    """Fraction of reviewers with playtime_at_review >= 20h. None if too few reviews."""
+def compute_stickiness_ratio(
+    playtimes_min: list,
+    hltb_main_hours: Optional[float] = None,
+) -> Optional[float]:
+    """Fraction of reviewers whose playtime_at_review meets the sticky threshold.
+
+    Threshold scales with HLTB main when available:
+      - hltb_main_hours present → STICKY_HLTB_FRACTION (0.5) × hltb_main_hours × 60
+        ("reviewer played at least half the main story before reviewing")
+      - hltb_main_hours None / 0 → fallback to STICKY_PLAYTIME_THRESHOLD_MIN (1200)
+        (flat 20-hour cutoff; the metric stays useful for the ~9% of games
+         we lack HLTB main for, rather than returning NULL)
+
+    None when fewer than MIN_REVIEWS_FOR_STATS reviews — too few to be
+    meaningful regardless of threshold choice.
+    """
     if len(playtimes_min) < MIN_REVIEWS_FOR_STATS:
         return None
-    sticky = sum(1 for p in playtimes_min if p >= STICKY_PLAYTIME_THRESHOLD_MIN)
+    if hltb_main_hours and hltb_main_hours > 0:
+        threshold_min = STICKY_HLTB_FRACTION * hltb_main_hours * 60
+    else:
+        threshold_min = STICKY_PLAYTIME_THRESHOLD_MIN
+    sticky = sum(1 for p in playtimes_min if p >= threshold_min)
     return sticky / len(playtimes_min)
 
 

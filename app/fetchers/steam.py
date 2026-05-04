@@ -134,27 +134,60 @@ async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[d
     return out
 
 
-async def fetch_review_summary(client: httpx.AsyncClient, appid: int) -> Optional[dict]:
-    """Return {steam_review_pct, steam_review_count} or None on failure."""
+async def fetch_review_data(client: httpx.AsyncClient, appid: int) -> Optional[dict]:
+    """Return {steam_review_pct, steam_review_count, playtimes} or None.
+
+    Renamed from `fetch_review_summary` (which only returned the
+    aggregate fields) so callers can also access per-review playtime
+    data for the v3 hook-point Phase 1a `review_playtime_median` and
+    `stickiness_ratio` metrics.
+
+    Single API call with num_per_page=100 returns one page of reviews
+    (max 100 entries) along with the query_summary the prior version
+    used. Median converges quickly over a 100-review sample even for
+    games with tens of thousands of reviews; pagination would be
+    wasteful. filter=all ensures the median reflects the population of
+    reviewers who played and rated, not just recent reviews.
+
+    `playtimes` is a list of int minutes (`author.playtime_at_review`)
+    extracted from the returned reviews. May be empty when the game
+    has no reviews or when the response shape is unexpected.
+    """
     try:
         resp = await client.get(
             _REVIEWS_URL.format(appid=appid),
-            params={"json": 1, "num_per_page": 0, "language": "all"},
-            timeout=15,
+            params={
+                "json": 1,
+                "num_per_page": 100,
+                "filter": "all",
+                "language": "all",
+            },
+            timeout=20,
         )
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         log.warning("reviews failed for %s: %s", appid, exc)
         return None
 
-    summary = resp.json().get("query_summary", {})
+    body = resp.json()
+    summary = body.get("query_summary", {})
     total = summary.get("total_reviews", 0)
     positive = summary.get("total_positive", 0)
+
+    reviews_raw = body.get("reviews") or []
+    playtimes: list = []
+    for r in reviews_raw:
+        author = r.get("author") or {}
+        pt = author.get("playtime_at_review")
+        if isinstance(pt, (int, float)) and pt >= 0:
+            playtimes.append(int(pt))
+
     if total == 0:
-        return {"steam_review_pct": None, "steam_review_count": 0}
+        return {"steam_review_pct": None, "steam_review_count": 0, "playtimes": playtimes}
     return {
         "steam_review_pct": round(positive / total * 100),
         "steam_review_count": total,
+        "playtimes": playtimes,
     }
 
 

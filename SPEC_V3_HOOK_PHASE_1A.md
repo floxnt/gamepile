@@ -71,7 +71,18 @@ For each game, compute and store:
    - If fewer than 10 reviews: NULL (too few to be meaningful)
 
 4. **stickiness_ratio** (REAL, nullable, 0.0-1.0)
-   - Fraction of reviewers with `playtime_at_review >= 1200` (20+ hours)
+   - Fraction of reviewers whose `playtime_at_review` meets the sticky
+     threshold. Threshold scales with the game's own length:
+     - HLTB main present → `0.5 × hltb_main_hours × 60` minutes
+       ("reviewer played at least half the main story before reviewing"
+        — informed-opinion proxy that adapts to game length)
+     - HLTB main missing → flat 1200 minutes (20 hours) as fallback so
+       the metric stays useful for the ~9% of games without HLTB main
+       data, rather than returning NULL
+   - Rationale for the HLTB-relative threshold: a flat 20-hour cutoff
+     is arbitrary across very different games. A 4-hour walking sim
+     reviewer at 6 hours is sticky; a 200-hour CRPG reviewer at 25
+     hours has barely started.
    - Computed alongside review_playtime_median from the same review data
    - If fewer than 10 reviews: NULL
 

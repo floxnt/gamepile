@@ -35,7 +35,16 @@ import httpx
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
 from app.fetchers import steam as steam_fetcher
+from app.fetchers import steam_achievements as achievements_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
+from app.hook_metrics import (
+    compute_cliff_metric,
+    compute_completion_rate,
+    compute_completion_rate_confidence,
+    compute_playtime_median_avg_ratio,
+    compute_review_playtime_median,
+    compute_stickiness_ratio,
+)
 from app.models import Game
 
 log = logging.getLogger(__name__)
@@ -83,6 +92,9 @@ class RefreshProgress:
     hltb_skipped: int = 0            # didn't try (cache hit)
     spy_fetched: int = 0
     spy_skipped: int = 0
+    achievements_fetched: int = 0
+    achievements_skipped: int = 0
+    achievements_no_data: int = 0    # game has no achievements at all (404 / empty)
     release_date_backfilled: int = 0
     description_backfilled: int = 0
     errors: list[str] = field(default_factory=list)
@@ -345,22 +357,72 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 ))
                 hltb_outcomes.append(False)
 
-        # --- SteamSpy user tags ---
+        # --- SteamSpy data (tags + median_forever / average_forever) ---
         if not force and game.user_tags and not _is_stale(effective_game):
             log.debug("SteamSpy cached: %s", game.name)
             progress.spy_skipped += 1
         else:
-            progress.phase = f"SteamSpy tags ({i+1}/{progress.total_games})"
-            spy_tags = await steamspy_fetcher.fetch_user_tags(client, game.appid)
-            if spy_tags:
-                updates["user_tags"] = ",".join(name for name, _ in spy_tags)
+            progress.phase = f"SteamSpy ({i+1}/{progress.total_games})"
+            spy = await steamspy_fetcher.fetch_steamspy_data(client, game.appid)
+            if spy is not None:
+                if spy.user_tags:
+                    updates["user_tags"] = ",".join(name for name, _ in spy.user_tags)
+                # Compute the SteamSpy ratio metric inline — pure-functional
+                # over the two scalar fields. None-safe.
+                ratio = compute_playtime_median_avg_ratio(spy.median_forever, spy.average_forever)
+                if ratio is not None:
+                    updates["playtime_median_avg_ratio"] = ratio
             progress.spy_fetched += 1
 
         # --- Steam reviews (always fetch) ---
+        # Returns aggregate fields + per-review playtime list. We feed the
+        # playtimes into the hook-point review-derived metrics inline.
         progress.phase = f"Reviews ({i+1}/{progress.total_games})"
-        reviews = await steam_fetcher.fetch_review_summary(client, game.appid)
+        reviews = await steam_fetcher.fetch_review_data(client, game.appid)
         if reviews:
+            playtimes = reviews.pop("playtimes", []) or []
             updates.update(reviews)
+            review_median = compute_review_playtime_median(playtimes)
+            if review_median is not None:
+                updates["review_playtime_median"] = review_median
+            # Stickiness threshold scales with HLTB main when available
+            # (0.5 × main = "played half the story before reviewing"); flat
+            # 20-hour fallback when HLTB main is missing. Use the freshest
+            # HLTB main we have — this iteration's fetch if any, else the
+            # already-stored value.
+            hltb_for_threshold = updates.get("hltb_main_hours", game.hltb_main_hours)
+            stickiness = compute_stickiness_ratio(
+                playtimes, hltb_main_hours=hltb_for_threshold,
+            )
+            if stickiness is not None:
+                updates["stickiness_ratio"] = stickiness
+
+        # --- Achievement stats (cache via age-band TTL like HLTB) ---
+        if not force and game.completion_rate is not None and not _is_stale(effective_game):
+            log.debug("Achievements cached: %s", game.name)
+            progress.achievements_skipped += 1
+        else:
+            progress.phase = f"Achievements ({i+1}/{progress.total_games})"
+            achievements = await achievements_fetcher.fetch_achievements_with_metadata(
+                client, game.appid,
+            )
+            if achievements is None:
+                # Game has no achievements at all (or fetch failed). Don't
+                # write anything — leave existing values alone via COALESCE
+                # in upsert_game so a transient failure doesn't blow away a
+                # previously-computed metric.
+                progress.achievements_no_data += 1
+            else:
+                completion = compute_completion_rate(achievements)
+                confidence = compute_completion_rate_confidence(achievements)
+                cliff = compute_cliff_metric(achievements)
+                if completion is not None:
+                    updates["completion_rate"] = completion
+                if confidence is not None:
+                    updates["completion_rate_confidence"] = confidence
+                if cliff is not None:
+                    updates["cliff_metric"] = cliff
+                progress.achievements_fetched += 1
 
         # Always write, even when sources were cached, so last_refreshed advances.
         enriched = Game(
@@ -387,6 +449,15 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             is_active=True,
             release_date=updates.get("release_date", game.release_date),
             description=updates.get("description", game.description),
+            # Hook-point Phase 1a metrics. None when this iteration didn't
+            # produce a fresh value — upsert_game COALESCEs against existing
+            # so cached / unavailable doesn't null out previously-stored data.
+            completion_rate=updates.get("completion_rate"),
+            completion_rate_confidence=updates.get("completion_rate_confidence"),
+            cliff_metric=updates.get("cliff_metric"),
+            review_playtime_median=updates.get("review_playtime_median"),
+            stickiness_ratio=updates.get("stickiness_ratio"),
+            playtime_median_avg_ratio=updates.get("playtime_median_avg_ratio"),
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -427,4 +498,10 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         is_active=game.is_active,
         release_date=release_date,
         description=game.description,
+        completion_rate=game.completion_rate,
+        completion_rate_confidence=game.completion_rate_confidence,
+        cliff_metric=game.cliff_metric,
+        review_playtime_median=game.review_playtime_median,
+        stickiness_ratio=game.stickiness_ratio,
+        playtime_median_avg_ratio=game.playtime_median_avg_ratio,
     )
