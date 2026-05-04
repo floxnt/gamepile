@@ -82,6 +82,17 @@ Modules:
 ## Known issues / not yet fixed
 
 - Various design refinements from testing (collected in bug rundown)
+- SteamSpy's free appdetails endpoint returns 0 for median_forever
+  and average_forever as of this session. The playtime_median_avg_ratio
+  metric is structurally dead in Phase 1a. Schema column preserved
+  nullable for possible future revival via paid SteamSpy or alternate
+  data source. Phase 1b drops this metric from categorical signal logic.
+- Steam catalog games predating ~2012 sometimes return drastically
+  reduced review counts via the appreviews API despite having thousands
+  of total reviews. Approximately 5% of typical libraries fall into
+  this pattern. These games will show "Insufficient data" for
+  review-derived metrics regardless of threshold tuning. This is a
+  Steam API limitation, not a GamePile bug.
 
 ## Deferred to v3
 
