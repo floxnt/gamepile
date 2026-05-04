@@ -125,6 +125,19 @@ def init_db() -> None:
             # The existing `notes` column is reused for personal notes (was
             # added in v1 but never wired to UI) — no separate column added.
             "ALTER TABLE game_state ADD COLUMN personal_rating INTEGER",
+            # v3 hook-point Phase 1a: per-game engagement signals.
+            # All nullable — Phase 1a populates what's available; Phase 1b
+            # turns these into a categorical "stickiness" badge after
+            # threshold tuning against the real distribution.
+            "ALTER TABLE games ADD COLUMN completion_rate REAL",
+            "ALTER TABLE games ADD COLUMN cliff_metric REAL",
+            "ALTER TABLE games ADD COLUMN review_playtime_median INTEGER",
+            "ALTER TABLE games ADD COLUMN stickiness_ratio REAL",
+            "ALTER TABLE games ADD COLUMN playtime_median_avg_ratio REAL",
+            # Confidence label for completion_rate: 'high' / 'low' / NULL.
+            # Lets Phase 1b weight strong-pattern matches differently from
+            # fallback / weak-pattern picks.
+            "ALTER TABLE games ADD COLUMN completion_rate_confidence TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -239,6 +252,12 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         user_tags=row["user_tags"] or "",
         release_date=_parse_dt(row["release_date"]) if "release_date" in keys else None,
         description=row["description"] if "description" in keys else None,
+        completion_rate=row["completion_rate"] if "completion_rate" in keys else None,
+        completion_rate_confidence=row["completion_rate_confidence"] if "completion_rate_confidence" in keys else None,
+        cliff_metric=row["cliff_metric"] if "cliff_metric" in keys else None,
+        review_playtime_median=row["review_playtime_median"] if "review_playtime_median" in keys else None,
+        stickiness_ratio=row["stickiness_ratio"] if "stickiness_ratio" in keys else None,
+        playtime_median_avg_ratio=row["playtime_median_avg_ratio"] if "playtime_median_avg_ratio" in keys else None,
     )
 
 
@@ -320,14 +339,18 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             genres, tags, user_tags, developer, publisher,
             metacritic_score, opencritic_score,
             steam_review_pct, steam_review_count,
-            last_refreshed, is_active, release_date, description
+            last_refreshed, is_active, release_date, description,
+            completion_rate, completion_rate_confidence, cliff_metric,
+            review_playtime_median, stickiness_ratio, playtime_median_avg_ratio
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
             :genres, :tags, :user_tags, :developer, :publisher,
             :metacritic_score, :opencritic_score,
             :steam_review_pct, :steam_review_count,
-            :last_refreshed, :is_active, :release_date, :description
+            :last_refreshed, :is_active, :release_date, :description,
+            :completion_rate, :completion_rate_confidence, :cliff_metric,
+            :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -348,7 +371,16 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             last_refreshed          = excluded.last_refreshed,
             is_active               = excluded.is_active,
             release_date            = COALESCE(excluded.release_date, games.release_date),
-            description             = COALESCE(excluded.description, games.description)
+            description             = COALESCE(excluded.description, games.description),
+            -- Hook-point Phase 1a metrics: COALESCE so cache-skip writes
+            -- (where the field comes through as None on the new Game value)
+            -- preserve previously-stored data instead of nulling it.
+            completion_rate            = COALESCE(excluded.completion_rate, games.completion_rate),
+            completion_rate_confidence = COALESCE(excluded.completion_rate_confidence, games.completion_rate_confidence),
+            cliff_metric               = COALESCE(excluded.cliff_metric, games.cliff_metric),
+            review_playtime_median     = COALESCE(excluded.review_playtime_median, games.review_playtime_median),
+            stickiness_ratio           = COALESCE(excluded.stickiness_ratio, games.stickiness_ratio),
+            playtime_median_avg_ratio  = COALESCE(excluded.playtime_median_avg_ratio, games.playtime_median_avg_ratio)
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -371,6 +403,12 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "user_tags": game.user_tags,
         "release_date": game.release_date.isoformat() if game.release_date else None,
         "description": game.description,
+        "completion_rate": game.completion_rate,
+        "completion_rate_confidence": game.completion_rate_confidence,
+        "cliff_metric": game.cliff_metric,
+        "review_playtime_median": game.review_playtime_median,
+        "stickiness_ratio": game.stickiness_ratio,
+        "playtime_median_avg_ratio": game.playtime_median_avg_ratio,
     })
 
 
@@ -425,6 +463,8 @@ def get_games_with_state(
             g.metacritic_score, g.opencritic_score,
             g.steam_review_pct, g.steam_review_count,
             g.last_refreshed, g.is_active, g.release_date, g.description,
+            g.completion_rate, g.completion_rate_confidence, g.cliff_metric,
+            g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,

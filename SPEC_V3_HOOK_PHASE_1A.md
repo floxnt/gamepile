@@ -19,13 +19,39 @@ For each game, compute and store:
 1. **completion_rate** (REAL, nullable, 0.0-1.0)
    - The unlock percentage of the lowest-unlocked story-completion
      achievement (or fallback: lowest unlock % overall)
-   - Source: Steam `GetGlobalAchievementPercentagesForApp`
+   - Source: Steam `GetGlobalAchievementPercentagesForApp` joined with
+     `GetSchemaForGame` (the latter resolves opaque internal IDs like
+     `ACH00` to display names like "Roll Credits"; without it the
+     heuristic fails for ~80% of games)
    - Story-completion identification heuristic: achievement names
      containing "complete", "finish", "ending", "credits", "the end",
-     "epilogue", "final" (case-insensitive)
+     "epilogue", "final" (case-insensitive). Match runs against BOTH
+     `displayName` (when schema-resolved) AND the internal `name` —
+     games like Hades carry the signal in `name` (`AchReachedEpilogue`)
+     while displayName is themed ("One for the Ages")
    - If no story-completion candidate found, fallback: use the lowest
      unlock % achievement overall
    - If game has no achievements: NULL
+
+1a. **completion_rate_confidence** (TEXT, nullable, 'high' | 'low')
+   - Honesty flag for the metric above. Phase 1b will treat 'high' and
+     'low' differently when weighting completion_rate into the
+     categorical stickiness signal.
+   - **'high'** when the heuristic matched an achievement whose
+     **displayName** (not internal name) contains a strong-pattern word:
+     "ending", "endings", "credits", "the end", "epilogue",
+     "finished the game", "beat the game" — AND the unlock percent is
+     ≤ 50% (anything higher is a launch achievement, not a story
+     endpoint)
+   - **'low'** otherwise: heuristic fell back to lowest-overall, OR the
+     match's displayName uses only weak words ("complete" / "final"),
+     OR the unlock percent exceeds the 50% cap
+   - **NULL** when the game has no achievements (no completion_rate to
+     label)
+   - The matching pattern set is intentionally permissive (catch as
+     many real completions as possible); confidence labelling is
+     intentionally strict (only mark high when the user-visible
+     achievement text unambiguously says "you finished the story")
 
 2. **cliff_metric** (REAL, nullable, 0.0-100.0)
    - The largest single percentage-point drop between consecutive
@@ -61,6 +87,7 @@ For each game, compute and store:
 All on the `games` table, all nullable, all via try/except ALTER TABLE:
 
 - `completion_rate REAL`
+- `completion_rate_confidence TEXT` (values 'high' / 'low' / NULL)
 - `cliff_metric REAL`
 - `review_playtime_median INTEGER`
 - `stickiness_ratio REAL`
@@ -68,13 +95,32 @@ All on the `games` table, all nullable, all via try/except ALTER TABLE:
 
 ## New fetcher: app/fetchers/steam_achievements.py
 
-- `fetch_global_achievement_percentages(appid: int) -> Optional[list[dict]]`
-- Calls `https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/?gameid={appid}`
-- No API key required — this endpoint is public
-- Returns list of `{name, percent}` dicts sorted by percent descending
-- On 404 / empty response (game has no achievements): return None
-- On rate limit / other failure: same retry pattern as HLTB fetcher
-- Adaptive pacing: same logic as `_phase_enrich` for HLTB
+Two endpoints, called together to produce display-name-annotated unlock
+percentages. Schema resolution is essential: empirical verification
+showed the percentages endpoint returns opaque internal IDs (e.g.
+`ACH00`, `Achievement_GOSCC_NNN`, `TrophyTitle_NN_fiber_Steam`) for
+~80% of the test games, making heuristic matching against names alone
+~12% accurate. Adding schema-resolved displayName brings that to ~40%
+correct + the rest correctly flagged as low confidence.
+
+- `fetch_global_achievement_percentages(client, appid)` — public,
+  no API key. `GetGlobalAchievementPercentagesForApp/v2/`.
+- `fetch_achievement_schema(client, appid)` — requires API key (we
+  have one). `GetSchemaForGame/v2/`. Returns `{internal_name:
+  display_name}`. Best-effort: schema may be unavailable for games
+  whose developers didn't publish a public schema; falls back to
+  using the internal name as the display name.
+- `fetch_achievements_with_metadata(client, appid)` — combined wrapper
+  that returns the joined `[{name, displayName, percent}, ...]` list.
+  This is what callers actually use.
+- Pacing: simple per-request delay + retry-with-backoff (matches the
+  appdetails fetcher pattern). NOT the full HLTB adaptive-window
+  logic — Steam Web API tolerates sustained requests at modest pace.
+- On 404 / empty response (game has no achievements): return None.
+- Schema cache: not a separate field. The age-band TTL on the
+  per-game refresh check (same as HLTB) means schema and percentages
+  are skipped together when the game's achievement metrics are still
+  cached.
 
 ## Sync orchestration changes (app/sync.py)
 

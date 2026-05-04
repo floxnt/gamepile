@@ -39,6 +39,13 @@ class Game:
     user_tags: str = ""                  # comma-separated SteamSpy user tags (top 10 by vote)
     release_date: Optional[datetime] = None  # parsed from Steam appdetails; drives age-based caching
     description: Optional[str] = None    # Steam short_description (marketing summary)
+    # v3 hook-point Phase 1a: per-game engagement signals.
+    completion_rate: Optional[float] = None            # 0.0-1.0; from Steam global achievement %
+    completion_rate_confidence: Optional[str] = None   # 'high' / 'low' / None — see hook_metrics.compute_completion_rate_confidence
+    cliff_metric: Optional[float] = None               # pct-point gap; largest drop after discarding launch achievements
+    review_playtime_median: Optional[int] = None       # minutes; median of author.playtime_at_review across the fetched review sample
+    stickiness_ratio: Optional[float] = None           # 0.0-1.0; fraction of reviewers with >=20h at review time
+    playtime_median_avg_ratio: Optional[float] = None  # 0.0-1.0; SteamSpy median_forever / average_forever
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]
