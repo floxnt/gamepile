@@ -130,3 +130,10 @@ templates.env.globals["engagement_display_rules"] = _engagement_display_rules
 # Phase 1a engagement-signals display helper used by game_detail_engagement.html.
 from app.hook_metrics import qualitative_ratio_hint as _qualitative_ratio_hint  # noqa: E402
 templates.env.globals["qualitative_ratio_hint"] = _qualitative_ratio_hint
+
+# Phase 1b categorical stickiness signal — registered as a Jinja global so
+# the engagement section, library row, and shortlist card can each render
+# the badge without the route layer pre-attaching the result. Returns a
+# (badge_label, sticky_count, filters_hard_count) tuple.
+from app.hook_metrics import compute_stickiness_signal as _compute_stickiness_signal  # noqa: E402
+templates.env.globals["compute_stickiness_signal"] = _compute_stickiness_signal

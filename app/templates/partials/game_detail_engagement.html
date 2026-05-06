@@ -28,6 +28,16 @@
 {% set has_stickiness = game.stickiness_ratio is not none %}
 {% set has_pt_ratio = game.playtime_median_avg_ratio is not none %}
 
+{# Phase 1b categorical signal. Header line appears under the Type line.
+   Hidden when ineligible (insufficient_data). The "X of Y supports this"
+   suffix shows for Sticky / Filters players hard; Average drops the
+   suffix because no signal "supports" the catch-all verdict. #}
+{% set sig_tuple = compute_stickiness_signal(game) %}
+{% set sig_badge = sig_tuple[0] %}
+{% set sig_sticky_n = sig_tuple[1] %}
+{% set sig_filters_n = sig_tuple[2] %}
+{% set sig_total = (rules.show_cliff_metric | int) + (rules.show_stickiness_ratio | int) + (rules.show_completion_rate | int) %}
+
 {# Per-row visibility: row renders when both rule allows AND data exists. #}
 {% set show_completion_row = rules.show_completion_rate and has_completion %}
 {% set show_cliff_row = rules.show_cliff_metric and has_cliff %}
@@ -40,10 +50,7 @@
    All other types: hide if no eligible row would render. #}
 {% if gt == "software" or any_visible_row %}
 <section class="game-detail-engagement">
-  <h2 class="game-detail-section-title">
-    Engagement signals
-    <span class="engagement-subtitle">Phase 1a — raw data</span>
-  </h2>
+  <h2 class="game-detail-section-title">Engagement signals</h2>
 
   {# Type line — always shown when section is visible. #}
   <div class="engagement-type-line">
@@ -53,6 +60,26 @@
       <span class="engagement-type-aside">(manually set)</span>
     {% endif %}
   </div>
+
+  {# Phase 1b categorical signal — Stickiness header line. Hidden for
+     ineligible types (insufficient_data). Average drops the count suffix. #}
+  {% if sig_badge != "insufficient_data" %}
+    <div class="engagement-signal-line">
+      <span class="engagement-signal-label">Stickiness signal:</span>
+      {% if sig_badge == "sticky" %}
+        <span class="stickiness-badge stickiness-badge--sticky"
+              title="Most reviewers play past the halfway point before reviewing">Sticky</span>
+        <span class="engagement-signal-aside">· {{ sig_sticky_n }} of {{ sig_total }} signal{{ "s" if sig_total != 1 }} support{{ "" if sig_total != 1 else "s" }} this</span>
+      {% elif sig_badge == "filters_hard" %}
+        <span class="stickiness-badge stickiness-badge--filters_hard"
+              title="Many reviewers bounce off well before the halfway point">Filters players hard</span>
+        <span class="engagement-signal-aside">· {{ sig_filters_n }} of {{ sig_total }} signal{{ "s" if sig_total != 1 }} support{{ "" if sig_total != 1 else "s" }} this</span>
+      {% elif sig_badge == "average" %}
+        <span class="stickiness-badge stickiness-badge--average"
+              title="Mixed engagement signals">Average</span>
+      {% endif %}
+    </div>
+  {% endif %}
 
   {# Caveat — surface once if rules.caveat_text is populated. #}
   {% if rules.caveat_text %}
