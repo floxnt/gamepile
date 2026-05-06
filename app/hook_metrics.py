@@ -274,3 +274,135 @@ def qualitative_ratio_hint(ratio: Optional[float]) -> str:
     if ratio < 0.7:
         return "uneven engagement"
     return "even engagement"
+
+
+# ---------------------------------------------------------------------------
+# Phase 1b — categorical stickiness signal
+# ---------------------------------------------------------------------------
+
+# Per-metric thresholds. Tuned from the Phase 1a distribution report:
+# - cliff median 7.1pp, ~4% above 20pp → CLIFF_FILTERS_THRESHOLD picks
+#   the long-tail
+# - stickiness median 0.81 across the populated library → upper threshold
+#   0.90 selects "very sticky" titles, lower threshold 0.50 selects
+#   "reviewers commonly bounce" titles
+# - completion median ~0.07 across high-confidence matches; 0.15 / 0.03
+#   bracket the high-confidence distribution
+CLIFF_FILTERS_THRESHOLD = 20.0
+STICKINESS_STICKY_THRESHOLD = 0.90
+STICKINESS_FILTERS_THRESHOLD = 0.50
+COMPLETION_STICKY_THRESHOLD = 0.15
+COMPLETION_FILTERS_THRESHOLD = 0.03
+
+# Per-metric contribution values returned by categorize_*. The combined
+# signal logic counts SIGNAL_STICKY / SIGNAL_FILTERS_HARD across the
+# metrics that the game type's display rules surface.
+SIGNAL_STICKY = "sticky"
+SIGNAL_FILTERS_HARD = "filters_hard"
+SIGNAL_NEUTRAL = "neutral"
+SIGNAL_NO_DATA = "no_data"
+
+# Combined badge values surfaced to the user via compute_stickiness_signal.
+BADGE_STICKY = "sticky"
+BADGE_AVERAGE = "average"
+BADGE_FILTERS_HARD = "filters_hard"
+BADGE_INSUFFICIENT_DATA = "insufficient_data"
+
+
+def categorize_cliff(cliff_metric: Optional[float]) -> str:
+    """Cliff has no SIGNAL_STICKY contribution by design — a small cliff
+    isn't a positive signal on its own, just absence of a negative one."""
+    if cliff_metric is None:
+        return SIGNAL_NO_DATA
+    if cliff_metric >= CLIFF_FILTERS_THRESHOLD:
+        return SIGNAL_FILTERS_HARD
+    return SIGNAL_NEUTRAL
+
+
+def categorize_stickiness(stickiness_ratio: Optional[float]) -> str:
+    if stickiness_ratio is None:
+        return SIGNAL_NO_DATA
+    if stickiness_ratio >= STICKINESS_STICKY_THRESHOLD:
+        return SIGNAL_STICKY
+    if stickiness_ratio <= STICKINESS_FILTERS_THRESHOLD:
+        return SIGNAL_FILTERS_HARD
+    return SIGNAL_NEUTRAL
+
+
+def categorize_completion(
+    completion_rate: Optional[float],
+    confidence: Optional[str],
+) -> str:
+    """Only contributes a non-no_data value when confidence == 'high'.
+    Low-confidence matches and fallback-derived values collapse to
+    SIGNAL_NO_DATA — the heuristic isn't trusted enough to feed the
+    categorical signal when the displayName doesn't carry an unambiguous
+    completion word."""
+    if completion_rate is None or confidence != "high":
+        return SIGNAL_NO_DATA
+    if completion_rate >= COMPLETION_STICKY_THRESHOLD:
+        return SIGNAL_STICKY
+    if completion_rate <= COMPLETION_FILTERS_THRESHOLD:
+        return SIGNAL_FILTERS_HARD
+    return SIGNAL_NEUTRAL
+
+
+def compute_stickiness_signal(game) -> tuple:
+    """Combine per-metric signals into the categorical badge.
+
+    Returns (badge_label, sticky_count, filters_hard_count). The two
+    counts cover the contributing metrics — the template uses them with
+    engagement_display_rules to render "X of Y signals support this".
+
+    Honors the game-type display rules:
+      - Types with categorical_badge_eligible=False (beta_playtest,
+        early_access, unknown, software) always return
+        BADGE_INSUFFICIENT_DATA.
+      - Types where show_completion_rate / show_cliff_metric are False
+        (multiplayer, mmo, no_endpoint, sandbox) reduce to a stickiness-
+        only single-signal evaluation.
+      - Other eligible types (linear, mixed, expansion) evaluate all
+        three.
+
+    Imports app.game_type lazily to avoid a top-level cycle if game_type
+    later picks up a hook_metrics dep.
+    """
+    from app.game_type import engagement_display_rules, resolve_type
+
+    gt = game.game_type or resolve_type(game)
+    rules = engagement_display_rules(gt)
+
+    if not rules["categorical_badge_eligible"]:
+        return (BADGE_INSUFFICIENT_DATA, 0, 0)
+
+    contributions: list = []
+    if rules["show_cliff_metric"]:
+        contributions.append(categorize_cliff(game.cliff_metric))
+    if rules["show_stickiness_ratio"]:
+        contributions.append(categorize_stickiness(game.stickiness_ratio))
+    if rules["show_completion_rate"]:
+        contributions.append(categorize_completion(
+            game.completion_rate, game.completion_rate_confidence,
+        ))
+
+    total = len(contributions)
+    if total == 0:
+        return (BADGE_INSUFFICIENT_DATA, 0, 0)
+
+    sticky_count = sum(1 for c in contributions if c == SIGNAL_STICKY)
+    filters_hard_count = sum(1 for c in contributions if c == SIGNAL_FILTERS_HARD)
+    no_data_count = sum(1 for c in contributions if c == SIGNAL_NO_DATA)
+
+    # Generalize spec's "2 of 3" to ceil(total/2). Single-signal path
+    # (multiplayer/mmo/no_endpoint/sandbox) collapses cleanly: 1 of 1
+    # no_data → Insufficient; 1 of 1 sticky/filters → that verdict.
+    threshold = (total + 1) // 2
+
+    if no_data_count >= threshold:
+        return (BADGE_INSUFFICIENT_DATA, sticky_count, filters_hard_count)
+    if sticky_count >= threshold and filters_hard_count == 0:
+        return (BADGE_STICKY, sticky_count, filters_hard_count)
+    if filters_hard_count >= threshold and sticky_count == 0:
+        return (BADGE_FILTERS_HARD, sticky_count, filters_hard_count)
+
+    return (BADGE_AVERAGE, sticky_count, filters_hard_count)
