@@ -166,6 +166,32 @@ Surface on cards as a one-line categorical badge.
 Display: clean range ("Hook point: hours 3-6") on cards;
 per-source breakdown as expandable detail on game detail page.
 
+## Phase 1b — shipped (session of 2026-05-05)
+
+Categorical stickiness signal (Sticky / Average / Filters players hard /
+Insufficient data) computed from cliff_metric, stickiness_ratio, and
+high-confidence completion_rate. Surfaced on Game Detail (header line
+with signal count), Library (sortable column with tooltips), and
+Shortlist cards (inline pill). Backlog rows skipped per design decision.
+
+Live distribution across 634 active games:
+- Sticky: 27 (4.3%)
+- Average: 377 (59.5%)
+- Filters players hard: 11 (1.7%)
+- Insufficient data: 219 (34.5%)
+
+Observations from live data (no threshold changes made):
+- Average bucket at 60% is broad — median stickiness (0.81) lands in
+  the neutral band [0.51, 0.89]
+- Mixed games show 0 Sticky — high-confidence completion is rare for
+  that type, third signal collapses to no_data, locks them out of the
+  2-of-3 majority rule
+- All 11 Filters players hard cases are multiplayer titles (single-signal
+  stickiness path is more lenient than 2-of-3)
+
+Decision: ship at current thresholds. Tune from observed bad behavior
+in real use rather than from distribution shape alone.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
