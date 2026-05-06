@@ -24,11 +24,22 @@ _STATUS_SORT_ORDER = {
 }
 
 _SORT_COLUMNS = [
-    "name", "status", "game_type", "developer",
+    "name", "status", "game_type", "stickiness", "developer",
     "hltb_main", "hltb_compl",
     "playtime", "steam_pct", "steam_reviews",
     "metacritic",
 ]
+
+# Stickiness sort order: Sticky first (most engagement), Average,
+# Filters players hard, then Insufficient data sinks to the bottom
+# regardless of direction (matches the null-last pattern of other
+# columns). Higher number = lower priority in ascending sort.
+_STICKINESS_SORT_ORDER = {
+    "sticky":            0,
+    "average":           1,
+    "filters_hard":      2,
+    "insufficient_data": 3,
+}
 
 # Sentinel values for nulls-last regardless of sort direction.
 _NULL_HIGH = float("inf")
@@ -60,6 +71,15 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
         if sort == "game_type":
             from app.backlog import compute_game_type
             return compute_game_type(game)
+        if sort == "stickiness":
+            # Insufficient data sinks last regardless of direction. Other
+            # values use the explicit priority order above.
+            from app.hook_metrics import compute_stickiness_signal
+            badge = compute_stickiness_signal(game)[0]
+            rank = _STICKINESS_SORT_ORDER.get(badge, 99)
+            if badge == "insufficient_data":
+                return _NULL_LOW if reverse else _NULL_HIGH
+            return rank
         if sort == "developer":
             return null_last_str(game.developer)
         if sort == "playtime":
@@ -83,6 +103,7 @@ _COLUMN_LABELS: list[tuple[str, str]] = [
     ("name",          "Title"),
     ("status",        "Status"),
     ("game_type",     "Type"),
+    ("stickiness",    "Stickiness"),
     ("developer",     "Developer"),
     ("hltb_main",     "HLTB Main"),
     ("hltb_compl",    "HLTB Compl."),

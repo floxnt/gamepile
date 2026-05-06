@@ -22,6 +22,21 @@
     {% set gt = resolve_type(gws.game) %}
     <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
   </td>
+  <td class="library-stickiness">
+    {% set sig_badge = compute_stickiness_signal(gws.game)[0] %}
+    {% if sig_badge == "sticky" %}
+      <span class="stickiness-badge stickiness-badge--sticky"
+            title="Most reviewers play past the halfway point before reviewing">Sticky</span>
+    {% elif sig_badge == "filters_hard" %}
+      <span class="stickiness-badge stickiness-badge--filters_hard"
+            title="Many reviewers bounce off well before the halfway point">Filters hard</span>
+    {% elif sig_badge == "average" %}
+      <span class="stickiness-badge stickiness-badge--average"
+            title="Mixed engagement signals">Average</span>
+    {% else %}
+      <span class="library-stickiness-empty">—</span>
+    {% endif %}
+  </td>
   <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>
   <td>
     {% if gws.game.hltb_main_hours %}

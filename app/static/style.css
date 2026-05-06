@@ -1837,3 +1837,70 @@ select option {
   border-left: 2px solid var(--warn);
   border-radius: 3px;
 }
+
+/* === Stickiness signal === */
+
+/* Game Detail header line — "Stickiness signal: <badge> · X of Y …". */
+.engagement-signal-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.7rem 0;
+  font-size: 0.88rem;
+}
+
+.engagement-signal-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.engagement-signal-aside {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+/* Library / Game Detail badge — full-size token. */
+.stickiness-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.stickiness-badge--sticky      { background: #16321c; color: #7ecf7e; }
+.stickiness-badge--average     { background: #22222f; color: #9a9aaf; }
+.stickiness-badge--filters_hard { background: #2a2010; color: #e8b84b; }
+
+/* Shortlist card variant — smaller, sits below the badges row. Same
+   color tokens but compacted padding so the card stays dense. */
+.stickiness-pill {
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.stickiness-pill--sticky       { background: #16321c; color: #7ecf7e; }
+.stickiness-pill--average      { background: #22222f; color: #9a9aaf; }
+.stickiness-pill--filters_hard { background: #2a2010; color: #e8b84b; }
+
+/* Library column cell — keeps the row layout consistent when the badge
+   is missing (insufficient_data → em-dash). */
+.library-stickiness {
+  white-space: nowrap;
+}
+
+.library-stickiness-empty {
+  color: var(--muted);
+}

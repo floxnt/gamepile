@@ -36,6 +36,18 @@
           <span class="badge badge-pin">📌 Pinned from backlog</span>
         {% endif %}
       </div>
+      {# Phase 1b stickiness pill — hidden for insufficient_data. #}
+      {% set sig_badge = compute_stickiness_signal(game)[0] %}
+      {% if sig_badge == "sticky" %}
+        <span class="stickiness-pill stickiness-pill--sticky"
+              title="Most reviewers play past the halfway point before reviewing">Sticky</span>
+      {% elif sig_badge == "filters_hard" %}
+        <span class="stickiness-pill stickiness-pill--filters_hard"
+              title="Many reviewers bounce off well before the halfway point">Filters hard</span>
+      {% elif sig_badge == "average" %}
+        <span class="stickiness-pill stickiness-pill--average"
+              title="Mixed engagement signals">Average</span>
+      {% endif %}
     </div>
 
     {% if game.description %}
