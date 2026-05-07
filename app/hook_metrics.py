@@ -321,95 +321,184 @@ def qualitative_ratio_hint(ratio: Optional[float]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 1b — categorical stickiness signal
+# Phase 1c — weighted-score categorical signal
 # ---------------------------------------------------------------------------
 
-# Per-metric thresholds. Tuned from the Phase 1a distribution report:
-# - cliff median 7.1pp, ~4% above 20pp → CLIFF_FILTERS_THRESHOLD picks
-#   the long-tail
-# - stickiness median 0.81 across the populated library → upper threshold
-#   0.90 selects "very sticky" titles, lower threshold 0.50 selects
-#   "reviewers commonly bounce" titles
-# - completion median ~0.07 across high-confidence matches; 0.15 / 0.03
-#   bracket the high-confidence distribution
+# Per-metric thresholds. cliff/stickiness numbers carried over from
+# Phase 1b (still empirically tuned to the live distribution); completion
+# thresholds recalibrated against published Steam-population data
+# (Bailey & Miyata 2019: median completion ≈10%, mean ≈14%, high-completion
+# outliers reach 50–60%) — the Phase 1b 0.15 sticky threshold was
+# "marginally above mean," not actually sticky.
 CLIFF_FILTERS_THRESHOLD = 20.0
 STICKINESS_STICKY_THRESHOLD = 0.90
 STICKINESS_FILTERS_THRESHOLD = 0.50
-COMPLETION_STICKY_THRESHOLD = 0.15
-COMPLETION_FILTERS_THRESHOLD = 0.03
+COMPLETION_STICKY_THRESHOLD = 0.25
+COMPLETION_FILTERS_THRESHOLD = 0.05
 
-# Per-metric contribution values returned by categorize_*. The combined
-# signal logic counts SIGNAL_STICKY / SIGNAL_FILTERS_HARD across the
-# metrics that the game type's display rules surface.
-SIGNAL_STICKY = "sticky"
-SIGNAL_FILTERS_HARD = "filters_hard"
-SIGNAL_NEUTRAL = "neutral"
-SIGNAL_NO_DATA = "no_data"
+# Cliff position bands. Position ≤ 0.30 = early-game cliff (filter
+# signal); ≥ 0.70 = late-game / completionist gate (NOT a filter — these
+# are rare endgame achievements, not abandonment patterns).
+CLIFF_EARLY_POSITION_MAX = 0.30
+CLIFF_LATE_POSITION_MIN = 0.70
 
-# Combined badge values surfaced to the user via compute_stickiness_signal.
-BADGE_STICKY = "sticky"
-BADGE_AVERAGE = "average"
-BADGE_FILTERS_HARD = "filters_hard"
-BADGE_INSUFFICIENT_DATA = "insufficient_data"
+# Score weights. Stickiness is the most-populated and most-reliable
+# signal. Cliff carries position information and is moderately
+# trustworthy. Completion gets a haircut at low confidence — the
+# heuristic match isn't certain, so the signal contributes less.
+WEIGHT_STICKINESS = 1.5
+WEIGHT_CLIFF = 1.0
+WEIGHT_COMPLETION_HIGH = 0.7
+WEIGHT_COMPLETION_LOW = 0.3
+
+# Composite-score thresholds. Reachable from stickiness alone in the
+# single-signal fallback path (1.5 × ±1 = ±1.5).
+SCORE_HOOKS_THRESHOLD = 1.5
+SCORE_FILTERS_THRESHOLD = -1.5
+
+# Marathon thresholds. High engagement + low confirmed completion =
+# open-ended / sandbox-y games people play forever without finishing.
+# Restricted to high-confidence completion so sparse-data games can't
+# earn the label off noisy heuristic estimates.
+MARATHON_PLAYTIME_MIN_HOURS = 50.0
+MARATHON_COMPLETION_MAX = 0.10
+
+# Combined-badge values surfaced to the user.
+BADGE_HOOKS_PLAYERS = "hooks_players"
+BADGE_FILTERS_EARLY = "filters_early"
+BADGE_MARATHON = "marathon"
+BADGE_MIXED_SIGNALS = "mixed_signals"
+BADGE_STANDARD_ENGAGEMENT = "standard_engagement"
+BADGE_LIMITED_DATA = "limited_data"
 
 
-def categorize_cliff(cliff_metric: Optional[float]) -> str:
-    """Cliff has no SIGNAL_STICKY contribution by design — a small cliff
-    isn't a positive signal on its own, just absence of a negative one."""
-    if cliff_metric is None:
-        return SIGNAL_NO_DATA
-    if cliff_metric >= CLIFF_FILTERS_THRESHOLD:
-        return SIGNAL_FILTERS_HARD
-    return SIGNAL_NEUTRAL
+# ---------------------------------------------------------------------------
+# Per-signal value helpers — each returns -1 / 0 / +1
+# ---------------------------------------------------------------------------
 
-
-def categorize_stickiness(stickiness_ratio: Optional[float]) -> str:
+def signal_value_stickiness(stickiness_ratio: Optional[float]) -> int:
+    """+1 above sticky threshold, -1 at-or-below filters, 0 between or NULL."""
     if stickiness_ratio is None:
-        return SIGNAL_NO_DATA
+        return 0
     if stickiness_ratio >= STICKINESS_STICKY_THRESHOLD:
-        return SIGNAL_STICKY
+        return 1
     if stickiness_ratio <= STICKINESS_FILTERS_THRESHOLD:
-        return SIGNAL_FILTERS_HARD
-    return SIGNAL_NEUTRAL
+        return -1
+    return 0
 
 
-def categorize_completion(
-    completion_rate: Optional[float],
+def signal_value_cliff(
+    cliff_metric: Optional[float],
+    cliff_position: Optional[float],
+) -> int:
+    """Cliff signal is position-aware. Large cliff (≥ 20pp) in early or
+    mid position counts as a filter (-1). Large cliff in late position
+    is a completionist gate, not abandonment — neutral (0). Small cliff
+    or NULL: 0. Cliff never contributes positive signal."""
+    if cliff_metric is None or cliff_metric < CLIFF_FILTERS_THRESHOLD:
+        return 0
+    # Position is None only when cliff_metric is None — populated
+    # envelope is shared. Defensive guard for the impossible case:
+    if cliff_position is None:
+        return 0
+    if cliff_position >= CLIFF_LATE_POSITION_MIN:
+        return 0
+    return -1
+
+
+def signal_value_completion(completion_rate: Optional[float]) -> int:
+    """+1 / -1 / 0 by completion threshold. Same thresholds for both
+    confidence levels — weight differs at the score-aggregation layer."""
+    if completion_rate is None:
+        return 0
+    if completion_rate >= COMPLETION_STICKY_THRESHOLD:
+        return 1
+    if completion_rate <= COMPLETION_FILTERS_THRESHOLD:
+        return -1
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Composite signal — weighted score + sub-classified middle bucket
+# ---------------------------------------------------------------------------
+
+def _stickiness_description(value: int, ratio: Optional[float]) -> str:
+    if ratio is None:
+        return "no data"
+    if value == 1:
+        return "high"
+    if value == -1:
+        return "low"
+    return "neutral"
+
+
+def _cliff_description(
+    value: int,
+    metric: Optional[float],
+    position: Optional[float],
+) -> str:
+    if metric is None:
+        return "no data"
+    size_word = "large" if metric >= CLIFF_FILTERS_THRESHOLD else "small"
+    if position is None:
+        return f"{size_word}, position unknown"
+    if position <= CLIFF_EARLY_POSITION_MAX:
+        pos_word = "early"
+    elif position >= CLIFF_LATE_POSITION_MIN:
+        pos_word = "late"
+    else:
+        pos_word = "mid"
+    return f"{pos_word} & {size_word}"
+
+
+def _completion_description(
+    value: int,
+    rate: Optional[float],
     confidence: Optional[str],
 ) -> str:
-    """Only contributes a non-no_data value when confidence == 'high'.
-    Low-confidence matches and fallback-derived values collapse to
-    SIGNAL_NO_DATA — the heuristic isn't trusted enough to feed the
-    categorical signal when the displayName doesn't carry an unambiguous
-    completion word."""
-    if completion_rate is None or confidence != "high":
-        return SIGNAL_NO_DATA
-    if completion_rate >= COMPLETION_STICKY_THRESHOLD:
-        return SIGNAL_STICKY
-    if completion_rate <= COMPLETION_FILTERS_THRESHOLD:
-        return SIGNAL_FILTERS_HARD
-    return SIGNAL_NEUTRAL
+    if rate is None:
+        return "no data"
+    conf_label = confidence if confidence in ("high", "low") else "no-conf"
+    if value == 1:
+        return f"{conf_label}-conf, sticky"
+    if value == -1:
+        return f"{conf_label}-conf, filters"
+    return f"{conf_label}-conf, neutral"
+
+
+def _qualifies_strong_signal(
+    stickiness_value: int,
+    cliff_value: int,
+    high_conf_completion_value: int,
+) -> bool:
+    """Strong signal for the Mixed-vs-Standard split: stickiness, cliff,
+    or HIGH-confidence completion at ±1. Low-confidence completion
+    contributes to the score but is excluded here — too noisy to be the
+    sole promoter from Standard to Mixed."""
+    return any(v != 0 for v in (stickiness_value, cliff_value, high_conf_completion_value))
 
 
 def compute_stickiness_signal(game) -> tuple:
-    """Combine per-metric signals into the categorical badge.
+    """Composite categorical signal. Returns (badge, score, breakdown).
 
-    Returns (badge_label, sticky_count, filters_hard_count). The two
-    counts cover the contributing metrics — the template uses them with
-    engagement_display_rules to render "X of Y signals support this".
+    badge: one of the BADGE_* constants (hooks_players / filters_early /
+        marathon / mixed_signals / standard_engagement / limited_data).
+    score: float — sum of weighted per-signal contributions.
+    breakdown: dict {signal_name: {value, weight, contribution, description}}.
+        Used by Game Detail to render the per-signal score breakdown line.
 
     Honors the game-type display rules:
       - Types with categorical_badge_eligible=False (beta_playtest,
-        early_access, unknown, software) always return
-        BADGE_INSUFFICIENT_DATA.
-      - Types where show_completion_rate / show_cliff_metric are False
-        (multiplayer, mmo, no_endpoint, sandbox) reduce to a stickiness-
-        only single-signal evaluation.
-      - Other eligible types (linear, mixed, expansion) evaluate all
-        three.
+        early_access, unknown, software) → BADGE_LIMITED_DATA.
+      - Types with show_completion_rate / show_cliff_metric=False
+        (multiplayer, mmo, no_endpoint, sandbox) → stickiness-only
+        single-signal path; score = 1.5 × stickiness.
+      - Eligible types (linear, mixed, expansion) → all three signals
+        contribute, with low-confidence completion weighted at 0.3 vs
+        0.7 for high-confidence.
 
-    Imports app.game_type lazily to avoid a top-level cycle if game_type
-    later picks up a hook_metrics dep.
+    Order of evaluation: limited_data → hooks_players → filters_early →
+    marathon → mixed_signals → standard_engagement.
     """
     from app.game_type import engagement_display_rules, resolve_type
 
@@ -417,36 +506,103 @@ def compute_stickiness_signal(game) -> tuple:
     rules = engagement_display_rules(gt)
 
     if not rules["categorical_badge_eligible"]:
-        return (BADGE_INSUFFICIENT_DATA, 0, 0)
+        return (BADGE_LIMITED_DATA, 0.0, {})
 
-    contributions: list = []
-    if rules["show_cliff_metric"]:
-        contributions.append(categorize_cliff(game.cliff_metric))
+    breakdown: dict = {}
+    score = 0.0
+    populated_count = 0
+    contributing_count = 0
+
     if rules["show_stickiness_ratio"]:
-        contributions.append(categorize_stickiness(game.stickiness_ratio))
+        contributing_count += 1
+        sv = signal_value_stickiness(game.stickiness_ratio)
+        contribution = sv * WEIGHT_STICKINESS
+        score += contribution
+        breakdown["stickiness"] = {
+            "value": sv,
+            "weight": WEIGHT_STICKINESS,
+            "contribution": contribution,
+            "description": _stickiness_description(sv, game.stickiness_ratio),
+        }
+        if game.stickiness_ratio is not None:
+            populated_count += 1
+
+    if rules["show_cliff_metric"]:
+        contributing_count += 1
+        cv = signal_value_cliff(game.cliff_metric, game.cliff_position)
+        contribution = cv * WEIGHT_CLIFF
+        score += contribution
+        breakdown["cliff"] = {
+            "value": cv,
+            "weight": WEIGHT_CLIFF,
+            "contribution": contribution,
+            "description": _cliff_description(cv, game.cliff_metric, game.cliff_position),
+        }
+        if game.cliff_metric is not None:
+            populated_count += 1
+
+    high_conf_completion_value = 0
     if rules["show_completion_rate"]:
-        contributions.append(categorize_completion(
-            game.completion_rate, game.completion_rate_confidence,
-        ))
+        contributing_count += 1
+        # Completion contributes regardless of confidence — only the
+        # weight differs. NULL rate gives signal value 0 and 0
+        # contribution, which is functionally absent from the score.
+        cv_compl = signal_value_completion(game.completion_rate)
+        is_high = (game.completion_rate_confidence == "high")
+        weight = WEIGHT_COMPLETION_HIGH if is_high else WEIGHT_COMPLETION_LOW
+        contribution = cv_compl * weight
+        score += contribution
+        breakdown["completion"] = {
+            "value": cv_compl,
+            "weight": weight,
+            "contribution": contribution,
+            "description": _completion_description(
+                cv_compl, game.completion_rate, game.completion_rate_confidence,
+            ),
+        }
+        if game.completion_rate is not None:
+            populated_count += 1
+        # Track high-confidence completion separately for the Mixed-vs-
+        # Standard strong-signal check (low-conf doesn't qualify there).
+        if is_high:
+            high_conf_completion_value = cv_compl
 
-    total = len(contributions)
-    if total == 0:
-        return (BADGE_INSUFFICIENT_DATA, 0, 0)
+    if contributing_count == 0:
+        # Should not happen for a categorical-eligible type, but defensive.
+        return (BADGE_LIMITED_DATA, 0.0, breakdown)
 
-    sticky_count = sum(1 for c in contributions if c == SIGNAL_STICKY)
-    filters_hard_count = sum(1 for c in contributions if c == SIGNAL_FILTERS_HARD)
-    no_data_count = sum(1 for c in contributions if c == SIGNAL_NO_DATA)
-
-    # Generalize spec's "2 of 3" to ceil(total/2). Single-signal path
-    # (multiplayer/mmo/no_endpoint/sandbox) collapses cleanly: 1 of 1
-    # no_data → Insufficient; 1 of 1 sticky/filters → that verdict.
-    threshold = (total + 1) // 2
-
+    # 1. Limited data — majority of contributing signals are NULL. Low-
+    # confidence completion still counts as populated for this gate per
+    # spec — the soft signal stays useful on sparse-data games.
+    no_data_count = contributing_count - populated_count
+    threshold = (contributing_count + 1) // 2
     if no_data_count >= threshold:
-        return (BADGE_INSUFFICIENT_DATA, sticky_count, filters_hard_count)
-    if sticky_count >= threshold and filters_hard_count == 0:
-        return (BADGE_STICKY, sticky_count, filters_hard_count)
-    if filters_hard_count >= threshold and sticky_count == 0:
-        return (BADGE_FILTERS_HARD, sticky_count, filters_hard_count)
+        return (BADGE_LIMITED_DATA, score, breakdown)
 
-    return (BADGE_AVERAGE, sticky_count, filters_hard_count)
+    # 2/3. Hooks players / Filters early — composite-score thresholds.
+    if score >= SCORE_HOOKS_THRESHOLD:
+        return (BADGE_HOOKS_PLAYERS, score, breakdown)
+    if score <= SCORE_FILTERS_THRESHOLD:
+        return (BADGE_FILTERS_EARLY, score, breakdown)
+
+    # 4. Marathon — high engagement + low confirmed completion. Requires
+    # high-confidence completion specifically; sparse-data games with
+    # low-conf completion aren't trusted enough for this label.
+    rpm = game.review_playtime_median
+    if (rpm is not None
+        and rpm >= MARATHON_PLAYTIME_MIN_HOURS * 60
+        and game.completion_rate_confidence == "high"
+        and game.completion_rate is not None
+        and game.completion_rate < MARATHON_COMPLETION_MAX):
+        return (BADGE_MARATHON, score, breakdown)
+
+    # 5. Mixed signals — at least one strong signal (stickiness / cliff /
+    # high-conf completion) at ±1. Low-conf completion alone doesn't
+    # promote here per spec.
+    stickiness_value = breakdown.get("stickiness", {}).get("value", 0)
+    cliff_value = breakdown.get("cliff", {}).get("value", 0)
+    if _qualifies_strong_signal(stickiness_value, cliff_value, high_conf_completion_value):
+        return (BADGE_MIXED_SIGNALS, score, breakdown)
+
+    # 6. Default — middle bucket with no strong signals.
+    return (BADGE_STANDARD_ENGAGEMENT, score, breakdown)

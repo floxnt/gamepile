@@ -30,15 +30,17 @@ _SORT_COLUMNS = [
     "metacritic",
 ]
 
-# Stickiness sort order: Sticky first (most engagement), Average,
-# Filters players hard, then Insufficient data sinks to the bottom
-# regardless of direction (matches the null-last pattern of other
-# columns). Higher number = lower priority in ascending sort.
+# Stickiness sort order (Phase 1c). Hooks players first (most engaged
+# proven-good signal), then Marathon (engaged but open-ended), Mixed
+# signals (interesting but split), Standard engagement, Filters early,
+# Limited data sinks to the bottom regardless of direction.
 _STICKINESS_SORT_ORDER = {
-    "sticky":            0,
-    "average":           1,
-    "filters_hard":      2,
-    "insufficient_data": 3,
+    "hooks_players":       0,
+    "marathon":            1,
+    "mixed_signals":       2,
+    "standard_engagement": 3,
+    "filters_early":       4,
+    "limited_data":        5,
 }
 
 # Sentinel values for nulls-last regardless of sort direction.
@@ -72,14 +74,13 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             from app.backlog import compute_game_type
             return compute_game_type(game)
         if sort == "stickiness":
-            # Insufficient data sinks last regardless of direction. Other
+            # Limited data sinks last regardless of direction. Other
             # values use the explicit priority order above.
             from app.hook_metrics import compute_stickiness_signal
             badge = compute_stickiness_signal(game)[0]
-            rank = _STICKINESS_SORT_ORDER.get(badge, 99)
-            if badge == "insufficient_data":
+            if badge == "limited_data":
                 return _NULL_LOW if reverse else _NULL_HIGH
-            return rank
+            return _STICKINESS_SORT_ORDER.get(badge, 99)
         if sort == "developer":
             return null_last_str(game.developer)
         if sort == "playtime":

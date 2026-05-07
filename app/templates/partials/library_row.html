@@ -24,15 +24,21 @@
   </td>
   <td class="library-stickiness">
     {% set sig_badge = compute_stickiness_signal(gws.game)[0] %}
-    {% if sig_badge == "sticky" %}
-      <span class="stickiness-badge stickiness-badge--sticky"
-            title="Most reviewers play past the halfway point before reviewing">Sticky</span>
-    {% elif sig_badge == "filters_hard" %}
-      <span class="stickiness-badge stickiness-badge--filters_hard"
-            title="Many reviewers bounce off well before the halfway point">Filters hard</span>
-    {% elif sig_badge == "average" %}
-      <span class="stickiness-badge stickiness-badge--average"
-            title="Mixed engagement signals">Average</span>
+    {% if sig_badge == "hooks_players" %}
+      <span class="stickiness-badge stickiness-badge--hooks_players"
+            title="Most reviewers play deep into the game; cliff patterns suggest engagement holds">Hooks players</span>
+    {% elif sig_badge == "filters_early" %}
+      <span class="stickiness-badge stickiness-badge--filters_early"
+            title="Many players abandon in the early or mid-game">Filters early</span>
+    {% elif sig_badge == "marathon" %}
+      <span class="stickiness-badge stickiness-badge--marathon"
+            title="High engagement, low completion — the kind of game people play forever without finishing">Marathon</span>
+    {% elif sig_badge == "mixed_signals" %}
+      <span class="stickiness-badge stickiness-badge--mixed_signals"
+            title="Strong signals in different directions — taste-dependent">Mixed signals</span>
+    {% elif sig_badge == "standard_engagement" %}
+      <span class="stickiness-badge stickiness-badge--standard_engagement"
+            title="Middle-of-the-road metrics across the board">Standard</span>
     {% else %}
       <span class="library-stickiness-empty">—</span>
     {% endif %}

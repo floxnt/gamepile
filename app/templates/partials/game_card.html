@@ -36,17 +36,23 @@
           <span class="badge badge-pin">📌 Pinned from backlog</span>
         {% endif %}
       </div>
-      {# Phase 1b stickiness pill — hidden for insufficient_data. #}
+      {# Phase 1c stickiness pill — hidden for limited_data. #}
       {% set sig_badge = compute_stickiness_signal(game)[0] %}
-      {% if sig_badge == "sticky" %}
-        <span class="stickiness-pill stickiness-pill--sticky"
-              title="Most reviewers play past the halfway point before reviewing">Sticky</span>
-      {% elif sig_badge == "filters_hard" %}
-        <span class="stickiness-pill stickiness-pill--filters_hard"
-              title="Many reviewers bounce off well before the halfway point">Filters hard</span>
-      {% elif sig_badge == "average" %}
-        <span class="stickiness-pill stickiness-pill--average"
-              title="Mixed engagement signals">Average</span>
+      {% if sig_badge == "hooks_players" %}
+        <span class="stickiness-pill stickiness-pill--hooks_players"
+              title="Most reviewers play deep into the game; cliff patterns suggest engagement holds">Hooks players</span>
+      {% elif sig_badge == "filters_early" %}
+        <span class="stickiness-pill stickiness-pill--filters_early"
+              title="Many players abandon in the early or mid-game">Filters early</span>
+      {% elif sig_badge == "marathon" %}
+        <span class="stickiness-pill stickiness-pill--marathon"
+              title="High engagement, low completion — the kind of game people play forever without finishing">Marathon</span>
+      {% elif sig_badge == "mixed_signals" %}
+        <span class="stickiness-pill stickiness-pill--mixed_signals"
+              title="Strong signals in different directions — taste-dependent">Mixed signals</span>
+      {% elif sig_badge == "standard_engagement" %}
+        <span class="stickiness-pill stickiness-pill--standard_engagement"
+              title="Middle-of-the-road metrics across the board">Standard</span>
       {% endif %}
     </div>
 

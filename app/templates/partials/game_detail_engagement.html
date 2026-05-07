@@ -28,15 +28,14 @@
 {% set has_stickiness = game.stickiness_ratio is not none %}
 {% set has_pt_ratio = game.playtime_median_avg_ratio is not none %}
 
-{# Phase 1b categorical signal. Header line appears under the Type line.
-   Hidden when ineligible (insufficient_data). The "X of Y supports this"
-   suffix shows for Sticky / Filters players hard; Average drops the
-   suffix because no signal "supports" the catch-all verdict. #}
+{# Phase 1c categorical signal. Header line appears under the Type line.
+   Hidden when ineligible (limited_data). The full per-signal score
+   breakdown is rendered separately in commit 3 (this commit ships the
+   atomic surface change; commit 3 adds the explanatory detail). #}
 {% set sig_tuple = compute_stickiness_signal(game) %}
 {% set sig_badge = sig_tuple[0] %}
-{% set sig_sticky_n = sig_tuple[1] %}
-{% set sig_filters_n = sig_tuple[2] %}
-{% set sig_total = (rules.show_cliff_metric | int) + (rules.show_stickiness_ratio | int) + (rules.show_completion_rate | int) %}
+{% set sig_score = sig_tuple[1] %}
+{% set sig_breakdown = sig_tuple[2] %}
 
 {# Per-row visibility: row renders when both rule allows AND data exists. #}
 {% set show_completion_row = rules.show_completion_rate and has_completion %}
@@ -61,23 +60,29 @@
     {% endif %}
   </div>
 
-  {# Phase 1b categorical signal — Stickiness header line. Hidden for
-     ineligible types (insufficient_data). Average drops the count suffix. #}
-  {% if sig_badge != "insufficient_data" %}
+  {# Phase 1c categorical signal — header line. Hidden for ineligible
+     types (limited_data). Score is shown alongside the badge; the
+     full per-signal breakdown lines are rendered in commit 3. #}
+  {% if sig_badge != "limited_data" %}
     <div class="engagement-signal-line">
       <span class="engagement-signal-label">Stickiness signal:</span>
-      {% if sig_badge == "sticky" %}
-        <span class="stickiness-badge stickiness-badge--sticky"
-              title="Most reviewers play past the halfway point before reviewing">Sticky</span>
-        <span class="engagement-signal-aside">· {{ sig_sticky_n }} of {{ sig_total }} signal{{ "s" if sig_total != 1 }} support{{ "" if sig_total != 1 else "s" }} this</span>
-      {% elif sig_badge == "filters_hard" %}
-        <span class="stickiness-badge stickiness-badge--filters_hard"
-              title="Many reviewers bounce off well before the halfway point">Filters players hard</span>
-        <span class="engagement-signal-aside">· {{ sig_filters_n }} of {{ sig_total }} signal{{ "s" if sig_total != 1 }} support{{ "" if sig_total != 1 else "s" }} this</span>
-      {% elif sig_badge == "average" %}
-        <span class="stickiness-badge stickiness-badge--average"
-              title="Mixed engagement signals">Average</span>
+      {% if sig_badge == "hooks_players" %}
+        <span class="stickiness-badge stickiness-badge--hooks_players"
+              title="Most reviewers play deep into the game; cliff patterns suggest engagement holds">Hooks players</span>
+      {% elif sig_badge == "filters_early" %}
+        <span class="stickiness-badge stickiness-badge--filters_early"
+              title="Many players abandon in the early or mid-game">Filters early</span>
+      {% elif sig_badge == "marathon" %}
+        <span class="stickiness-badge stickiness-badge--marathon"
+              title="High engagement, low completion — the kind of game people play forever without finishing">Marathon</span>
+      {% elif sig_badge == "mixed_signals" %}
+        <span class="stickiness-badge stickiness-badge--mixed_signals"
+              title="Strong signals in different directions — taste-dependent">Mixed signals</span>
+      {% elif sig_badge == "standard_engagement" %}
+        <span class="stickiness-badge stickiness-badge--standard_engagement"
+              title="Middle-of-the-road metrics across the board">Standard engagement</span>
       {% endif %}
+      <span class="engagement-signal-aside">· score {{ "%+.1f"|format(sig_score) }}</span>
     </div>
   {% endif %}
 
