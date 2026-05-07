@@ -43,6 +43,7 @@ class Game:
     completion_rate: Optional[float] = None            # 0.0-1.0; from Steam global achievement %
     completion_rate_confidence: Optional[str] = None   # 'high' / 'low' / None — see hook_metrics.compute_completion_rate_confidence
     cliff_metric: Optional[float] = None               # pct-point gap; largest drop after discarding launch achievements
+    cliff_position: Optional[float] = None             # 0.0-1.0; position of the largest cliff in the sorted achievement list (0 = early, 1 = late)
     review_playtime_median: Optional[int] = None       # minutes; median of author.playtime_at_review across the fetched review sample
     stickiness_ratio: Optional[float] = None           # 0.0-1.0; fraction of reviewers with >=20h at review time
     playtime_median_avg_ratio: Optional[float] = None  # 0.0-1.0; SteamSpy median_forever / average_forever

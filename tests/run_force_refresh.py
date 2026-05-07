@@ -26,6 +26,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+from app import database as db  # noqa: E402
 from app import sync  # noqa: E402
 
 
@@ -44,6 +45,10 @@ async def _print_progress():
 
 
 async def main():
+    # Ensure schema migrations run before refresh — the runner doesn't
+    # boot main.py's startup hook, so any pending ALTER TABLEs need to
+    # be applied here. Idempotent.
+    db.init_db()
     print("Starting force refresh — Phase 1a metrics will populate.", flush=True)
     refresh_task = asyncio.create_task(sync.run_refresh(force=True))
     monitor_task = asyncio.create_task(_print_progress())

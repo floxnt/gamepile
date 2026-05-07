@@ -144,6 +144,11 @@ def init_db() -> None:
             "ALTER TABLE games ADD COLUMN game_type TEXT",
             "ALTER TABLE games ADD COLUMN game_type_manual BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE games ADD COLUMN app_type TEXT",
+            # v3 hook-point Phase 1c: position of the largest cliff in the
+            # sorted achievement list, normalized to [0.0, 1.0]. Pairs with
+            # cliff_metric to distinguish early-game abandonment cliffs from
+            # late-game completionist gates.
+            "ALTER TABLE games ADD COLUMN cliff_position REAL",
         ]:
             try:
                 conn.execute(ddl)
@@ -261,6 +266,7 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         completion_rate=row["completion_rate"] if "completion_rate" in keys else None,
         completion_rate_confidence=row["completion_rate_confidence"] if "completion_rate_confidence" in keys else None,
         cliff_metric=row["cliff_metric"] if "cliff_metric" in keys else None,
+        cliff_position=row["cliff_position"] if "cliff_position" in keys else None,
         review_playtime_median=row["review_playtime_median"] if "review_playtime_median" in keys else None,
         stickiness_ratio=row["stickiness_ratio"] if "stickiness_ratio" in keys else None,
         playtime_median_avg_ratio=row["playtime_median_avg_ratio"] if "playtime_median_avg_ratio" in keys else None,
@@ -351,7 +357,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             last_refreshed, is_active, release_date, description,
             completion_rate, completion_rate_confidence, cliff_metric,
             review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
-            game_type, game_type_manual, app_type
+            game_type, game_type_manual, app_type, cliff_position
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -361,7 +367,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :last_refreshed, :is_active, :release_date, :description,
             :completion_rate, :completion_rate_confidence, :cliff_metric,
             :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
-            :game_type, :game_type_manual, :app_type
+            :game_type, :game_type_manual, :app_type, :cliff_position
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -389,6 +395,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             completion_rate            = COALESCE(excluded.completion_rate, games.completion_rate),
             completion_rate_confidence = COALESCE(excluded.completion_rate_confidence, games.completion_rate_confidence),
             cliff_metric               = COALESCE(excluded.cliff_metric, games.cliff_metric),
+            cliff_position             = COALESCE(excluded.cliff_position, games.cliff_position),
             review_playtime_median     = COALESCE(excluded.review_playtime_median, games.review_playtime_median),
             stickiness_ratio           = COALESCE(excluded.stickiness_ratio, games.stickiness_ratio),
             playtime_median_avg_ratio  = COALESCE(excluded.playtime_median_avg_ratio, games.playtime_median_avg_ratio),
@@ -424,6 +431,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "completion_rate": game.completion_rate,
         "completion_rate_confidence": game.completion_rate_confidence,
         "cliff_metric": game.cliff_metric,
+        "cliff_position": game.cliff_position,
         "review_playtime_median": game.review_playtime_median,
         "stickiness_ratio": game.stickiness_ratio,
         "playtime_median_avg_ratio": game.playtime_median_avg_ratio,
@@ -485,6 +493,7 @@ def get_games_with_state(
             g.steam_review_pct, g.steam_review_count,
             g.last_refreshed, g.is_active, g.release_date, g.description,
             g.completion_rate, g.completion_rate_confidence, g.cliff_metric,
+            g.cliff_position,
             g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
             g.game_type, g.game_type_manual, g.app_type,
             gs.status, gs.hours_played_manual, gs.notes,

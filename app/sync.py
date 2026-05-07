@@ -42,6 +42,7 @@ from app.fetchers import steamspy as steamspy_fetcher
 from app.game_type import classify_game
 from app.hook_metrics import (
     compute_cliff_metric,
+    compute_cliff_position,
     compute_completion_rate,
     compute_completion_rate_confidence,
     compute_playtime_median_avg_ratio,
@@ -419,12 +420,15 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 completion = compute_completion_rate(achievements)
                 confidence = compute_completion_rate_confidence(achievements)
                 cliff = compute_cliff_metric(achievements)
+                cliff_pos = compute_cliff_position(achievements)
                 if completion is not None:
                     updates["completion_rate"] = completion
                 if confidence is not None:
                     updates["completion_rate_confidence"] = confidence
                 if cliff is not None:
                     updates["cliff_metric"] = cliff
+                if cliff_pos is not None:
+                    updates["cliff_position"] = cliff_pos
                 progress.achievements_fetched += 1
 
         # --- Game-type classification ---
@@ -478,6 +482,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             completion_rate=updates.get("completion_rate"),
             completion_rate_confidence=updates.get("completion_rate_confidence"),
             cliff_metric=updates.get("cliff_metric"),
+            cliff_position=updates.get("cliff_position"),
             review_playtime_median=updates.get("review_playtime_median"),
             stickiness_ratio=updates.get("stickiness_ratio"),
             playtime_median_avg_ratio=updates.get("playtime_median_avg_ratio"),
@@ -530,6 +535,7 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         completion_rate=game.completion_rate,
         completion_rate_confidence=game.completion_rate_confidence,
         cliff_metric=game.cliff_metric,
+        cliff_position=game.cliff_position,
         review_playtime_median=game.review_playtime_median,
         stickiness_ratio=game.stickiness_ratio,
         playtime_median_avg_ratio=game.playtime_median_avg_ratio,

@@ -14,6 +14,7 @@ from app.hook_metrics import (
     MIN_REVIEWS_FOR_STATS,
     STICKY_PLAYTIME_THRESHOLD_MIN,
     compute_cliff_metric,
+    compute_cliff_position,
     compute_completion_rate,
     compute_completion_rate_confidence,
     compute_playtime_median_avg_ratio,
@@ -228,6 +229,98 @@ def test_cliff_empty():
 
 
 # ---------------------------------------------------------------------------
+# compute_cliff_position — mirrors cliff_metric's populated envelope
+# ---------------------------------------------------------------------------
+
+def test_cliff_position_early_cliff():
+    # 4 achievements, large drop at index 0 (between first and second).
+    # Position = 0 / (4-2) = 0.0 (early-game cliff).
+    aches = [_ach("a", 80), _ach("b", 30), _ach("c", 25), _ach("d", 20)]
+    pos = compute_cliff_position(aches)
+    assert pos == 0.0
+
+
+def test_cliff_position_mid_cliff():
+    # 6 achievements: 5-9 range discards top 2 → remaining 4 entries
+    # [92, 88, 30, 28]. Biggest gap is 88→30 at index 1. Position
+    # over remaining = 1 / (4-2) = 0.5.
+    aches = [_ach(f"a{i}", p) for i, p in enumerate([99, 95, 92, 88, 30, 28])]
+    pos = compute_cliff_position(aches)
+    assert pos is not None
+    assert abs(pos - 0.5) < 0.001
+
+
+def test_cliff_position_late_cliff():
+    # 6 achievements → discard top 2 → remaining [48, 47, 46, 5].
+    # Biggest gap is 46→5 at index 2 (last possible cliff in remaining).
+    # Position = 2 / (4-2) = 1.0.
+    aches = [_ach(f"a{i}", p) for i, p in enumerate([50, 49, 48, 47, 46, 5])]
+    pos = compute_cliff_position(aches)
+    assert pos is not None
+    assert abs(pos - 1.0) < 0.001
+
+
+def test_cliff_position_with_discard():
+    # 10 achievements: discard top 3 → remaining 7. Biggest gap in remaining
+    # is at index 2 (remaining[2]=80 → remaining[3]=30 = 50pp). Position
+    # over remaining = 2 / (7-2) = 0.4.
+    aches = [
+        _ach("a", 95),   # discarded
+        _ach("b", 92),   # discarded
+        _ach("c", 88),   # discarded
+        _ach("d", 82),
+        _ach("e", 80),
+        _ach("f", 78),
+        _ach("g", 30),   # cliff right above this — index 2 in remaining
+        _ach("h", 28),
+        _ach("i", 25),
+        _ach("j", 22),
+    ]
+    pos = compute_cliff_position(aches)
+    assert pos is not None
+    assert abs(pos - (2 / 5)) < 0.001  # 0.4
+
+
+def test_cliff_position_tie_break_earliest_wins():
+    # Two equal cliffs: 50→30 (gap 20) at index 0, 28→8 (gap 20) at index 2.
+    # Earliest index wins (gap > strict comparison).
+    aches = [_ach("a", 50), _ach("b", 30), _ach("c", 28), _ach("d", 8)]
+    pos = compute_cliff_position(aches)
+    assert pos == 0.0
+
+
+def test_cliff_position_envelope_matches_cliff_metric():
+    # Whenever cliff_metric is None, cliff_position must also be None
+    # (and vice versa). Keeps the populated-envelope contract honest.
+    cases = [
+        [],
+        [_ach("only", 50)],
+        [_ach("a", 90), _ach("b", 50), _ach("c", 10)],   # n=3 < 4 minimum
+    ]
+    for aches in cases:
+        assert (compute_cliff_metric(aches) is None) == \
+               (compute_cliff_position(aches) is None)
+    # Populated case — both must return non-None.
+    aches = [_ach("a", 90), _ach("b", 50), _ach("c", 48), _ach("d", 45)]
+    assert compute_cliff_metric(aches) is not None
+    assert compute_cliff_position(aches) is not None
+
+
+def test_cliff_position_minimum_post_discard():
+    # 4 achievements, no discard. Possible positions: 0.0, 0.5, 1.0.
+    cases = [
+        ([90, 50, 48, 45], 0.0),     # cliff at index 0
+        ([90, 88, 50, 48], 0.5),     # cliff at index 1
+        ([90, 88, 86, 30], 1.0),     # cliff at index 2
+    ]
+    for percents, expected_pos in cases:
+        aches = [_ach(f"a{i}", p) for i, p in enumerate(percents)]
+        pos = compute_cliff_position(aches)
+        assert pos is not None
+        assert abs(pos - expected_pos) < 0.001
+
+
+# ---------------------------------------------------------------------------
 # Review-derived metrics
 # ---------------------------------------------------------------------------
 
@@ -354,6 +447,13 @@ TESTS = [
     test_cliff_no_discard_when_lt_5,
     test_cliff_too_few_post_discard,
     test_cliff_empty,
+    test_cliff_position_early_cliff,
+    test_cliff_position_mid_cliff,
+    test_cliff_position_late_cliff,
+    test_cliff_position_with_discard,
+    test_cliff_position_tie_break_earliest_wins,
+    test_cliff_position_envelope_matches_cliff_metric,
+    test_cliff_position_minimum_post_discard,
     test_review_playtime_median_basic,
     test_review_playtime_median_too_few,
     test_review_playtime_median_empty,

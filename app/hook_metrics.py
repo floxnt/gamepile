@@ -177,6 +177,33 @@ def _discard_count_for(n: int) -> int:
     return 0
 
 
+def _largest_cliff(achievements: list):
+    """Locate the largest cliff in the post-discard achievements list.
+
+    Returns (cliff_index, gap_size, n_remaining) or None if data is
+    insufficient. Single source of truth for compute_cliff_metric and
+    compute_cliff_position so they always agree on the populated
+    envelope. Tie-break: when multiple cliffs share the largest size,
+    the earliest index wins (gap > strict comparison).
+    """
+    if not achievements:
+        return None
+    sorted_aches = sorted(achievements, key=lambda a: -a["percent"])
+    discard = _discard_count_for(len(sorted_aches))
+    remaining = sorted_aches[discard:]
+    n = len(remaining)
+    if n < _CLIFF_MIN_POST_DISCARD:
+        return None
+    best_i = 0
+    best_gap = 0.0
+    for i in range(n - 1):
+        gap = remaining[i]["percent"] - remaining[i + 1]["percent"]
+        if gap > best_gap:
+            best_gap = gap
+            best_i = i
+    return (best_i, best_gap, n)
+
+
 def compute_cliff_metric(achievements: list) -> Optional[float]:
     """Return the largest pct-point gap between consecutive achievements
     (sorted by percent descending) after discarding the top N as launch-
@@ -185,21 +212,38 @@ def compute_cliff_metric(achievements: list) -> Optional[float]:
     None if fewer than _CLIFF_MIN_POST_DISCARD entries remain after
     discard — too few to identify a meaningful drop.
     """
-    if not achievements:
+    result = _largest_cliff(achievements)
+    if result is None:
         return None
-    # Sort defensively in case the caller passed in arbitrary order.
-    sorted_aches = sorted(achievements, key=lambda a: -a["percent"])
-    discard = _discard_count_for(len(sorted_aches))
-    remaining = sorted_aches[discard:]
-    if len(remaining) < _CLIFF_MIN_POST_DISCARD:
-        return None
+    _, gap, _ = result
+    return gap
 
-    largest_gap = 0.0
-    for i in range(len(remaining) - 1):
-        gap = remaining[i]["percent"] - remaining[i + 1]["percent"]
-        if gap > largest_gap:
-            largest_gap = gap
-    return largest_gap
+
+def compute_cliff_position(achievements: list) -> Optional[float]:
+    """Position of the largest cliff in the sorted achievement list,
+    normalized to [0.0, 1.0].
+
+    0.0 = first cliff (top of the sorted-descending list, highest unlock
+    percent side, early-game). 1.0 = last cliff (bottom of the list,
+    least-unlocked, endgame side). Mirrors compute_cliff_metric's
+    populated envelope exactly — both functions return None for the
+    same inputs.
+
+    Formula: i / (n - 2) where i is the index of the largest cliff in
+    the post-discard list and n is the post-discard length. With the
+    minimum n=4 entries, possible positions are 0.0, 0.5, 1.0; larger
+    n yields finer granularity.
+    """
+    result = _largest_cliff(achievements)
+    if result is None:
+        return None
+    i, _, n = result
+    if n - 2 <= 0:
+        # _CLIFF_MIN_POST_DISCARD=4 makes this branch unreachable today;
+        # keep the guard so a future minimum-discard relaxation can't
+        # introduce a divide-by-zero.
+        return None
+    return i / (n - 2)
 
 
 # ---------------------------------------------------------------------------
