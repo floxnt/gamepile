@@ -60,9 +60,9 @@
     {% endif %}
   </div>
 
-  {# Phase 1c categorical signal — header line. Hidden for ineligible
-     types (limited_data). Score is shown alongside the badge; the
-     full per-signal breakdown lines are rendered in commit 3. #}
+  {# Phase 1c categorical signal — header line + per-signal breakdown.
+     Hidden entirely when limited_data (no useful detail to surface).
+     Per-signal lines explain how the composite score was reached. #}
   {% if sig_badge != "limited_data" %}
     <div class="engagement-signal-line">
       <span class="engagement-signal-label">Stickiness signal:</span>
@@ -84,6 +84,24 @@
       {% endif %}
       <span class="engagement-signal-aside">· score {{ "%+.1f"|format(sig_score) }}</span>
     </div>
+
+    {# Per-signal breakdown — shows weight × value contribution per
+       contributing signal. Order: stickiness → cliff → completion to
+       match the score-formula precedence in the spec. #}
+    {% if sig_breakdown %}
+    <ul class="engagement-signal-breakdown">
+      {% for key in ["stickiness", "cliff", "completion"] %}
+        {% if key in sig_breakdown %}
+          {% set b = sig_breakdown[key] %}
+          <li class="engagement-signal-breakdown-row">
+            <span class="engagement-signal-breakdown-label">{{ key | capitalize }}:</span>
+            <span class="engagement-signal-breakdown-desc">{{ b.description }}</span>
+            <span class="engagement-signal-breakdown-contribution">({{ "%+.1f"|format(b.contribution) }})</span>
+          </li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+    {% endif %}
   {% endif %}
 
   {# Caveat — surface once if rules.caveat_text is populated. #}
