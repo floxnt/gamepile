@@ -192,6 +192,84 @@ Observations from live data (no threshold changes made):
 Decision: ship at current thresholds. Tune from observed bad behavior
 in real use rather than from distribution shape alone.
 
+## Phase 1c — shipped (session of 2026-05-07)
+
+Replaces the Phase 1b 2-of-3 voting model with a weighted-scoring
+approach that pushed active signal density from 6.0% to 14.0% of the
+library. Five concrete changes shipped in five commits:
+
+1. New `cliff_position` Phase 1a metric — where in the sorted
+   achievement list the largest cliff sits, normalized [0.0, 1.0].
+   Lets Phase 1c distinguish early-game abandonment cliffs (genuinely
+   filters) from late-game completionist gates (rare endgame
+   achievements, not abandonment).
+2. Weighted scoring — each signal returns -1/0/+1 with weights
+   1.5 (stickiness) / 1.0 (cliff) / 0.7 (high-conf completion) / 0.3
+   (low-conf completion). Composite score thresholded at +1.5 (Hooks)
+   and -1.0 (Filters early).
+3. Recalibrated completion thresholds against published Steam-population
+   data (Bailey & Miyata 2019: median ~10%, mean ~14%) — sticky raised
+   to 0.25 (was 0.15, "marginally above mean"), filters raised to 0.05
+   (was 0.03).
+4. Phase 1b "Average" split into Marathon (≥ 50h playtime + high-conf
+   completion < 0.10), Mixed signals (in-band score with at least one
+   strong contributor among stickiness / cliff / high-conf completion),
+   and Standard engagement (in-band, no strong signals).
+5. Asymmetric-threshold iteration after the initial ship — lowered
+   SCORE_FILTERS_THRESHOLD from -1.5 to -1.0 to reflect that cliff is
+   structurally one-sided (only ever pushes negative). Migration was
+   exactly 4 games, all Mixed signals → Filters early, all with
+   cliff -1 driving the score (Arma 3, How to Survive, KovaaK's,
+   Escape From Duckov).
+
+Final distribution across 636 active games:
+- Hooks players: 65 (10.2%)
+- Filters early: 24 (3.8%)
+- Marathon: 4 (0.6%)
+- Mixed signals: 63 (9.9%)
+- Standard engagement: 291 (45.8%)
+- Limited data: 189 (29.7%)
+
+Phase 1b → Phase 1c headline:
+- Active signal density 6.0% → 14.0% (Hooks + Filters + Marathon)
+- Sticky 27 → Hooks players 65 (+2.4×)
+- Filters players hard 11 → Filters early 24 (+2.2×)
+- Insufficient data 219 → Limited data 189 (-30 — low-confidence
+  completion now contributes at weight 0.3 instead of being dropped)
+
+Refined target bands and verdicts:
+- Hooks players 10–25%: 10.2% — in band
+- Filters early 5–15%: 3.8% — under by 1.2pp (structural, see below)
+- Marathon ≤ 10%: 0.6% — in band
+- Limited data ≤ 30%: 29.7% — in band
+- Mixed + Standard ≤ 60%: 55.7% — in band
+
+The 1.2pp Filters early miss is structural rather than threshold-
+tunable. Older catalog games with no stickiness data (pre-2012 Steam
+appreviews API quirk — see api_quirks_steam_steamspy memory) and no
+high-confidence completion match sit at exactly score -1.0 (cliff
+alone). The inclusive ≤ -1.0 threshold already counts them; no further
+data exists to push them deeper. Tightening would either require
+dropping ≤ to < (kicks ~10 games back to Mixed — wrong direction) or
+relaxing the cliff size/position guards (admits noise).
+
+The Limited data ceiling at ≤ 30% acknowledges a 12.7% structural
+floor: 81 games (beta_playtest 18 + early_access 32 + unknown 27 +
+software 4) short-circuit to Limited regardless of any future signal
+work. The remaining ~17pp comes from sparse-review older catalog where
+2 of 3 signals genuinely lack data.
+
+Marathon validation: the canonical "play forever without finishing"
+cases all hit Marathon — Red Dead Redemption 2, Sid Meier's
+Civilization VI, Total War: WARHAMMER II / III. The high-confidence-
+completion requirement keeps sparse-data games from earning the label
+off noisy heuristic estimates.
+
+Decision: ship at current thresholds. Phase 1d, if ever needed,
+addresses the structural Filters miss only via a new data source (e.g.,
+review-burst pattern detection from the Steam reviews fetcher) rather
+than further threshold tuning.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
