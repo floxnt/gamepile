@@ -351,10 +351,17 @@ WEIGHT_CLIFF = 1.0
 WEIGHT_COMPLETION_HIGH = 0.7
 WEIGHT_COMPLETION_LOW = 0.3
 
-# Composite-score thresholds. Reachable from stickiness alone in the
-# single-signal fallback path (1.5 × ±1 = ±1.5).
+# Composite-score thresholds. Hooks remains symmetric to stickiness +1
+# weight (+1.5 reachable from stickiness alone). Filters threshold is
+# asymmetric at -1.0 because cliff is structurally one-sided — it only
+# pushes toward filters (late large cliffs route to neutral, never
+# positive). Lowering the negative threshold lets a -1 cliff stand on
+# its own at score -1.0, parallel to stickiness +1 being sufficient
+# for Hooks. The size + position guards inside signal_value_cliff
+# already filter for "meaningful signal" (≥ 20pp drop, early or mid
+# position) before -1 is emitted.
 SCORE_HOOKS_THRESHOLD = 1.5
-SCORE_FILTERS_THRESHOLD = -1.5
+SCORE_FILTERS_THRESHOLD = -1.0
 
 # Marathon thresholds. High engagement + low confirmed completion =
 # open-ended / sandbox-y games people play forever without finishing.

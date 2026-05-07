@@ -188,9 +188,11 @@ def test_signal_filters_early_via_score():
 
 
 def test_signal_late_cliff_with_filters_stickiness_does_not_filter():
-    # stickiness -1 (-1.5) + cliff late (0) + completion null (0) = -1.5
-    # exactly at threshold → BADGE_FILTERS_EARLY. Confirms late cliff
-    # doesn't add to the filters direction.
+    # stickiness -1 (-1.5) + cliff late (0) + completion null (0) = -1.5.
+    # Past the -1.0 threshold either way → BADGE_FILTERS_EARLY. The
+    # interesting bit: late cliff contributes 0, so the score stays at
+    # -1.5 (stickiness alone). If late cliff incorrectly contributed -1,
+    # score would be -2.5; this test guards that regression.
     g = _game(
         game_type="linear",
         cliff_metric=30.0, cliff_position=0.9,  # late large — neutral
@@ -317,17 +319,23 @@ def test_signal_mixed_via_stickiness_strong():
     assert badge == BADGE_MIXED_SIGNALS
 
 
-def test_signal_mixed_via_cliff_strong_only():
-    # cliff -1 (early) alone — score -1.0 (band). cliff is a strong
-    # signal → Mixed.
+def test_signal_filters_early_via_cliff_alone():
+    # cliff -1 alone scores -1.0, hits SCORE_FILTERS_THRESHOLD exactly
+    # (the asymmetric -1.0 threshold introduced after observing that
+    # cliff is one-sided — it never contributes +1). The size + position
+    # guards inside signal_value_cliff already filter for "meaningful
+    # signal" (≥ 20pp early or mid), so cliff-alone at -1.0 is intended
+    # to qualify as Filters early without needing a second supporting
+    # signal.
     g = _game(
         game_type="linear",
         cliff_metric=30.0, cliff_position=0.0,
-        stickiness_ratio=0.75,
-        completion_rate=None,
+        stickiness_ratio=0.75,                            # neutral
+        completion_rate=None,                             # absent
     )
-    badge, _, _ = compute_stickiness_signal(g)
-    assert badge == BADGE_MIXED_SIGNALS
+    badge, score, _ = compute_stickiness_signal(g)
+    assert abs(score - (-1.0)) < 0.001
+    assert badge == BADGE_FILTERS_EARLY
 
 
 def test_signal_low_conf_completion_alone_does_not_promote_to_mixed():
