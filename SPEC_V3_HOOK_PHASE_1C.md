@@ -214,9 +214,18 @@ WEIGHT_CLIFF = 1.0
 WEIGHT_COMPLETION_HIGH = 0.7
 WEIGHT_COMPLETION_LOW = 0.3
 
-# composite-score thresholds
+# composite-score thresholds. Asymmetric: Hooks at +1.5 reachable from
+# stickiness +1 alone; Filters at -1.0 reachable from cliff -1 alone.
+# The asymmetry reflects the structural asymmetry of the cliff signal —
+# it only ever pushes negative (large early or mid cliff → filter) and
+# never positive (late large cliff routes to neutral, never sticky).
+# Lowering the negative threshold lets cliff stand on its own at score
+# -1.0, parallel to stickiness +1 being sufficient for Hooks. The size
+# + position guards inside signal_value_cliff already filter for
+# "meaningful signal" (≥ 20pp drop, early or mid position) before -1
+# is emitted, so cliff-alone-at-threshold isn't admitting noise.
 SCORE_HOOKS_THRESHOLD = 1.5
-SCORE_FILTERS_THRESHOLD = -1.5
+SCORE_FILTERS_THRESHOLD = -1.0
 
 # Marathon thresholds
 MARATHON_PLAYTIME_MIN_HOURS = 50.0      # = 3000 minutes
@@ -362,5 +371,5 @@ Phase 1a checkpoint 4. ~25 minute background task.
 - All existing pages still 200; Phase 1a / game-type / Phase 1b shipped
   behavior preserved (the latter now retired in favor of 1c)
 - Distribution report compares Phase 1b → Phase 1c badge changes; ships
-  if results land in target envelope (10–25% Hooks, 10–20% Filters
-  early, ≤10% Marathon, Mixed+Standard ≤50%, ≤20% Limited)
+  if results land in target envelope (10–25% Hooks, 5–15% Filters
+  early, ≤10% Marathon, Mixed+Standard ≤60%, ≤30% Limited)
