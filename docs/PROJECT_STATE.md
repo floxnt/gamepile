@@ -270,6 +270,52 @@ addresses the structural Filters miss only via a new data source (e.g.,
 review-burst pattern detection from the Steam reviews fetcher) rather
 than further threshold tuning.
 
+## Phase 4 — manual curation overrides (session of 2026-05-09)
+
+Three Game Detail surfaces extending the manual-override pattern that
+`game_type_manual`, `manually_set`, and `hours_played_manual` already
+established. All single-game corrections, all following the same shape:
+`*_manual` column shadows or feeds the auto-derived value, inline route
+re-fetches / re-computes downstream values on save, Reset button clears
+and re-runs the auto path. See `SPEC_V3_PHASE_4_OVERRIDES.md` for the
+full per-surface design.
+
+1. **Manual story-completion achievement.** `completion_achievement_name_manual`
+   stores the chosen achievement's internal Steam ID; sync re-derives
+   `completion_rate` from that achievement's current unlock percent
+   every refresh with confidence forced to `'high'`. Picker is lazy-
+   loaded via HTMX `hx-trigger="toggle once"` so the Steam API call
+   is paid only when the user opens the override.
+2. **Manual HLTB ID.** `hltb_id_manual` (integer); sync calls a new
+   `fetch_hltb_by_id` (wraps `howlongtobeatpy.search_from_id` under
+   `run_in_executor`) and bypasses name-search. Input accepts bare
+   integer or `howlongtobeat.com/game/<id>` URL via `parse_hltb_id_input`.
+   Save fetches inline; bad IDs surface an inline error without
+   persisting. Reset re-runs name-search inline.
+3. **Manual stickiness badge.** `stickiness_badge_manual` (one of the
+   five `ACTIVE_BADGES` constants — `limited_data` excluded as a
+   meaningless override). New `compute_stickiness_signal_display`
+   helper returns `(badge, auto_badge, score, breakdown, is_overridden)`.
+   All four call sites (`library_row.html`, `game_card.html`,
+   `game_detail_engagement.html`, `routes/library.py` sort key)
+   updated atomically. Override applies even on ineligible game types
+   (software / beta_playtest / early_access / unknown) — engagement
+   section becomes visible to surface the manual badge with the auto
+   disclosure reading "Auto: not computed for this type."
+
+48 unit tests across three new test files covering helper return
+shapes, URL parsing edge cases, override-replaces-displayed-badge,
+ineligible-type surfacing, breakdown preservation, sync fail-open on
+removed achievements, and Library sort routing. Live API calls
+(Steam achievements, HLTB by-ID) are exercised manually per surface
+during commit-time smoke tests.
+
+Three feature commits + one doc commit in the branch:
+- `1ff70ed hook-phase4: manual completion-achievement override`
+- `ee312b4 hook-phase4: manual HLTB ID override`
+- `04b5e59 hook-phase4: manual stickiness badge override`
+- (this doc commit)
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
