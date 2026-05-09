@@ -202,6 +202,85 @@ def _search_sync(name: str) -> list[HowLongToBeatEntry]:
     return HowLongToBeat().search(name, similarity_case_sensitive=False) or []
 
 
+# ---------------------------------------------------------------------------
+# Phase 4 — fetch by HLTB game ID
+# ---------------------------------------------------------------------------
+
+
+async def fetch_hltb_by_id(hltb_id: int) -> HltbResult:
+    """Fetch HLTB data for a specific game ID, bypassing name search.
+
+    Used by the manual HLTB ID override on Game Detail — the user provides
+    a numeric ID (or a howlongtobeat.com URL we parse for the ID) when the
+    name-search heuristic can't find the right record. Returns
+    HltbResult(found=False) on bad ID, network error, or empty parse so
+    the route handler can surface a "not found" error without persisting.
+    """
+    if not hltb_id or hltb_id <= 0:
+        return HltbResult(found=False)
+    try:
+        entry: Optional[HowLongToBeatEntry] = await asyncio.get_running_loop().run_in_executor(
+            None, _search_id_sync, hltb_id,
+        )
+    except Exception as exc:
+        log.warning("HLTB by-id lookup failed for id=%s: %s", hltb_id, exc)
+        return HltbResult(found=False)
+
+    if entry is None:
+        log.info("HLTB: no record for id=%s", hltb_id)
+        return HltbResult(found=False)
+
+    return HltbResult(
+        found=True,
+        hltb_main_hours=_hours(entry.main_story),
+        hltb_main_extra_hours=_hours(entry.main_extra),
+        hltb_completionist_hours=_hours(entry.completionist),
+        matched_name=entry.game_name,
+        # similarity is meaningless for ID lookup — we asked for this exact
+        # record. Leave as None so callers can distinguish from name-matched
+        # results if they ever care.
+    )
+
+
+def _search_id_sync(hltb_id: int) -> Optional[HowLongToBeatEntry]:
+    return HowLongToBeat().search_from_id(hltb_id)
+
+
+# Match howlongtobeat.com URLs of the form `/game/12345` (with optional
+# scheme, host, query string) and pull out the numeric ID. Used by the
+# Game Detail route so the user can paste a URL or a bare integer.
+_HLTB_URL_ID_RE = re.compile(
+    r"howlongtobeat\.com/game/(\d+)",
+    re.IGNORECASE,
+)
+
+
+def parse_hltb_id_input(text: str) -> Optional[int]:
+    """Extract an HLTB ID from user input. Accepts either a bare integer
+    string ('12345') or a howlongtobeat.com URL ('https://howlongtobeat.com/game/12345').
+    Returns the parsed ID, or None if the input is empty / unparseable /
+    non-positive."""
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    # URL case — pull the ID from /game/<digits> regardless of scheme.
+    m = _HLTB_URL_ID_RE.search(text)
+    if m:
+        try:
+            value = int(m.group(1))
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    # Bare-integer case.
+    try:
+        value = int(text)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 def _hours(value) -> Optional[float]:
     """Convert HLTB time value to float hours, None if missing/zero."""
     try:

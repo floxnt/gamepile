@@ -157,6 +157,14 @@ def init_db() -> None:
             # achievement's current unlock percent and forces
             # completion_rate_confidence to 'high'.
             "ALTER TABLE games ADD COLUMN completion_achievement_name_manual TEXT",
+            # v3 Phase 4 — manual HLTB game ID. When set, sync calls
+            # fetch_hltb_by_id and bypasses name-based search/match — the
+            # escape hatch for titles whose Steam name doesn't disambiguate
+            # against HLTB's catalog (Soul Reaver Remastered, Wasteland 1
+            # Original Classic). The hltb_main / extras / completionist
+            # values themselves remain auto-derived; only the LOOKUP path
+            # is overridden, not the values.
+            "ALTER TABLE games ADD COLUMN hltb_id_manual INTEGER",
         ]:
             try:
                 conn.execute(ddl)
@@ -285,6 +293,7 @@ def _row_to_game(row: sqlite3.Row) -> Game:
             row["completion_achievement_name_manual"]
             if "completion_achievement_name_manual" in keys else None
         ),
+        hltb_id_manual=row["hltb_id_manual"] if "hltb_id_manual" in keys else None,
     )
 
 
@@ -370,7 +379,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             completion_rate, completion_rate_confidence, cliff_metric,
             review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
             game_type, game_type_manual, app_type, cliff_position,
-            completion_achievement_name_manual
+            completion_achievement_name_manual, hltb_id_manual
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -381,7 +390,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :completion_rate, :completion_rate_confidence, :cliff_metric,
             :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
             :game_type, :game_type_manual, :app_type, :cliff_position,
-            :completion_achievement_name_manual
+            :completion_achievement_name_manual, :hltb_id_manual
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -427,7 +436,11 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             completion_achievement_name_manual = COALESCE(
                 excluded.completion_achievement_name_manual,
                 games.completion_achievement_name_manual
-            )
+            ),
+            -- Phase 4 HLTB ID override: same COALESCE pattern. Sync passes
+            -- the existing value through; the route handlers below are
+            -- the canonical write path.
+            hltb_id_manual = COALESCE(excluded.hltb_id_manual, games.hltb_id_manual)
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -461,6 +474,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "game_type_manual": 1 if game.game_type_manual else 0,
         "app_type": game.app_type,
         "completion_achievement_name_manual": game.completion_achievement_name_manual,
+        "hltb_id_manual": game.hltb_id_manual,
     })
 
 
@@ -519,7 +533,7 @@ def get_games_with_state(
             g.cliff_position,
             g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
             g.game_type, g.game_type_manual, g.app_type,
-            g.completion_achievement_name_manual,
+            g.completion_achievement_name_manual, g.hltb_id_manual,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,
@@ -769,6 +783,54 @@ def clear_completion_achievement_manual(
         WHERE appid = ?
         """,
         (rate, confidence, appid),
+    )
+
+
+def set_hltb_id_manual(
+    conn: sqlite3.Connection,
+    appid: int,
+    hltb_id: int,
+    main_hours: Optional[float],
+    main_extra_hours: Optional[float],
+    completionist_hours: Optional[float],
+) -> None:
+    """Persist the user's manual HLTB ID and the values resolved from it
+    in one statement. The fetch happens in the route handler — this helper
+    just stores the result so the in-memory and DB views stay in sync."""
+    conn.execute(
+        """
+        UPDATE games
+        SET hltb_id_manual = ?,
+            hltb_main_hours = ?,
+            hltb_main_extra_hours = ?,
+            hltb_completionist_hours = ?
+        WHERE appid = ?
+        """,
+        (hltb_id, main_hours, main_extra_hours, completionist_hours, appid),
+    )
+
+
+def clear_hltb_id_manual(
+    conn: sqlite3.Connection,
+    appid: int,
+    main_hours: Optional[float],
+    main_extra_hours: Optional[float],
+    completionist_hours: Optional[float],
+) -> None:
+    """Clear the manual HLTB ID and write the freshly-recomputed
+    name-search values. Caller is responsible for running the search
+    against fresh data — this helper just persists the result alongside
+    the cleared manual flag in one statement."""
+    conn.execute(
+        """
+        UPDATE games
+        SET hltb_id_manual = NULL,
+            hltb_main_hours = ?,
+            hltb_main_extra_hours = ?,
+            hltb_completionist_hours = ?
+        WHERE appid = ?
+        """,
+        (main_hours, main_extra_hours, completionist_hours, appid),
     )
 
 

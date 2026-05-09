@@ -56,6 +56,11 @@ class Game:
     # completion_rate from this achievement's current unlock percent
     # (forced 'high' confidence). NULL means auto-derive.
     completion_achievement_name_manual: Optional[str] = None
+    # v3 Phase 4 — manual HLTB game ID. When set, sync uses this ID
+    # directly via fetch_hltb_by_id and skips name-based search.
+    # Escape hatch for stuck-on-search titles where title cleaning
+    # can't find the right record. NULL means auto-derive via search.
+    hltb_id_manual: Optional[int] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

@@ -1,5 +1,9 @@
-{# Section 3 — Game data, read-only. Two-column grid; description below. #}
-<section class="game-detail-data">
+{# Section 3 — Game data, read-only. Two-column grid; description below.
+   Phase 4 adds an "Override HLTB match" disclosure inside the External
+   column for cases where title cleaning + name search can't find the
+   right HLTB record. The whole section is one HTMX target so a save /
+   reset / error response replaces it cleanly. #}
+<section class="game-detail-data" id="data-section">
   <div class="game-detail-data-column">
     <h3 class="data-column-title">Steam</h3>
     <div class="data-row">
@@ -38,7 +42,22 @@
     <h3 class="data-column-title">External</h3>
     <div class="data-row">
       <span class="data-label">HLTB Main</span>
-      <span class="data-value">{{ game.hltb_main_hours | fmt_hltb }}</span>
+      <span class="data-value">
+        {{ game.hltb_main_hours | fmt_hltb }}
+        {% if game.hltb_id_manual %}
+          <span class="data-aside data-aside--manual">manual id {{ game.hltb_id_manual }}</span>
+        {% endif %}
+      </span>
+      {% if game.hltb_id_manual %}
+        <button type="button"
+                class="btn btn-ghost btn-sm"
+                hx-post="/games/{{ game.appid }}/reset_hltb_id"
+                hx-target="#data-section"
+                hx-swap="outerHTML"
+                title="Clear the manual ID and re-run name-based HLTB search">
+          Reset to auto
+        </button>
+      {% endif %}
     </div>
     {% if game.hltb_main_extra_hours %}
       <div class="data-row">
@@ -52,6 +71,44 @@
         <span class="data-value">{{ game.hltb_completionist_hours | fmt_hltb }}</span>
       </div>
     {% endif %}
+
+    {# Phase 4 manual override block. Always present in the External
+       column (whether or not an override is set) — name-search misses
+       are common enough to warrant a discoverable affordance. #}
+    <details class="hltb-override-block">
+      <summary class="hltb-override-summary">
+        {% if game.hltb_id_manual %}
+          Override HLTB match (currently: id {{ game.hltb_id_manual }})
+        {% else %}
+          Override HLTB match
+        {% endif %}
+      </summary>
+      <div class="hltb-override-body">
+        <form class="hltb-override-form"
+              hx-post="/games/{{ game.appid }}/hltb_id"
+              hx-target="#data-section"
+              hx-swap="outerHTML">
+          <label for="hltb-id-{{ game.appid }}" class="hltb-override-label">
+            HLTB ID or URL:
+          </label>
+          <input type="text"
+                 id="hltb-id-{{ game.appid }}"
+                 name="hltb_id_input"
+                 class="hltb-override-input"
+                 placeholder="e.g. 12345 or howlongtobeat.com/game/12345"
+                 value="{{ game.hltb_id_manual or '' }}">
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </form>
+        {% if hltb_error %}
+          <p class="hltb-override-error">{{ hltb_error }}</p>
+        {% endif %}
+        <p class="hltb-override-hint">
+          Find the ID in the howlongtobeat.com URL — the digits after
+          <code>/game/</code>. Pasting the full URL also works.
+        </p>
+      </div>
+    </details>
+
     {% if game.metacritic_score %}
       <div class="data-row">
         <span class="data-label">Metacritic</span>

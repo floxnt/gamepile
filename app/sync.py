@@ -325,6 +325,32 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
         if not force and game.hltb_main_hours is not None and not _is_stale(effective_game):
             log.debug("HLTB cached: %s", game.name)
             progress.hltb_skipped += 1
+        elif game.hltb_id_manual:
+            # Phase 4 manual HLTB ID override — bypass name-based search
+            # entirely, fetch by ID, persist whatever HLTB returns. Misses
+            # here are noteworthy (the user provided an ID that doesn't
+            # resolve) — keep stored values via COALESCE rather than
+            # nulling, and don't append to hltb_outcomes (this lookup
+            # carries no signal about server health for the adaptive
+            # pacing window).
+            progress.phase = f"HLTB by-id ({i+1}/{progress.total_games})"
+            result = await hltb_fetcher.fetch_hltb_by_id(game.hltb_id_manual)
+            progress.hltb_attempted += 1
+            if result.found:
+                updates.update({
+                    "hltb_main_hours": result.hltb_main_hours,
+                    "hltb_main_extra_hours": result.hltb_main_extra_hours,
+                    "hltb_completionist_hours": result.hltb_completionist_hours,
+                })
+                progress.hltb_matched += 1
+            else:
+                progress.hltb_missed += 1
+                progress.hltb_misses.append(HltbMissEntry(
+                    appid=game.appid,
+                    name=f"{game.name} (manual id={game.hltb_id_manual})",
+                    attempts=[f"id={game.hltb_id_manual}"],
+                    backoff_used=False,
+                ))
         else:
             # Adaptive pacing: pause before this lookup if recent batch is unhealthy
             batch_unhealthy = (
@@ -517,6 +543,10 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             # Game Detail route handlers, never written by sync. Pass the
             # existing value through unchanged so the upsert keeps it.
             completion_achievement_name_manual=game.completion_achievement_name_manual,
+            # Phase 4 manual HLTB ID — same pattern. Sync READs this to
+            # decide which HLTB code path to take above; it never WRITES
+            # the value, only the route handlers do.
+            hltb_id_manual=game.hltb_id_manual,
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -568,4 +598,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         game_type_manual=game.game_type_manual,
         app_type=game.app_type,
         completion_achievement_name_manual=game.completion_achievement_name_manual,
+        hltb_id_manual=game.hltb_id_manual,
     )
