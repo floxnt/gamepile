@@ -1811,6 +1811,58 @@ select option {
   font-style: italic;
 }
 
+.engagement-signal-aside--manual {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* "Auto would say…" disclosure under the manually-set badge — keeps
+   the auto-computed view available without competing with the
+   user's chosen badge. */
+.engagement-signal-auto-note {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: 0 0 0.55rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+/* Subtle indicator that a stickiness badge is manually set — outlined
+   ring around the existing badge tone. Same dimensions; just adds an
+   accent-coloured border so the override registers visually. */
+.stickiness-badge--overridden,
+.stickiness-pill--overridden {
+  outline: 1px dashed var(--accent);
+  outline-offset: 1px;
+}
+
+.stickiness-override-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.stickiness-override-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.stickiness-override-select {
+  flex: 0 1 14rem;
+  min-width: 12rem;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+
 /* Phase 4 — manual override blocks (completion-achievement, HLTB ID,
    stickiness badge). Disclosure widget rendered with <details>; the
    inner picker is lazy-loaded via HTMX on first toggle. */

@@ -75,9 +75,11 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             return compute_game_type(game)
         if sort == "stickiness":
             # Limited data sinks last regardless of direction. Other
-            # values use the explicit priority order above.
-            from app.hook_metrics import compute_stickiness_signal
-            badge = compute_stickiness_signal(game)[0]
+            # values use the explicit priority order above. Phase 4:
+            # use the override-aware helper so the user's manual badge
+            # drives sort just like it drives the badge column display.
+            from app.hook_metrics import compute_stickiness_signal_display
+            badge = compute_stickiness_signal_display(game)[0]
             if badge == "limited_data":
                 return _NULL_LOW if reverse else _NULL_HIGH
             return _STICKINESS_SORT_ORDER.get(badge, 99)

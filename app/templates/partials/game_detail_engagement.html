@@ -28,14 +28,17 @@
 {% set has_stickiness = game.stickiness_ratio is not none %}
 {% set has_pt_ratio = game.playtime_median_avg_ratio is not none %}
 
-{# Phase 1c categorical signal. Header line appears under the Type line.
-   Hidden when ineligible (limited_data). The full per-signal score
-   breakdown is rendered separately in commit 3 (this commit ships the
-   atomic surface change; commit 3 adds the explanatory detail). #}
-{% set sig_tuple = compute_stickiness_signal(game) %}
+{# Phase 1c categorical signal + Phase 4 override-aware display.
+   compute_stickiness_signal_display returns (badge, auto_badge, score,
+   breakdown, is_overridden). When override is set the badge differs
+   from auto_badge and the breakdown shows what the auto path would
+   have computed (or empty for ineligible types). #}
+{% set sig_tuple = compute_stickiness_signal_display(game) %}
 {% set sig_badge = sig_tuple[0] %}
-{% set sig_score = sig_tuple[1] %}
-{% set sig_breakdown = sig_tuple[2] %}
+{% set sig_auto_badge = sig_tuple[1] %}
+{% set sig_score = sig_tuple[2] %}
+{% set sig_breakdown = sig_tuple[3] %}
+{% set sig_overridden = sig_tuple[4] %}
 
 {# Per-row visibility: row renders when both rule allows AND data exists. #}
 {% set show_completion_row = rules.show_completion_rate and has_completion %}
@@ -46,8 +49,10 @@
 {% set any_visible_row = show_completion_row or show_cliff_row or show_review_median_row or show_stickiness_row or show_pt_ratio_row %}
 
 {# Software shows section regardless (with the explanatory caveat).
-   All other types: hide if no eligible row would render. #}
-{% if gt == "software" or any_visible_row %}
+   All other types: hide if no eligible row would render — UNLESS a
+   stickiness-badge override is set, in which case the user's
+   assertion needs a place to surface even on ineligible types. #}
+{% if gt == "software" or any_visible_row or sig_overridden %}
 <section class="game-detail-engagement" id="engagement-section">
   <h2 class="game-detail-section-title">Engagement signals</h2>
 
@@ -61,47 +66,115 @@
   </div>
 
   {# Phase 1c categorical signal — header line + per-signal breakdown.
-     Hidden entirely when limited_data (no useful detail to surface).
-     Per-signal lines explain how the composite score was reached. #}
-  {% if sig_badge != "limited_data" %}
+     Phase 4 layers: when override is set, badge displays the manual
+     value with a "manually set" indicator and the auto-computed values
+     surface beneath as "Auto would say…". When the auto path would
+     have produced limited_data (ineligible game type), the breakdown
+     reads "not computed for this type" rather than an itemised list. #}
+  {% if sig_badge != "limited_data" or sig_overridden %}
     <div class="engagement-signal-line">
       <span class="engagement-signal-label">Stickiness signal:</span>
-      {% if sig_badge == "hooks_players" %}
-        <span class="stickiness-badge stickiness-badge--hooks_players"
-              title="Most reviewers play deep into the game; cliff patterns suggest engagement holds">Hooks players</span>
-      {% elif sig_badge == "filters_early" %}
-        <span class="stickiness-badge stickiness-badge--filters_early"
-              title="Many players abandon in the early or mid-game">Filters early</span>
-      {% elif sig_badge == "marathon" %}
-        <span class="stickiness-badge stickiness-badge--marathon"
-              title="High engagement, low completion — the kind of game people play forever without finishing">Marathon</span>
-      {% elif sig_badge == "mixed_signals" %}
-        <span class="stickiness-badge stickiness-badge--mixed_signals"
-              title="Strong signals in different directions — taste-dependent">Mixed signals</span>
-      {% elif sig_badge == "standard_engagement" %}
-        <span class="stickiness-badge stickiness-badge--standard_engagement"
-              title="Middle-of-the-road metrics across the board">Standard engagement</span>
+      {% if sig_badge != "limited_data" %}
+        {% set tip = stickiness_badge_tooltips[sig_badge] %}
+        {% if sig_overridden %}{% set tip = "Manually set: " + stickiness_badge_labels[sig_badge] %}{% endif %}
+        <span class="stickiness-badge stickiness-badge--{{ sig_badge }}{% if sig_overridden %} stickiness-badge--overridden{% endif %}"
+              title="{{ tip }}">{{ stickiness_badge_labels[sig_badge] }}</span>
       {% endif %}
-      <span class="engagement-signal-aside">· score {{ "%+.1f"|format(sig_score) }}</span>
+      {% if sig_overridden %}
+        <span class="engagement-signal-aside engagement-signal-aside--manual">manually set</span>
+        <button type="button"
+                class="btn btn-ghost btn-sm"
+                hx-post="/games/{{ game.appid }}/reset_stickiness_badge"
+                hx-target="#engagement-section"
+                hx-swap="outerHTML"
+                title="Clear the manual badge and let auto-compute resume">
+          Reset to auto
+        </button>
+      {% else %}
+        <span class="engagement-signal-aside">· score {{ "%+.1f"|format(sig_score) }}</span>
+      {% endif %}
     </div>
 
-    {# Per-signal breakdown — shows weight × value contribution per
-       contributing signal. Order: stickiness → cliff → completion to
-       match the score-formula precedence in the spec. #}
-    {% if sig_breakdown %}
-    <ul class="engagement-signal-breakdown">
-      {% for key in ["stickiness", "cliff", "completion"] %}
-        {% if key in sig_breakdown %}
-          {% set b = sig_breakdown[key] %}
-          <li class="engagement-signal-breakdown-row">
-            <span class="engagement-signal-breakdown-label">{{ key | capitalize }}:</span>
-            <span class="engagement-signal-breakdown-desc">{{ b.description }}</span>
-            <span class="engagement-signal-breakdown-contribution">({{ "%+.1f"|format(b.contribution) }})</span>
-          </li>
+    {# Auto-vs-manual disclosure under the header. When override active:
+         - If auto would have produced a real badge: show "Auto would
+           say: <auto_badge> (score X.X)" + breakdown
+         - If auto would have hit limited_data (ineligible type): show
+           "Auto: not computed for this type" without breakdown
+       When NO override: render the breakdown directly. #}
+    {% if sig_overridden %}
+      {% if sig_auto_badge == "limited_data" %}
+        <p class="engagement-signal-auto-note">
+          Auto: not computed for this type (engagement section normally
+          hidden — your override surfaces it anyway).
+        </p>
+      {% else %}
+        <p class="engagement-signal-auto-note">
+          Auto would say:
+          <span class="stickiness-badge stickiness-badge--{{ sig_auto_badge }}"
+                title="{{ stickiness_badge_tooltips[sig_auto_badge] }}">{{ stickiness_badge_labels[sig_auto_badge] }}</span>
+          <span class="engagement-signal-aside">· score {{ "%+.1f"|format(sig_score) }}</span>
+        </p>
+        {% if sig_breakdown %}
+          <ul class="engagement-signal-breakdown">
+            {% for key in ["stickiness", "cliff", "completion"] %}
+              {% if key in sig_breakdown %}
+                {% set b = sig_breakdown[key] %}
+                <li class="engagement-signal-breakdown-row">
+                  <span class="engagement-signal-breakdown-label">{{ key | capitalize }}:</span>
+                  <span class="engagement-signal-breakdown-desc">{{ b.description }}</span>
+                  <span class="engagement-signal-breakdown-contribution">({{ "%+.1f"|format(b.contribution) }})</span>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
         {% endif %}
-      {% endfor %}
-    </ul>
+      {% endif %}
+    {% else %}
+      {% if sig_breakdown %}
+        <ul class="engagement-signal-breakdown">
+          {% for key in ["stickiness", "cliff", "completion"] %}
+            {% if key in sig_breakdown %}
+              {% set b = sig_breakdown[key] %}
+              <li class="engagement-signal-breakdown-row">
+                <span class="engagement-signal-breakdown-label">{{ key | capitalize }}:</span>
+                <span class="engagement-signal-breakdown-desc">{{ b.description }}</span>
+                <span class="engagement-signal-breakdown-contribution">({{ "%+.1f"|format(b.contribution) }})</span>
+              </li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      {% endif %}
     {% endif %}
+
+    {# Phase 4 — the override picker for the stickiness badge itself.
+       Available on every game type; on ineligible types (software /
+       beta_playtest / early_access / unknown) the override surfaces
+       even when the engagement section would normally be empty. #}
+    <details class="stickiness-override-block">
+      <summary class="stickiness-override-summary">
+        Override stickiness badge
+      </summary>
+      <div class="stickiness-override-body">
+        <form class="stickiness-override-form"
+              hx-post="/games/{{ game.appid }}/stickiness_badge"
+              hx-target="#engagement-section"
+              hx-swap="outerHTML">
+          <label for="stickiness-badge-{{ game.appid }}" class="stickiness-override-label">
+            Force badge:
+          </label>
+          <select name="badge"
+                  id="stickiness-badge-{{ game.appid }}"
+                  class="stickiness-override-select">
+            {% for opt in stickiness_active_badges %}
+              <option value="{{ opt }}" {% if game.stickiness_badge_manual == opt %}selected{% endif %}>
+                {{ stickiness_badge_labels[opt] }}
+              </option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">Save</button>
+        </form>
+      </div>
+    </details>
   {% endif %}
 
   {# Caveat — surface once if rules.caveat_text is populated. #}

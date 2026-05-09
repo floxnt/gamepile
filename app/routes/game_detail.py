@@ -20,6 +20,7 @@ from app.game_type import (
     resolve_type,
 )
 from app.hook_metrics import (
+    ACTIVE_BADGES,
     compute_completion_rate,
     compute_completion_rate_confidence,
     pick_completion_achievement,
@@ -439,6 +440,50 @@ async def update_hltb_id(
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request, "partials/game_detail_data.html", ctx,
+    )
+
+
+@router.post("/games/{appid}/stickiness_badge", response_class=HTMLResponse)
+async def update_stickiness_badge(
+    request: Request,
+    appid: int,
+    badge: str = Form(...),
+):
+    """Persist a manual stickiness-badge override. Validates against
+    ACTIVE_BADGES (the five non-limited_data values) — limited_data
+    rejection prevents asserting "no signal" via override (clearing
+    is the right way to revert)."""
+    if badge not in ACTIVE_BADGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown stickiness badge: {badge}",
+        )
+    with db.get_db() as conn:
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(status_code=404)
+        db.set_stickiness_badge_manual(conn, appid, badge)
+
+    ctx = _engagement_partial_context(appid)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/game_detail_engagement.html", ctx,
+    )
+
+
+@router.post("/games/{appid}/reset_stickiness_badge", response_class=HTMLResponse)
+async def reset_stickiness_badge(request: Request, appid: int):
+    """Clear the manual override; auto-computed badge resumes surfacing."""
+    with db.get_db() as conn:
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(status_code=404)
+        db.clear_stickiness_badge_manual(conn, appid)
+
+    ctx = _engagement_partial_context(appid)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/game_detail_engagement.html", ctx,
     )
 
 

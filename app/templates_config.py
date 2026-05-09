@@ -137,3 +137,18 @@ templates.env.globals["qualitative_ratio_hint"] = _qualitative_ratio_hint
 # (badge_label, sticky_count, filters_hard_count) tuple.
 from app.hook_metrics import compute_stickiness_signal as _compute_stickiness_signal  # noqa: E402
 templates.env.globals["compute_stickiness_signal"] = _compute_stickiness_signal
+
+# Phase 4 — override-aware wrapper. Library row / Shortlist pill / Game
+# Detail engagement section all call this to honor the manual stickiness
+# badge override when set. Returns (badge, auto_badge, score, breakdown,
+# is_overridden). See app.hook_metrics.compute_stickiness_signal_display.
+from app.hook_metrics import compute_stickiness_signal_display as _compute_stickiness_signal_display  # noqa: E402
+from app.hook_metrics import (  # noqa: E402
+    ACTIVE_BADGES as _ACTIVE_BADGES,
+    BADGE_LABELS as _BADGE_LABELS,
+    BADGE_TOOLTIPS as _BADGE_TOOLTIPS,
+)
+templates.env.globals["compute_stickiness_signal_display"] = _compute_stickiness_signal_display
+templates.env.globals["stickiness_active_badges"] = _ACTIVE_BADGES
+templates.env.globals["stickiness_badge_labels"] = _BADGE_LABELS
+templates.env.globals["stickiness_badge_tooltips"] = _BADGE_TOOLTIPS

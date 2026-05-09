@@ -61,6 +61,12 @@ class Game:
     # Escape hatch for stuck-on-search titles where title cleaning
     # can't find the right record. NULL means auto-derive via search.
     hltb_id_manual: Optional[int] = None
+    # v3 Phase 4 — manual stickiness badge override. One of the five
+    # active BADGE_* constants. NULL means use auto-computed badge.
+    # Surfaces on Library, Game Detail, and Shortlist pill — bypasses
+    # game-type display rules so the user can assert a badge even on
+    # types where engagement is normally suppressed.
+    stickiness_badge_manual: Optional[str] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

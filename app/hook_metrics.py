@@ -402,6 +402,42 @@ BADGE_MIXED_SIGNALS = "mixed_signals"
 BADGE_STANDARD_ENGAGEMENT = "standard_engagement"
 BADGE_LIMITED_DATA = "limited_data"
 
+# The five badges valid for manual override. Limited_data is excluded —
+# manually asserting "no signal" is meaningless; clearing the override
+# is the right way to revert. The Game Detail route validates against
+# this set before persisting.
+ACTIVE_BADGES = (
+    BADGE_HOOKS_PLAYERS,
+    BADGE_FILTERS_EARLY,
+    BADGE_MARATHON,
+    BADGE_MIXED_SIGNALS,
+    BADGE_STANDARD_ENGAGEMENT,
+)
+
+BADGE_LABELS = {
+    BADGE_HOOKS_PLAYERS:       "Hooks players",
+    BADGE_FILTERS_EARLY:       "Filters early",
+    BADGE_MARATHON:            "Marathon",
+    BADGE_MIXED_SIGNALS:       "Mixed signals",
+    BADGE_STANDARD_ENGAGEMENT: "Standard engagement",
+    BADGE_LIMITED_DATA:        "Limited data",
+}
+
+BADGE_TOOLTIPS = {
+    BADGE_HOOKS_PLAYERS:
+        "Most reviewers play deep into the game; cliff patterns suggest engagement holds",
+    BADGE_FILTERS_EARLY:
+        "Many players abandon in the early or mid-game",
+    BADGE_MARATHON:
+        "High engagement, low completion — the kind of game people play forever without finishing",
+    BADGE_MIXED_SIGNALS:
+        "Strong signals in different directions — taste-dependent",
+    BADGE_STANDARD_ENGAGEMENT:
+        "Middle-of-the-road metrics across the board",
+    BADGE_LIMITED_DATA:
+        "Not enough data to characterise engagement",
+}
+
 
 # ---------------------------------------------------------------------------
 # Per-signal value helpers — each returns -1 / 0 / +1
@@ -637,3 +673,38 @@ def compute_stickiness_signal(game) -> tuple:
 
     # 6. Default — middle bucket with no strong signals.
     return (BADGE_STANDARD_ENGAGEMENT, score, breakdown)
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Manual stickiness badge override (display layer)
+# ---------------------------------------------------------------------------
+
+
+def compute_stickiness_signal_display(game) -> tuple:
+    """Override-aware wrapper for compute_stickiness_signal.
+
+    Returns (badge, auto_badge, score, breakdown, is_overridden).
+
+      - badge: what to display (manual override if set, else auto)
+      - auto_badge: what compute_stickiness_signal returned regardless
+      - score: composite score from the auto path (informational)
+      - breakdown: per-signal contribution dict from the auto path
+      - is_overridden: True when game.stickiness_badge_manual is populated
+
+    The auto values are always computed so Game Detail can show
+    "Auto would say: <auto_badge> (score X.X)" alongside the override.
+    For ineligible game types (software / beta_playtest / early_access /
+    unknown), the auto path returns (BADGE_LIMITED_DATA, 0.0, {}); the
+    template uses an empty breakdown to render "Auto: not computed for
+    this type" instead of an itemised breakdown.
+
+    Used by: library_row.html, game_card.html, game_detail_engagement.html,
+    and app/routes/library.py for sort-key resolution. All four call
+    sites must use this helper rather than compute_stickiness_signal
+    directly so the override surfaces consistently.
+    """
+    auto_badge, score, breakdown = compute_stickiness_signal(game)
+    manual = getattr(game, "stickiness_badge_manual", None)
+    if manual:
+        return (manual, auto_badge, score, breakdown, True)
+    return (auto_badge, auto_badge, score, breakdown, False)

@@ -23,24 +23,18 @@
     <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
   </td>
   <td class="library-stickiness">
-    {% set sig_badge = compute_stickiness_signal(gws.game)[0] %}
-    {% if sig_badge == "hooks_players" %}
-      <span class="stickiness-badge stickiness-badge--hooks_players"
-            title="Most reviewers play deep into the game; cliff patterns suggest engagement holds">Hooks players</span>
-    {% elif sig_badge == "filters_early" %}
-      <span class="stickiness-badge stickiness-badge--filters_early"
-            title="Many players abandon in the early or mid-game">Filters early</span>
-    {% elif sig_badge == "marathon" %}
-      <span class="stickiness-badge stickiness-badge--marathon"
-            title="High engagement, low completion — the kind of game people play forever without finishing">Marathon</span>
-    {% elif sig_badge == "mixed_signals" %}
-      <span class="stickiness-badge stickiness-badge--mixed_signals"
-            title="Strong signals in different directions — taste-dependent">Mixed signals</span>
-    {% elif sig_badge == "standard_engagement" %}
-      <span class="stickiness-badge stickiness-badge--standard_engagement"
-            title="Middle-of-the-road metrics across the board">Standard</span>
-    {% else %}
+    {% set sig = compute_stickiness_signal_display(gws.game) %}
+    {% set sig_badge = sig[0] %}
+    {% set sig_overridden = sig[4] %}
+    {% if sig_badge == "limited_data" %}
       <span class="library-stickiness-empty">—</span>
+    {% else %}
+      {% set tip = stickiness_badge_tooltips[sig_badge] %}
+      {% if sig_overridden %}{% set tip = "Manually set: " + stickiness_badge_labels[sig_badge] %}{% endif %}
+      <span class="stickiness-badge stickiness-badge--{{ sig_badge }}{% if sig_overridden %} stickiness-badge--overridden{% endif %}"
+            title="{{ tip }}">
+        {% if sig_badge == "standard_engagement" %}Standard{% else %}{{ stickiness_badge_labels[sig_badge] }}{% endif %}
+      </span>
     {% endif %}
   </td>
   <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>

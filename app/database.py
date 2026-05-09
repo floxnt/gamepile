@@ -165,6 +165,15 @@ def init_db() -> None:
             # values themselves remain auto-derived; only the LOOKUP path
             # is overridden, not the values.
             "ALTER TABLE games ADD COLUMN hltb_id_manual INTEGER",
+            # v3 Phase 4 — manual stickiness badge override. One of the 5
+            # active BADGE_* constants (hooks_players / filters_early /
+            # marathon / mixed_signals / standard_engagement); NULL means
+            # use the auto-computed badge. Limited_data is intentionally
+            # excluded from valid overrides — manually asserting "no
+            # signal" is meaningless. When set, surfaces on Library row,
+            # Game Detail header, and Shortlist pill regardless of game
+            # type's normal display rules.
+            "ALTER TABLE games ADD COLUMN stickiness_badge_manual TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -294,6 +303,10 @@ def _row_to_game(row: sqlite3.Row) -> Game:
             if "completion_achievement_name_manual" in keys else None
         ),
         hltb_id_manual=row["hltb_id_manual"] if "hltb_id_manual" in keys else None,
+        stickiness_badge_manual=(
+            row["stickiness_badge_manual"]
+            if "stickiness_badge_manual" in keys else None
+        ),
     )
 
 
@@ -379,7 +392,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             completion_rate, completion_rate_confidence, cliff_metric,
             review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
             game_type, game_type_manual, app_type, cliff_position,
-            completion_achievement_name_manual, hltb_id_manual
+            completion_achievement_name_manual, hltb_id_manual,
+            stickiness_badge_manual
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -390,7 +404,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :completion_rate, :completion_rate_confidence, :cliff_metric,
             :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
             :game_type, :game_type_manual, :app_type, :cliff_position,
-            :completion_achievement_name_manual, :hltb_id_manual
+            :completion_achievement_name_manual, :hltb_id_manual,
+            :stickiness_badge_manual
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -440,7 +455,14 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             -- Phase 4 HLTB ID override: same COALESCE pattern. Sync passes
             -- the existing value through; the route handlers below are
             -- the canonical write path.
-            hltb_id_manual = COALESCE(excluded.hltb_id_manual, games.hltb_id_manual)
+            hltb_id_manual = COALESCE(excluded.hltb_id_manual, games.hltb_id_manual),
+            -- Phase 4 stickiness badge override: COALESCE so sync can't
+            -- nullify a user's manual choice. set_/clear_ helpers below
+            -- are the only canonical write path.
+            stickiness_badge_manual = COALESCE(
+                excluded.stickiness_badge_manual,
+                games.stickiness_badge_manual
+            )
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -475,6 +497,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "app_type": game.app_type,
         "completion_achievement_name_manual": game.completion_achievement_name_manual,
         "hltb_id_manual": game.hltb_id_manual,
+        "stickiness_badge_manual": game.stickiness_badge_manual,
     })
 
 
@@ -534,6 +557,7 @@ def get_games_with_state(
             g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
             g.game_type, g.game_type_manual, g.app_type,
             g.completion_achievement_name_manual, g.hltb_id_manual,
+            g.stickiness_badge_manual,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,
@@ -831,6 +855,29 @@ def clear_hltb_id_manual(
         WHERE appid = ?
         """,
         (main_hours, main_extra_hours, completionist_hours, appid),
+    )
+
+
+def set_stickiness_badge_manual(
+    conn: sqlite3.Connection,
+    appid: int,
+    badge: str,
+) -> None:
+    """Persist the user's manual stickiness-badge override. The route
+    layer validates that `badge` is one of the five active BADGE_*
+    constants (limited_data is excluded as a meaningless override)."""
+    conn.execute(
+        "UPDATE games SET stickiness_badge_manual = ? WHERE appid = ?",
+        (badge, appid),
+    )
+
+
+def clear_stickiness_badge_manual(conn: sqlite3.Connection, appid: int) -> None:
+    """Clear the manual override; the auto-computed badge resumes
+    surfacing on Library / Game Detail / Shortlist."""
+    conn.execute(
+        "UPDATE games SET stickiness_badge_manual = NULL WHERE appid = ?",
+        (appid,),
     )
 
 

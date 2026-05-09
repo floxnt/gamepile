@@ -547,6 +547,10 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             # decide which HLTB code path to take above; it never WRITES
             # the value, only the route handlers do.
             hltb_id_manual=game.hltb_id_manual,
+            # Phase 4 manual stickiness badge — passed through unchanged.
+            # Sync never reads or writes this; it's a pure display
+            # override managed by the Game Detail route handlers.
+            stickiness_badge_manual=game.stickiness_badge_manual,
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -599,4 +603,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         app_type=game.app_type,
         completion_achievement_name_manual=game.completion_achievement_name_manual,
         hltb_id_manual=game.hltb_id_manual,
+        stickiness_badge_manual=game.stickiness_badge_manual,
     )
