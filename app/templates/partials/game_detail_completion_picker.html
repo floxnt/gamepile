@@ -1,0 +1,34 @@
+{# Lazy-loaded completion-achievement picker.
+   Fetched via HTMX when the user opens the override <details> on Game
+   Detail. Renders a <select> of every achievement sorted by unlock %
+   ascending (story endings cluster at top), plus a Save button that
+   persists the user's choice and re-renders the engagement section.
+
+   When the game has no achievements at all, render an explanatory line
+   instead — no picker is meaningful. #}
+
+{% if not achievements %}
+  <p class="completion-override-empty">
+    No achievements available for this game — completion override doesn't apply.
+  </p>
+{% else %}
+  <form class="completion-override-form"
+        hx-post="/games/{{ game.appid }}/completion_achievement"
+        hx-target="#engagement-section"
+        hx-swap="outerHTML">
+    <label for="achievement-{{ game.appid }}" class="completion-override-label">
+      Pick the story-completion achievement:
+    </label>
+    <select name="achievement_name"
+            id="achievement-{{ game.appid }}"
+            class="completion-override-select">
+      {% for ach in achievements %}
+        <option value="{{ ach.name }}"
+                {% if current_name == ach.name %}selected{% endif %}>
+          {{ "%5.1f"|format(ach.percent) }}% — {{ ach.displayName }}
+        </option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Save</button>
+  </form>
+{% endif %}

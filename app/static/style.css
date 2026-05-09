@@ -1805,6 +1805,84 @@ select option {
   color: var(--warn);
 }
 
+.engagement-aside--manual {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* Phase 4 — manual override blocks (completion-achievement, HLTB ID,
+   stickiness badge). Disclosure widget rendered with <details>; the
+   inner picker is lazy-loaded via HTMX on first toggle. */
+.engagement-override-block,
+.hltb-override-block,
+.stickiness-override-block {
+  margin: 0.4rem 0 0.7rem 0;
+  padding: 0;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+
+.engagement-override-summary,
+.hltb-override-summary,
+.stickiness-override-summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.78rem;
+  padding: 0.15rem 0;
+  user-select: none;
+}
+
+.engagement-override-summary:hover,
+.hltb-override-summary:hover,
+.stickiness-override-summary:hover {
+  color: var(--text);
+}
+
+.engagement-override-body,
+.hltb-override-body,
+.stickiness-override-body {
+  margin-top: 0.55rem;
+}
+
+.engagement-override-loading,
+.hltb-override-loading {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.completion-override-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.completion-override-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.completion-override-select {
+  flex: 1 1 22rem;
+  min-width: 16rem;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+
+.completion-override-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-style: italic;
+  margin: 0;
+}
+
 /* Type line + caveat (added in checkpoint 4 of v3 game-type work) */
 .engagement-type-line {
   display: flex;

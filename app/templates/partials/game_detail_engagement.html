@@ -48,7 +48,7 @@
 {# Software shows section regardless (with the explanatory caveat).
    All other types: hide if no eligible row would render. #}
 {% if gt == "software" or any_visible_row %}
-<section class="game-detail-engagement">
+<section class="game-detail-engagement" id="engagement-section">
   <h2 class="game-detail-section-title">Engagement signals</h2>
 
   {# Type line — always shown when section is visible. #}
@@ -120,7 +120,9 @@
         {% if has_completion %}
           <span class="engagement-value">
             {{ "%.1f"|format(game.completion_rate * 100) }}%
-            {% if game.completion_rate_confidence == "high" %}
+            {% if game.completion_achievement_name_manual %}
+              <span class="engagement-aside engagement-aside--manual">manually set</span>
+            {% elif game.completion_rate_confidence == "high" %}
               <span class="engagement-aside engagement-aside--high">high confidence</span>
             {% elif game.completion_rate_confidence == "low" %}
               <span class="engagement-aside engagement-aside--low">low confidence</span>
@@ -129,7 +131,37 @@
         {% else %}
           <span class="engagement-value engagement-value--missing">no data</span>
         {% endif %}
+        {% if game.completion_achievement_name_manual %}
+          <button type="button"
+                  class="btn btn-ghost btn-sm"
+                  hx-post="/games/{{ game.appid }}/reset_completion_achievement"
+                  hx-target="#engagement-section"
+                  hx-swap="outerHTML"
+                  title="Clear the manual choice and re-run the heuristic">
+            Reset to auto
+          </button>
+        {% endif %}
       </div>
+
+      {# Phase 4 manual override block. Lazy-loaded picker — fetched on
+         first disclosure-open via HTMX, then cached in the DOM for the
+         lifetime of the page (toggle once). Costs one Steam API call
+         only when the user actually engages the override. #}
+      <details class="engagement-override-block">
+        <summary class="engagement-override-summary">
+          {% if game.completion_achievement_name_manual %}
+            Override completion achievement (currently: {{ game.completion_achievement_name_manual }})
+          {% else %}
+            Override completion achievement
+          {% endif %}
+        </summary>
+        <div class="engagement-override-body"
+             hx-get="/games/{{ game.appid }}/achievements"
+             hx-trigger="toggle once from:closest details"
+             hx-swap="innerHTML">
+          <span class="engagement-override-loading">Loading achievements…</span>
+        </div>
+      </details>
     {% endif %}
 
     {% if rules.show_cliff_metric %}

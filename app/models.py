@@ -51,6 +51,11 @@ class Game:
     game_type: Optional[str] = None                    # one of GAME_TYPE_* constants; cached classify_game result
     game_type_manual: bool = False                     # user override; when True, refresh inference doesn't override
     app_type: Optional[str] = None                     # raw Steam appdetails type ("game" / "dlc" / "demo" / "music" / etc.)
+    # v3 Phase 4 — manual completion-achievement override. When set, sync
+    # bypasses the heuristic story-completion match and resolves
+    # completion_rate from this achievement's current unlock percent
+    # (forced 'high' confidence). NULL means auto-derive.
+    completion_achievement_name_manual: Optional[str] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

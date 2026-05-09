@@ -149,6 +149,14 @@ def init_db() -> None:
             # cliff_metric to distinguish early-game abandonment cliffs from
             # late-game completionist gates.
             "ALTER TABLE games ADD COLUMN cliff_position REAL",
+            # v3 Phase 4 — manual override of the story-completion achievement
+            # the heuristic in hook_metrics.find_story_completion_achievement
+            # would otherwise pick. Stores the achievement's internal `name`
+            # (the stable Steam ID, not displayName, which can be themed or
+            # opaque). When set, sync overrides completion_rate from this
+            # achievement's current unlock percent and forces
+            # completion_rate_confidence to 'high'.
+            "ALTER TABLE games ADD COLUMN completion_achievement_name_manual TEXT",
         ]:
             try:
                 conn.execute(ddl)
@@ -273,6 +281,10 @@ def _row_to_game(row: sqlite3.Row) -> Game:
         game_type=row["game_type"] if "game_type" in keys else None,
         game_type_manual=bool(row["game_type_manual"]) if "game_type_manual" in keys and row["game_type_manual"] is not None else False,
         app_type=row["app_type"] if "app_type" in keys else None,
+        completion_achievement_name_manual=(
+            row["completion_achievement_name_manual"]
+            if "completion_achievement_name_manual" in keys else None
+        ),
     )
 
 
@@ -357,7 +369,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             last_refreshed, is_active, release_date, description,
             completion_rate, completion_rate_confidence, cliff_metric,
             review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
-            game_type, game_type_manual, app_type, cliff_position
+            game_type, game_type_manual, app_type, cliff_position,
+            completion_achievement_name_manual
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -367,7 +380,8 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :last_refreshed, :is_active, :release_date, :description,
             :completion_rate, :completion_rate_confidence, :cliff_metric,
             :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
-            :game_type, :game_type_manual, :app_type, :cliff_position
+            :game_type, :game_type_manual, :app_type, :cliff_position,
+            :completion_achievement_name_manual
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -405,7 +419,15 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             -- Caller is the primary safety; this COALESCE is the secondary.
             game_type                  = COALESCE(excluded.game_type, games.game_type),
             game_type_manual           = excluded.game_type_manual,
-            app_type                   = COALESCE(excluded.app_type, games.app_type)
+            app_type                   = COALESCE(excluded.app_type, games.app_type),
+            -- Phase 4 override: COALESCE so refresh-time Game() construction
+            -- (which doesn't know about manual columns) preserves the user's
+            -- override. set_completion_achievement_manual / clear_* below
+            -- are the canonical write paths.
+            completion_achievement_name_manual = COALESCE(
+                excluded.completion_achievement_name_manual,
+                games.completion_achievement_name_manual
+            )
     """, {
         "appid": game.appid,
         "name": game.name,
@@ -438,6 +460,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "game_type": game.game_type,
         "game_type_manual": 1 if game.game_type_manual else 0,
         "app_type": game.app_type,
+        "completion_achievement_name_manual": game.completion_achievement_name_manual,
     })
 
 
@@ -496,6 +519,7 @@ def get_games_with_state(
             g.cliff_position,
             g.review_playtime_median, g.stickiness_ratio, g.playtime_median_avg_ratio,
             g.game_type, g.game_type_manual, g.app_type,
+            g.completion_achievement_name_manual,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,
@@ -700,6 +724,52 @@ def reset_game_type_to_inferred(conn: sqlite3.Connection, appid: int) -> Optiona
         (new_type, appid),
     )
     return new_type
+
+
+def set_completion_achievement_manual(
+    conn: sqlite3.Connection,
+    appid: int,
+    achievement_name: str,
+    rate: float,
+    confidence: str = "high",
+) -> None:
+    """Persist the user's manual completion-achievement choice and the
+    derived rate / confidence in one statement. The achievement name is
+    the source of truth; rate is recomputed from the live unlock percent
+    every refresh (see app/sync.py _phase_enrich achievement step).
+    Confidence is forced 'high' — the user is asserting the choice."""
+    conn.execute(
+        """
+        UPDATE games
+        SET completion_achievement_name_manual = ?,
+            completion_rate = ?,
+            completion_rate_confidence = ?
+        WHERE appid = ?
+        """,
+        (achievement_name, rate, confidence, appid),
+    )
+
+
+def clear_completion_achievement_manual(
+    conn: sqlite3.Connection,
+    appid: int,
+    rate: Optional[float],
+    confidence: Optional[str],
+) -> None:
+    """Clear the manual override and write the freshly-recomputed
+    heuristic values. Caller is responsible for running the heuristic
+    against fresh achievement data — this helper just persists the
+    result alongside the cleared manual flag in one statement."""
+    conn.execute(
+        """
+        UPDATE games
+        SET completion_achievement_name_manual = NULL,
+            completion_rate = ?,
+            completion_rate_confidence = ?
+        WHERE appid = ?
+        """,
+        (rate, confidence, appid),
+    )
 
 
 def get_picks_for_appid(conn: sqlite3.Connection, appid: int) -> list[PickHistory]:

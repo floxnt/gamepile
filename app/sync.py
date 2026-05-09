@@ -48,6 +48,7 @@ from app.hook_metrics import (
     compute_playtime_median_avg_ratio,
     compute_review_playtime_median,
     compute_stickiness_ratio,
+    pick_completion_achievement,
 )
 from app.models import Game
 
@@ -417,14 +418,34 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 # previously-computed metric.
                 progress.achievements_no_data += 1
             else:
-                completion = compute_completion_rate(achievements)
-                confidence = compute_completion_rate_confidence(achievements)
+                # Phase 4 manual-override path: when the user picked a specific
+                # achievement on Game Detail, resolve completion_rate from that
+                # achievement's CURRENT unlock percent (so the value tracks
+                # community progress over time) and force confidence='high'
+                # — the user's assertion stands regardless of name pattern.
+                # Fail-open if the named achievement isn't in this fetch
+                # (developer removed it, etc.): keep the last-stored values
+                # via the upsert COALESCE rather than nulling.
+                if game.completion_achievement_name_manual:
+                    manual_match = pick_completion_achievement(
+                        achievements, game.completion_achievement_name_manual,
+                    )
+                    if manual_match is not None:
+                        updates["completion_rate"] = manual_match["percent"] / 100.0
+                        updates["completion_rate_confidence"] = "high"
+                else:
+                    completion = compute_completion_rate(achievements)
+                    confidence = compute_completion_rate_confidence(achievements)
+                    if completion is not None:
+                        updates["completion_rate"] = completion
+                    if confidence is not None:
+                        updates["completion_rate_confidence"] = confidence
+
+                # Cliff metrics are heuristic regardless — no manual override
+                # exists for them (cliff is structural, not a labeling
+                # judgment). Always re-derive from fresh data.
                 cliff = compute_cliff_metric(achievements)
                 cliff_pos = compute_cliff_position(achievements)
-                if completion is not None:
-                    updates["completion_rate"] = completion
-                if confidence is not None:
-                    updates["completion_rate_confidence"] = confidence
                 if cliff is not None:
                     updates["cliff_metric"] = cliff
                 if cliff_pos is not None:
@@ -492,6 +513,10 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             game_type=updates.get("game_type"),
             game_type_manual=game.game_type_manual,
             app_type=updates.get("app_type", game.app_type),
+            # Phase 4 manual completion-achievement override — managed by
+            # Game Detail route handlers, never written by sync. Pass the
+            # existing value through unchanged so the upsert keeps it.
+            completion_achievement_name_manual=game.completion_achievement_name_manual,
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -542,4 +567,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         game_type=game.game_type,
         game_type_manual=game.game_type_manual,
         app_type=game.app_type,
+        completion_achievement_name_manual=game.completion_achievement_name_manual,
     )

@@ -111,6 +111,30 @@ def find_story_completion_achievement(achievements: list) -> Optional[dict]:
     return min(matches, key=lambda a: a["percent"])
 
 
+def pick_completion_achievement(
+    achievements: list,
+    manual_name: Optional[str],
+) -> Optional[dict]:
+    """Locate a specific achievement by its internal `name` in a list
+    returned by fetch_achievements_with_metadata.
+
+    Returns the matching achievement dict, or None when manual_name is
+    None / empty, or when no entry in the list matches. Used by
+    app/sync.py's achievement phase and by the Game Detail completion-
+    override route to resolve a user-chosen achievement to its current
+    unlock percent.
+
+    The internal name is the stable Steam ID (not displayName, which can
+    be themed or change with localisation).
+    """
+    if not manual_name or not achievements:
+        return None
+    for ach in achievements:
+        if ach.get("name") == manual_name:
+            return ach
+    return None
+
+
 def compute_completion_rate(achievements: list) -> Optional[float]:
     """Return completion_rate in [0.0, 1.0], or None for empty list.
 

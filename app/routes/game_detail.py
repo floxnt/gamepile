@@ -1,10 +1,12 @@
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
 from app.backlog import is_forever_game
+from app.fetchers.steam_achievements import fetch_achievements_with_metadata
 from app.game_detail import (
     compute_per_game_affinity_pills,
     format_pick_history_rows,
@@ -15,6 +17,11 @@ from app.game_type import (
     ALL_GAME_TYPES,
     GAME_TYPE_LABELS,
     resolve_type,
+)
+from app.hook_metrics import (
+    compute_completion_rate,
+    compute_completion_rate_confidence,
+    pick_completion_achievement,
 )
 from app.models import GameStatus
 from app.templates_config import templates
@@ -227,3 +234,127 @@ async def update_hours_played_manual(
         "state": gws.state,
         "saved": True,
     })
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Manual completion-achievement override
+# ---------------------------------------------------------------------------
+
+
+def _engagement_partial_context(appid: int) -> Optional[dict]:
+    """Subset needed to re-render the engagement-section partial after a
+    completion-override save / reset. Just the game row — the template
+    pulls everything else (rules, signal) via Jinja globals."""
+    with db.get_db() as conn:
+        game = db.get_game_by_appid(conn, appid)
+    if game is None:
+        return None
+    return {"game": game}
+
+
+@router.get("/games/{appid}/achievements", response_class=HTMLResponse)
+async def get_completion_picker(request: Request, appid: int):
+    """Lazy-load the manual completion-achievement picker.
+
+    HTMX swaps this in when the user opens the override <details> block on
+    Game Detail. Fetching achievements costs one Steam API round-trip, so
+    we pay it only when the user engages the override (toggle once).
+    Sorted ascending by unlock percent — story endings cluster at the top.
+    """
+    with db.get_db() as conn:
+        game = db.get_game_by_appid(conn, appid)
+    if game is None:
+        raise HTTPException(status_code=404)
+
+    async with httpx.AsyncClient() as client:
+        achievements = await fetch_achievements_with_metadata(client, game.appid)
+
+    if achievements:
+        achievements_sorted = sorted(achievements, key=lambda a: a["percent"])
+    else:
+        achievements_sorted = []
+
+    return templates.TemplateResponse(
+        request, "partials/game_detail_completion_picker.html", {
+            "game": game,
+            "achievements": achievements_sorted,
+            "current_name": game.completion_achievement_name_manual,
+        },
+    )
+
+
+@router.post("/games/{appid}/completion_achievement", response_class=HTMLResponse)
+async def update_completion_achievement(
+    request: Request,
+    appid: int,
+    achievement_name: str = Form(...),
+):
+    """Persist the user's chosen completion achievement and resolve
+    completion_rate from its current unlock percent. Confidence is
+    forced 'high' — the user is asserting the choice."""
+    with db.get_db() as conn:
+        game = db.get_game_by_appid(conn, appid)
+    if game is None:
+        raise HTTPException(status_code=404)
+
+    async with httpx.AsyncClient() as client:
+        achievements = await fetch_achievements_with_metadata(client, game.appid)
+    if achievements is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No achievements available for this game.",
+        )
+
+    match = pick_completion_achievement(achievements, achievement_name)
+    if match is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected achievement isn't in the current achievement list.",
+        )
+
+    rate = match["percent"] / 100.0
+    with db.get_db() as conn:
+        db.set_completion_achievement_manual(
+            conn, appid, achievement_name=achievement_name,
+            rate=rate, confidence="high",
+        )
+
+    ctx = _engagement_partial_context(appid)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/game_detail_engagement.html", ctx,
+    )
+
+
+@router.post("/games/{appid}/reset_completion_achievement", response_class=HTMLResponse)
+async def reset_completion_achievement(request: Request, appid: int):
+    """Clear the manual override and re-run the heuristic against fresh
+    achievement data so the engagement section reflects the auto-derived
+    values immediately (mirrors reset_status / reset_game_type)."""
+    with db.get_db() as conn:
+        game = db.get_game_by_appid(conn, appid)
+    if game is None:
+        raise HTTPException(status_code=404)
+
+    async with httpx.AsyncClient() as client:
+        achievements = await fetch_achievements_with_metadata(client, game.appid)
+
+    if achievements:
+        rate = compute_completion_rate(achievements)
+        confidence = compute_completion_rate_confidence(achievements)
+    else:
+        rate = None
+        confidence = None
+
+    with db.get_db() as conn:
+        db.clear_completion_achievement_manual(
+            conn, appid, rate=rate, confidence=confidence,
+        )
+
+    ctx = _engagement_partial_context(appid)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/game_detail_engagement.html", ctx,
+    )
