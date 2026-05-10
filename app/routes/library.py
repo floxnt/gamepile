@@ -162,6 +162,7 @@ def _apply_filters_and_sort(
     all_games: list[GameWithState],
     status_filter: str,
     tag_filter: str,
+    stickiness_filter: str,
     sort: str,
     direction: str,
 ) -> list[GameWithState]:
@@ -172,6 +173,15 @@ def _apply_filters_and_sort(
         all_games = [
             g for g in all_games
             if any(t.lower() == needle for t in g.game.user_tags_list())
+        ]
+    if stickiness_filter:
+        # Match against the DISPLAYED badge (manual override wins) — same
+        # precedence the Library row uses post-Phase 4. Empty / "all" /
+        # unrecognised values fall through unfiltered.
+        from app.hook_metrics import compute_stickiness_signal_display
+        all_games = [
+            g for g in all_games
+            if compute_stickiness_signal_display(g.game)[0] == stickiness_filter
         ]
     return _sort_games(all_games, sort, direction)
 
@@ -189,6 +199,7 @@ async def library_page(
     request: Request,
     status_filter: str = "",
     tag_filter: str = "",
+    stickiness_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -198,11 +209,14 @@ async def library_page(
 
     tags = _collect_tags(all_games)
 
-    games = _apply_filters_and_sort(all_games, status_filter, tag_filter, sort, dir)
+    games = _apply_filters_and_sort(
+        all_games, status_filter, tag_filter, stickiness_filter, sort, dir,
+    )
 
     filter_params = {
         "status_filter": status_filter,
         "tag_filter": tag_filter,
+        "stickiness_filter": stickiness_filter,
         "show_removed": "true" if show_removed else "",
     }
     sort_headers = _build_sort_headers(sort, dir, filter_params)
@@ -213,6 +227,7 @@ async def library_page(
         "tags": tags,
         "status_filter": status_filter,
         "tag_filter": tag_filter,
+        "stickiness_filter": stickiness_filter,
         "show_removed": show_removed,
         "sort": sort,
         "dir": dir,
@@ -225,6 +240,7 @@ async def library_rows(
     request: Request,
     status_filter: str = "",
     tag_filter: str = "",
+    stickiness_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -233,7 +249,9 @@ async def library_rows(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    games = _apply_filters_and_sort(all_games, status_filter, tag_filter, sort, dir)
+    games = _apply_filters_and_sort(
+        all_games, status_filter, tag_filter, stickiness_filter, sort, dir,
+    )
 
     return templates.TemplateResponse(request, "partials/library_rows.html", {
         "games": games,
