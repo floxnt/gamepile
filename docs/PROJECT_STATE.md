@@ -316,6 +316,13 @@ Three feature commits + one doc commit in the branch:
 - `04b5e59 hook-phase4: manual stickiness badge override`
 - (this doc commit)
 
+Polish landed alongside Phase 4: Library page now has a stickiness
+badge filter (`?stickiness=...`) — single-select dropdown above the
+table, HTMX-swap on change with `hx-push-url` so the URL is
+bookmarkable, filter respects manual overrides via
+`compute_stickiness_signal_display`. Pairs naturally with Surface 3:
+filter to a badge, scan, override anything that feels wrong.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
