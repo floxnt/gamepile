@@ -1,0 +1,27 @@
+{% extends "setup_base.html" %}
+{% block title %}Welcome — GamePile{% endblock %}
+{% block step_aside %}Step 1 of 3{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">Welcome to GamePile</h1>
+<p class="setup-lead">
+  GamePile manages your Steam backlog and helps you decide what to play.
+  Before we can read your library, we need two things from Steam:
+</p>
+
+<ul class="setup-checklist">
+  <li><strong>A Steam Web API key</strong> — a free read-only token tied to your account.</li>
+  <li><strong>Your SteamID</strong> — your account's unique identifier.</li>
+</ul>
+
+<p class="setup-explainer">
+  Both values are stored in your operating system's secure keychain
+  (Windows Credential Manager / macOS Keychain / Linux Secret Service)
+  and never leave your machine. GamePile is a local-only desktop app —
+  there's no server, no account, and no telemetry.
+</p>
+
+<form method="post" action="/setup/welcome" class="setup-form-row">
+  <button type="submit" class="btn btn-primary">Get started</button>
+</form>
+{% endblock %}

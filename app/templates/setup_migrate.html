@@ -1,0 +1,32 @@
+{% extends "setup_base.html" %}
+{% block title %}Migrate credentials — GamePile{% endblock %}
+{% block step_aside %}Migration{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">Move your credentials to the keychain?</h1>
+<p class="setup-lead">
+  GamePile found existing credentials in
+  {% if env_path %}<code>{{ env_path }}</code>{% else %}your data directory{% endif %}.
+</p>
+
+<p class="setup-explainer">
+  We can move them into your operating system's secure keychain — the
+  recommended setup. The .env file stays in place as a backup, but
+  GamePile will read from the keychain going forward.
+</p>
+
+<p class="setup-explainer">
+  If you'd rather keep using the .env file (e.g., you're on a system
+  without a keychain backend), choose <em>Keep .env</em>. You'll only
+  see this prompt once.
+</p>
+
+<div class="setup-form-row setup-form-row--two">
+  <form method="post" action="/setup/migrate/migrate">
+    <button type="submit" class="btn btn-primary">Migrate to keychain</button>
+  </form>
+  <form method="post" action="/setup/migrate/skip">
+    <button type="submit" class="btn btn-ghost">Keep .env</button>
+  </form>
+</div>
+{% endblock %}

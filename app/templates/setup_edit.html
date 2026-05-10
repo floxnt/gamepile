@@ -1,0 +1,48 @@
+{% extends "setup_base.html" %}
+{% block title %}Fix credentials — GamePile{% endblock %}
+{% block step_aside %}Validation failed{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">Let's fix that</h1>
+<p class="setup-lead">
+  GamePile couldn't validate your credentials with Steam. Adjust either
+  field below and we'll try again.
+</p>
+
+{% if error %}
+  <p class="setup-error setup-error--banner">{{ error }}</p>
+{% endif %}
+
+<form method="post" action="/setup/edit" class="setup-form">
+  <label class="setup-label" for="api-key">Steam API key</label>
+  <input type="text"
+         id="api-key"
+         name="api_key"
+         class="setup-input"
+         autocomplete="off"
+         spellcheck="false"
+         value="{{ api_key }}"
+         required>
+
+  <label class="setup-label" for="steam-id">SteamID or vanity URL</label>
+  <input type="text"
+         id="steam-id"
+         name="steam_id_input"
+         class="setup-input"
+         autocomplete="off"
+         spellcheck="false"
+         value="{{ steam_id }}"
+         required>
+
+  <div class="setup-form-row">
+    <button type="submit" class="btn btn-primary">Re-validate &amp; finish</button>
+  </div>
+</form>
+
+<p class="setup-explainer setup-explainer--small">
+  Common issues: API key copied with extra whitespace; library set to
+  Friends-Only or Private at
+  <a href="https://steamcommunity.com/my/edit/settings" target="_blank" rel="noopener">your privacy settings</a>;
+  vanity name doesn't exist as <code>steamcommunity.com/id/{name}</code>.
+</p>
+{% endblock %}

@@ -7,12 +7,13 @@ from pathlib import Path
 import httpx
 import uvicorn
 import webview
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app import credentials
 from app import database as db
-from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, shortlist
+from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, setup, shortlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +36,38 @@ app.include_router(dashboard.router)
 app.include_router(game_detail.router)
 app.include_router(refresh.router)
 app.include_router(feedback.router)
+app.include_router(setup.router)
+
+
+# Routes / path prefixes that bypass the first-run redirect. /setup/* is
+# obviously needed (the wizard itself); /static/* serves CSS + HTMX;
+# /healthz is the server liveness probe used by main.run() before
+# launching the webview; /refresh* and /setup/sync-status power the done
+# page's progress polling. The middleware lets these through even when
+# credentials are missing.
+_FIRST_RUN_BYPASS_PREFIXES = (
+    "/setup",
+    "/static",
+    "/healthz",
+    "/refresh",
+)
+
+
+@app.middleware("http")
+async def first_run_redirect(request: Request, call_next):
+    """Redirect every non-bypassed request to /setup/welcome until the
+    user has finished the setup wizard. Single check per request via
+    has_complete_credentials (which probes keyring once + caches)."""
+    path = request.url.path
+    for prefix in _FIRST_RUN_BYPASS_PREFIXES:
+        if path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?"):
+            return await call_next(request)
+        if path.startswith(prefix) and prefix == "/refresh":
+            # /refresh, /refresh/status, /refresh?force=true all permitted.
+            return await call_next(request)
+    if not credentials.has_complete_credentials():
+        return RedirectResponse(url="/setup/welcome", status_code=303)
+    return await call_next(request)
 
 
 @app.get("/healthz")

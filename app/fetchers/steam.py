@@ -54,9 +54,48 @@ def parse_release_date(date_str: Optional[str]) -> Optional[datetime]:
 _OWNED_URL = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
 _DETAILS_URL = "https://store.steampowered.com/api/appdetails"
 _REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
+_VANITY_URL = "https://api.steampowered.com/ISteamUser/ResolveVanityURL/v1/"
 
 # Steam store API throttles aggressively; 1.5 s between detail calls is safe.
 _STORE_DELAY = 1.5
+
+
+async def resolve_vanity_url(
+    client: httpx.AsyncClient,
+    api_key: str,
+    vanity: str,
+) -> Optional[str]:
+    """Resolve a Steam vanity URL ('username' from steamcommunity.com/id/username)
+    to a numeric SteamID via ISteamUser/ResolveVanityURL.
+
+    Returns the SteamID string on success, or None when:
+      - The vanity name doesn't resolve (success=42 in Steam's response)
+      - The API call fails (network error, bad API key, etc.)
+
+    Used by the v4 setup wizard's SteamID page so users can paste either
+    a numeric SteamID (no resolution needed) or a vanity URL / bare
+    username. The wizard handles URL parsing (stripping the
+    steamcommunity.com/id/ prefix) before calling this function."""
+    if not vanity or not api_key:
+        return None
+    try:
+        resp = await client.get(_VANITY_URL, params={
+            "key": api_key,
+            "vanityurl": vanity,
+        }, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.RequestError:
+        return None
+    except httpx.HTTPStatusError:
+        return None
+    except ValueError:
+        return None
+    response = data.get("response") or {}
+    # Steam returns success=1 + steamid on hit, success=42 + message on miss.
+    if response.get("success") != 1:
+        return None
+    return response.get("steamid")
 
 
 async def fetch_owned_games(

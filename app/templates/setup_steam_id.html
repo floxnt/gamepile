@@ -1,0 +1,41 @@
+{% extends "setup_base.html" %}
+{% block title %}SteamID — GamePile{% endblock %}
+{% block step_aside %}Step 3 of 3{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">Your SteamID</h1>
+<p class="setup-lead">
+  Either a numeric SteamID or your vanity URL works.
+</p>
+
+<ul class="setup-checklist">
+  <li>Numeric SteamID64 — a 17-digit number, e.g. <code>76561198000000000</code></li>
+  <li>Vanity URL — paste <code>steamcommunity.com/id/yourname</code> or just <code>yourname</code></li>
+  <li>Profile URL — paste <code>steamcommunity.com/profiles/76561198…</code></li>
+</ul>
+
+<p class="setup-explainer">
+  Find your profile by opening Steam → your name (top right) → profile.
+  The URL bar shows one of the formats above.
+</p>
+
+<form method="post" action="/setup/steam-id" class="setup-form">
+  <label class="setup-label" for="steam-id">Paste your SteamID or vanity URL</label>
+  <input type="text"
+         id="steam-id"
+         name="steam_id_input"
+         class="setup-input"
+         autocomplete="off"
+         spellcheck="false"
+         value="{{ steam_id }}"
+         placeholder="76561198… or steamcommunity.com/id/yourname"
+         required
+         autofocus>
+  {% if error %}
+    <p class="setup-error">{{ error }}</p>
+  {% endif %}
+  <div class="setup-form-row">
+    <button type="submit" class="btn btn-primary">Validate &amp; finish</button>
+  </div>
+</form>
+{% endblock %}

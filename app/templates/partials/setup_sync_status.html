@@ -1,0 +1,46 @@
+{# Polled fragment for the setup done page. While running, re-polls
+   itself every 2s. When sync completes, replaces itself with a
+   redirect trigger that lands the user on /shortlist. Errors render
+   inline so a failed sync doesn't loop silently. #}
+
+{% if completed %}
+  <div id="sync-status"
+       class="setup-sync-status setup-sync-status--complete"
+       hx-get="/shortlist"
+       hx-trigger="load delay:1s"
+       hx-target="body"
+       hx-swap="outerHTML">
+    <p class="setup-explainer setup-explainer--success">
+      Library sync complete — redirecting to your Shortlist…
+    </p>
+    {% if errors %}
+      <details class="setup-sync-errors">
+        <summary>{{ errors | length }} non-fatal error(s) during sync</summary>
+        <ul>
+          {% for err in errors[:10] %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+  </div>
+{% else %}
+  <div id="sync-status"
+       class="setup-sync-status"
+       hx-get="/setup/sync-status"
+       hx-trigger="load delay:2s"
+       hx-target="#sync-status"
+       hx-swap="outerHTML">
+    <p class="setup-sync-phase">{{ phase or "Starting…" }}</p>
+    {% if total_games and current_index %}
+      <p class="setup-sync-progress">
+        Game {{ current_index }} of {{ total_games }}
+        {% if current_game %}<span class="setup-sync-game">— {{ current_game }}</span>{% endif %}
+      </p>
+      <div class="setup-sync-bar-track">
+        <div class="setup-sync-bar-fill"
+             style="width: {{ (100 * current_index / total_games) | round(1) }}%"></div>
+      </div>
+    {% else %}
+      <p class="setup-sync-progress">Connecting to Steam…</p>
+    {% endif %}
+  </div>
+{% endif %}

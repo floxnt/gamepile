@@ -1,0 +1,24 @@
+{% extends "setup_base.html" %}
+{% block title %}You're set up — GamePile{% endblock %}
+{% block step_aside %}All set{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">You're all set!</h1>
+<p class="setup-lead">
+  Credentials saved. Pulling your Steam library now — this typically
+  takes 5–10 minutes for a 600-game library. You can leave the window
+  open and come back; we'll redirect to your Shortlist when sync
+  completes.
+</p>
+
+{# The sync-status partial polls itself every 2s. Initial trigger
+   POSTs /setup/start-sync which kicks off the background refresh
+   and returns the first status fragment. #}
+<div id="sync-status"
+     hx-post="/setup/start-sync"
+     hx-target="#sync-status"
+     hx-swap="outerHTML"
+     hx-trigger="load">
+  <p class="setup-explainer">Starting sync…</p>
+</div>
+{% endblock %}

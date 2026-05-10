@@ -1,0 +1,39 @@
+{% extends "setup_base.html" %}
+{% block title %}Steam API key — GamePile{% endblock %}
+{% block step_aside %}Step 2 of 3{% endblock %}
+
+{% block content %}
+<h1 class="setup-title">Your Steam API key</h1>
+<p class="setup-lead">
+  Generate a free key at
+  <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">
+    steamcommunity.com/dev/apikey →
+  </a>
+</p>
+
+<p class="setup-explainer">
+  Sign in with your Steam account, fill in any domain (e.g.
+  <code>localhost</code>), agree to the API terms, and copy the key
+  Steam shows you. It's a 32-character hex string.
+</p>
+
+<form method="post" action="/setup/api-key" class="setup-form">
+  <label class="setup-label" for="api-key">Paste your API key</label>
+  <input type="text"
+         id="api-key"
+         name="api_key"
+         class="setup-input"
+         autocomplete="off"
+         spellcheck="false"
+         value="{{ api_key }}"
+         placeholder="32-character hex string"
+         required
+         autofocus>
+  {% if error %}
+    <p class="setup-error">{{ error }}</p>
+  {% endif %}
+  <div class="setup-form-row">
+    <button type="submit" class="btn btn-primary">Continue</button>
+  </div>
+</form>
+{% endblock %}

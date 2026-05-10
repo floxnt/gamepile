@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Setup — GamePile{% endblock %}</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="setup-body">
+  {# Minimal header for the wizard — no main nav (Library / Backlog /
+     etc. don't function without credentials), no Refresh button. Just
+     the brand for orientation. #}
+  <header class="setup-header">
+    <div class="setup-brand">GamePile</div>
+    <div class="setup-step-aside">{% block step_aside %}{% endblock %}</div>
+  </header>
+
+  <main class="setup-main">
+    <div class="setup-card">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</body>
+</html>
