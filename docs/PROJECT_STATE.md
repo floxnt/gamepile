@@ -333,6 +333,63 @@ URL param renamed `?tag` → `?tag_chip` to free `?tag` for the
 single-value pill (atomic rename across parser + filter-bar
 template; no public bookmark risk for in-dev page).
 
+## v4 — shipped (session of 2026-05-10)
+
+First-run setup wizard + OS keychain credential storage. Required
+for the v5 friend-distribution path: a non-developer can now
+configure GamePile from scratch without editing `.env`. Existing
+dev installs with project-root `.env` keep working unchanged.
+
+See `SPEC_V4_SETUP.md` for the full design. Highlights:
+
+- `app/credentials.py` owns all credential I/O. Read precedence:
+  keyring (Windows Credential Manager / macOS Keychain / Linux
+  Secret Service via `keyring` library) → `.env` (project-root →
+  data-dir). Writes go to keyring only; `.env` is read-only
+  fallback. `keyring_available()` probes once and caches.
+- `app/config.py` no longer eagerly raises on missing creds.
+  Fetchers (`steam.py`, `steam_achievements.py`) call accessors
+  instead of importing module-level constants
+- First-run middleware in `app/main.py` redirects every non-
+  whitelisted request to `/setup/welcome` until credentials are
+  configured. Whitelist: `/setup/*`, `/static/*`, `/healthz`,
+  `/refresh*` (the wizard's done page polls refresh status)
+- Wizard at `/setup/*`: welcome → migrate (conditional) → api-key
+  → steam-id → validate → done. SteamID input accepts numeric
+  SteamID64, vanity URL, or `/profiles/<digits>` URL — vanity
+  names resolved via new `resolve_vanity_url` fetcher hitting
+  `ISteamUser/ResolveVanityURL`. Validation runs `GetOwnedGames`
+  with explicit credential overrides; failure routes to a
+  combined edit page showing both fields with the error
+- Migration: data-dir `.env` only (project-root never offered);
+  user picks Migrate or Keep .env; `migration_done` keyring
+  marker prevents re-prompt. The `.env` file stays in place as
+  backup
+- Done page kicks off the existing `sync_module.run_refresh()`
+  as a background task and HTMX-polls `/setup/sync-status` every
+  2s; auto-redirects to `/shortlist` when sync completes
+- Settings page at `/settings` (small nav link top-right) shows
+  current credentials with API key masked (`·`×N + last4) and
+  SteamID visible, edit-in-place forms re-validate before
+  persisting. `.env`-fallback banner surfaces when keyring is
+  unavailable
+- 18 unit tests in `tests/test_credentials.py` covering keyring
+  round-trip (mocked), read precedence, fallback semantics,
+  migration scope + idempotence, probe caching. Wizard routes
+  smoke-tested via FastAPI TestClient during commit-time
+  verification
+
+Cross-platform note: Linux Secret Service is what's exercised on
+this machine. Windows Credential Manager and macOS Keychain
+backends get exercised during v5 friend-testing iteration per
+the v4 brief.
+
+Four commits:
+- `c12e625 v4-setup: app/credentials.py — keyring storage + .env fallback`
+- `d76b94b v4-setup: wizard backend + templates + first-run middleware`
+- `b4290e7 v4-setup: settings page + nav link`
+- (this doc commit)
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
