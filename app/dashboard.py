@@ -46,6 +46,12 @@ class Pill:
     pick_count: int
     low_confidence: bool
     is_negative: bool
+    # v3.5 polish — affinity pills become clickable links to a filtered
+    # Backlog view. kind is one of "genre" / "tag" / "developer", drives
+    # the URL param name in affinity_pill.html. Negative pills carry the
+    # kind too but the template suppresses the link wrap (filtering by a
+    # disliked thing surfaces no useful action).
+    kind: str = ""
 
 
 @dataclass
@@ -195,6 +201,7 @@ def _make_pill(kind_value_lower, weight: float, pick_count: int) -> Pill:
         pick_count=pick_count,
         low_confidence=pick_count < LOW_CONFIDENCE_PICKS,
         is_negative=weight < 0,
+        kind=kind_value_lower[0],
     )
 
 

@@ -1409,6 +1409,69 @@ select option {
   opacity: 0.6;
 }
 
+/* v3.5 polish — positive pills are clickable links to a filtered Backlog
+   view. The <a> reset removes the default underline; hover lifts the
+   border color toward accent so the affordance is discoverable without
+   loud styling. Negative pills explicitly do NOT get this treatment —
+   they render as a plain <span> in the template. */
+a.affinity-pill--clickable {
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+a.affinity-pill--clickable:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+a.affinity-pill--clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* v3.5 polish — Backlog active-filter indicator. Surfaces above the
+   filter bar when a Dashboard pill click set genre/tag/developer.
+   Inline single line; muted background to read as "system status",
+   not as a primary control. */
+.backlog-active-filter {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+}
+
+.backlog-active-filter-label {
+  color: var(--muted);
+}
+
+.backlog-active-filter-pill {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.backlog-active-filter-clear {
+  margin-left: auto;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.82rem;
+}
+
+.backlog-active-filter-clear:hover {
+  text-decoration: underline;
+}
+
 .affinity-empty {
   font-size: 0.88rem;
   color: var(--muted);

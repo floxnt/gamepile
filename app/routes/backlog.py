@@ -1,3 +1,5 @@
+import urllib.parse
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
@@ -14,6 +16,27 @@ from app.backlog import (
 from app.templates_config import templates
 
 router = APIRouter()
+
+
+# v3.5 polish — pill-driven filter URL params. Used by _build_clear_pill_url
+# to strip JUST the active pill (preserving all other filter state) when
+# the user clicks the indicator's Clear button.
+_PILL_QUERY_KEYS = ("genre", "tag", "developer")
+
+
+def _build_clear_pill_url(query_params, pill_kind: str | None) -> str:
+    """Return /backlog URL with the active pill param stripped, all other
+    query state preserved. None pill_kind → /backlog with no params."""
+    if not pill_kind:
+        return "/backlog"
+    # Re-emit every param EXCEPT the one keyed to the active pill.
+    pairs = [
+        (k, v) for k, v in query_params.multi_items()
+        if k not in _PILL_QUERY_KEYS
+    ]
+    if not pairs:
+        return "/backlog"
+    return "/backlog?" + urllib.parse.urlencode(pairs)
 
 
 @router.get("/backlog", response_class=HTMLResponse)
@@ -37,6 +60,9 @@ async def backlog_page(request: Request):
         "sort_labels": SORT_LABELS,
         "sort_keys": VALID_SORT_KEYS,
         "valid_actions_for_status": valid_actions_for_status,
+        "clear_pill_url": _build_clear_pill_url(
+            request.query_params, view.pill_filter_kind,
+        ),
     })
 
 

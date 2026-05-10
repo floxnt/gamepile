@@ -2,7 +2,7 @@
 {% block title %}Backlog — GamePile{% endblock %}
 
 {% block content %}
-<section class="backlog-page">
+<section class="backlog-page" id="backlog-content">
 
   <h1 class="page-title">Backlog</h1>
 
@@ -46,9 +46,35 @@
     </div>
   {% endif %}
 
+  {# v3.5 polish — active-filter indicator for Dashboard pill clicks.
+     Surfaces above the filter bar when a genre/tag/developer pill filter
+     is active. Clear button strips JUST the pill via HTMX swap (other
+     filters preserved); href fallback for no-JS. #}
+  {% if view.pill_filter_kind %}
+    <div class="backlog-active-filter">
+      <span class="backlog-active-filter-label">Filtering by</span>
+      <span class="backlog-active-filter-pill">
+        {{ view.pill_filter_kind }}: {{ view.pill_filter_value }}
+      </span>
+      <a class="backlog-active-filter-clear"
+         href="{{ clear_pill_url }}"
+         hx-get="{{ clear_pill_url }}"
+         hx-target="#backlog-content"
+         hx-select="#backlog-content"
+         hx-swap="outerHTML"
+         hx-push-url="true">Clear filter</a>
+    </div>
+  {% endif %}
+
   {# Single form wraps both the filter bar AND the section sort dropdowns —
-     any control change submits the whole URL state. #}
+     any control change submits the whole URL state. Hidden inputs carry
+     the v3.5 pill-filter params through chip-form submits so toggling
+     a chip doesn't strip an active pill. #}
   <form method="get" action="/backlog" class="backlog-form">
+
+    {% if filters.genre %}<input type="hidden" name="genre" value="{{ filters.genre }}">{% endif %}
+    {% if filters.tag_pill %}<input type="hidden" name="tag" value="{{ filters.tag_pill }}">{% endif %}
+    {% if filters.developer %}<input type="hidden" name="developer" value="{{ filters.developer }}">{% endif %}
 
     {% include "partials/backlog_filter_bar.html" %}
 
@@ -61,6 +87,11 @@
         <p>Your backlog is clear.</p>
         <p>Try <a href="/?mode=comfort_pick" class="btn-link">Comfort Pick →</a> to revisit favorites,
            or refresh your library if you've added games on Steam.</p>
+      </div>
+    {% elif view.is_empty_pill_only %}
+      <div class="backlog-empty">
+        <p>No games in your backlog match {{ view.pill_filter_kind }}: {{ view.pill_filter_value }}.</p>
+        <p><a href="{{ clear_pill_url }}" class="btn btn-secondary btn-sm">Clear filter</a> to see all backlog games.</p>
       </div>
     {% elif view.is_empty_due_to_filters %}
       <div class="backlog-empty">

@@ -1,6 +1,28 @@
-{# Single affinity pill. Input: pill — Pill dataclass.
+{# Single affinity pill. Input: pill — Pill dataclass with kind field
+   set in v3.5 polish.
+
+   Positive pills wrap as <a href> linking to a filtered Backlog view.
+   Negative pills render as a plain non-interactive <span> — filtering
+   the Backlog by a disliked thing surfaces no useful action.
+
    Sign rendering uses Unicode "−" (U+2212) for visual symmetry with "+". #}
-<span class="affinity-pill{% if pill.is_negative %} affinity-pill--negative{% endif %}{% if pill.low_confidence %} affinity-pill--low-confidence{% endif %}">
-  <span class="affinity-pill-label">{{ pill.label }}</span>
-  <span class="affinity-pill-weight">{% if pill.weight >= 0 %}+{% else %}−{% endif %}{{ "%.1f"|format(pill.weight | abs) }}</span>
-</span>
+
+{% set _classes = "affinity-pill" %}
+{% if pill.is_negative %}{% set _classes = _classes + " affinity-pill--negative" %}{% endif %}
+{% if pill.low_confidence %}{% set _classes = _classes + " affinity-pill--low-confidence" %}{% endif %}
+
+{% if pill.is_negative or not pill.kind %}
+  <span class="{{ _classes }}">
+    <span class="affinity-pill-label">{{ pill.label }}</span>
+    <span class="affinity-pill-weight">{% if pill.weight >= 0 %}+{% else %}−{% endif %}{{ "%.1f"|format(pill.weight | abs) }}</span>
+  </span>
+{% else %}
+  {# Positive pill → click navigates to filtered Backlog. URL param name
+     matches Pill.kind ("genre" / "tag" / "developer"). #}
+  <a class="{{ _classes }} affinity-pill--clickable"
+     href="/backlog?{{ pill.kind }}={{ pill.label | urlencode }}"
+     title="Filter Backlog by {{ pill.kind }}: {{ pill.label }}">
+    <span class="affinity-pill-label">{{ pill.label }}</span>
+    <span class="affinity-pill-weight">{% if pill.weight >= 0 %}+{% else %}−{% endif %}{{ "%.1f"|format(pill.weight | abs) }}</span>
+  </a>
+{% endif %}

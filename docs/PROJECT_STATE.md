@@ -323,6 +323,16 @@ bookmarkable, filter respects manual overrides via
 `compute_stickiness_signal_display`. Pairs naturally with Surface 3:
 filter to a badge, scan, override anything that feels wrong.
 
+Dashboard affinity pills (positive genres / user_tags / developers)
+are now clickable links to a filtered Backlog view (`?genre=`,
+`?tag=`, `?developer=`); negative pills explicitly stay
+non-interactive. Backlog renders a top-of-page active-filter
+indicator with an HTMX Clear button when a pill filter is active
+(strips just the pill, preserves chip filters). Existing chip-tag
+URL param renamed `?tag` → `?tag_chip` to free `?tag` for the
+single-value pill (atomic rename across parser + filter-bar
+template; no public bookmark risk for in-dev page).
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
