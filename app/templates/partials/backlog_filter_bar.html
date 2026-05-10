@@ -22,7 +22,7 @@
     {% for tag in view.top_tags %}
       {% set _ = rendered_tags.append(tag.lower()) %}
       <label class="filter-chip{% if tag.lower() in filters.tags %} filter-chip--active{% endif %}">
-        <input type="checkbox" name="tag" value="{{ tag }}"
+        <input type="checkbox" name="tag_chip" value="{{ tag }}"
                {% if tag.lower() in filters.tags %}checked{% endif %}
                onchange="this.form.submit()">
         {{ tag }}
@@ -32,13 +32,13 @@
     {% for tag in filters.tags %}
       {% if tag not in rendered_tags %}
         <label class="filter-chip filter-chip--active">
-          <input type="checkbox" name="tag" value="{{ tag }}" checked
+          <input type="checkbox" name="tag_chip" value="{{ tag }}" checked
                  onchange="this.form.submit()">
           {{ tag }}
         </label>
       {% endif %}
     {% endfor %}
-    <input type="text" name="tag" class="filter-tag-search"
+    <input type="text" name="tag_chip" class="filter-tag-search"
            placeholder="Add tag…"
            onchange="if(this.value.trim()){this.form.submit()}else{this.removeAttribute('name')}">
   </div>

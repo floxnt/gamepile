@@ -150,8 +150,42 @@ class BacklogFilters:
     include_bounced: bool = False
     show_forever: bool = False
     sort_keys: dict = field(default_factory=dict)
+    # v3.5 polish — Dashboard pill click navigates here with one of these
+    # set. Single-value (no multi-select per dimension; that's what the
+    # chip system above is for). All three filter case-insensitively.
+    genre: str = ""
+    tag_pill: str = ""
+    developer: str = ""
 
     def is_active(self) -> bool:
+        return bool(
+            self.time_fit or self.tags or self.statuses
+            or self.has_hltb or self.include_bounced or self.show_forever
+            or self.genre or self.tag_pill or self.developer
+        )
+
+    def pill_active(self) -> bool:
+        """True when any Dashboard-pill-driven filter is set. Drives the
+        active-filter indicator above the chip bar."""
+        return bool(self.genre or self.tag_pill or self.developer)
+
+    def pill_kind_value(self) -> tuple:
+        """(kind, value) for the active pill filter, or (None, None).
+        Pill filters are single-dimension by design (one navigation target
+        per click); precedence when multiple are set defensively: genre >
+        tag > developer."""
+        if self.genre:
+            return ("genre", self.genre)
+        if self.tag_pill:
+            return ("tag", self.tag_pill)
+        if self.developer:
+            return ("developer", self.developer)
+        return (None, None)
+
+    def chip_filters_active(self) -> bool:
+        """True when any non-pill filter is set. Drives the empty-state
+        copy: pill-only-empty gets the targeted message; combined-empty
+        falls back to the existing 'No games match your current filters'."""
         return bool(
             self.time_fit or self.tags or self.statuses
             or self.has_hltb or self.include_bounced or self.show_forever
@@ -187,6 +221,11 @@ class BacklogView:
     contradictory_filter_warning: Optional[str]
     is_empty_no_filters: bool
     is_empty_due_to_filters: bool
+    # v3.5 polish — pill-driven filter context for the active-filter
+    # indicator and the targeted empty-state copy.
+    pill_filter_kind: Optional[str] = None    # "genre" / "tag" / "developer" / None
+    pill_filter_value: Optional[str] = None   # display label, e.g. "Action"
+    is_empty_pill_only: bool = False          # pill is the LONE active filter and result is empty
 
 
 def playtime_ratio(gws: GameWithState) -> Optional[float]:
@@ -253,11 +292,21 @@ def valid_actions_for_status(status: GameStatus) -> list:
 def parse_backlog_query(qp) -> BacklogFilters:
     """Parse a starlette QueryParams into BacklogFilters. Unknown values silently dropped."""
     time_fit = frozenset(v for v in qp.getlist("time_fit") if v in TIME_FIT_BUCKETS)
-    tags = frozenset(v.strip().lower() for v in qp.getlist("tag") if v.strip())
+    # Chip-driven multi-value tag filter. Renamed from `tag` → `tag_chip`
+    # in v3.5 polish so the new pill-driven `?tag=` (single-value) doesn't
+    # collide. The two systems layer as AND filters on top of each other.
+    tags = frozenset(v.strip().lower() for v in qp.getlist("tag_chip") if v.strip())
     statuses = frozenset(v for v in qp.getlist("status") if v in STATUS_CHIP_KEYS)
     has_hltb = qp.get("has_hltb", "").lower() in ("true", "1", "yes", "on")
     include_bounced = qp.get("include_bounced", "").lower() in ("true", "1", "yes", "on")
     show_forever = qp.get("show_forever", "").lower() in ("true", "1", "yes", "on")
+
+    # v3.5 polish — Dashboard pill click filters. Single-value via qp.get;
+    # values are case-preserved as-typed (filtering is case-insensitive on
+    # both sides). Empty / whitespace-only treated as unset.
+    genre = (qp.get("genre") or "").strip()
+    tag_pill = (qp.get("tag") or "").strip()
+    developer = (qp.get("developer") or "").strip()
 
     sort_keys = {}
     for section in ALL_SECTIONS:
@@ -273,6 +322,9 @@ def parse_backlog_query(qp) -> BacklogFilters:
         include_bounced=include_bounced,
         show_forever=show_forever,
         sort_keys=sort_keys,
+        genre=genre,
+        tag_pill=tag_pill,
+        developer=developer,
     )
 
 
@@ -375,6 +427,33 @@ def _passes_has_hltb(gws: GameWithState, has_hltb: bool) -> bool:
     return gws.game.hltb_main_hours is not None
 
 
+def _passes_genre(gws: GameWithState, genre: str) -> bool:
+    """Case-insensitive match against game.genre_list. Empty filter passes
+    everything; non-empty matches games whose comma-separated Steam
+    genres include the value (any-of semantics for multi-genre games)."""
+    if not genre:
+        return True
+    needle = genre.lower()
+    return any(g.lower() == needle for g in gws.game.genre_list())
+
+
+def _passes_tag_pill(gws: GameWithState, tag_pill: str) -> bool:
+    """Single-value tag filter from a Dashboard pill click. Distinct from
+    the multi-value chip-tags filter above — both layer as AND. Same
+    case-insensitive comparison the chip filter uses."""
+    if not tag_pill:
+        return True
+    needle = tag_pill.lower()
+    return any(t.lower() == needle for t in gws.game.user_tags_list())
+
+
+def _passes_developer(gws: GameWithState, developer: str) -> bool:
+    """Case-insensitive equality match against game.developer."""
+    if not developer:
+        return True
+    return (gws.game.developer or "").lower() == developer.lower()
+
+
 def _passes_filters(gws: GameWithState, section: str, filters: BacklogFilters) -> bool:
     """Return True if this (gws, section) survives the user's filters.
 
@@ -399,6 +478,12 @@ def _passes_filters(gws: GameWithState, section: str, filters: BacklogFilters) -
     if not _passes_tags(gws, filters.tags):
         return False
     if not _passes_has_hltb(gws, filters.has_hltb):
+        return False
+    if not _passes_genre(gws, filters.genre):
+        return False
+    if not _passes_tag_pill(gws, filters.tag_pill):
+        return False
+    if not _passes_developer(gws, filters.developer):
         return False
     return True
 
@@ -546,6 +631,19 @@ def build_backlog_view(games: list, filters: BacklogFilters, affinities: dict) -
         and not filters.include_bounced
     )
 
+    pill_kind, pill_value = filters.pill_kind_value()
+    # Pill-only-empty: the pill filter is the SOLE active filter, the
+    # backlog itself isn't empty, and the result has zero matches. Drives
+    # the targeted "No games match [genre: Action]" copy. When pill is
+    # combined with chip filters, fall back to existing multi-filter
+    # empty-state — same precedence pattern as Library badge filter.
+    is_empty_pill_only = (
+        not sections
+        and stats.total_count > 0
+        and pill_kind is not None
+        and not filters.chip_filters_active()
+    )
+
     return BacklogView(
         sections=sections,
         header_stats=stats,
@@ -553,4 +651,7 @@ def build_backlog_view(games: list, filters: BacklogFilters, affinities: dict) -
         contradictory_filter_warning=warning,
         is_empty_no_filters=is_empty_no_filters,
         is_empty_due_to_filters=(not sections and stats.total_count > 0),
+        pill_filter_kind=pill_kind,
+        pill_filter_value=pill_value,
+        is_empty_pill_only=is_empty_pill_only,
     )
