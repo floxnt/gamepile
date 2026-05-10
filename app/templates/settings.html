@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Settings — GamePile{% endblock %}
+
+{% block content %}
+<section class="settings-page">
+
+  <h1 class="page-title">Settings</h1>
+
+  {% if using_env_fallback %}
+    <div class="settings-banner settings-banner--warn">
+      <strong>Heads up:</strong> Your credentials are stored in a
+      <code>.env</code> file because no OS keychain is available on this
+      system. For secure storage, install gnome-keyring (Linux), KWallet,
+      or use a system that ships a keychain by default. Saving from this
+      page won't work until a keychain is available.
+    </div>
+  {% endif %}
+
+  <div class="settings-section">
+    <h2 class="settings-section-title">Steam API key</h2>
+    <p class="settings-section-help">
+      Get a key at
+      <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener">
+        steamcommunity.com/dev/apikey
+      </a>.
+    </p>
+    {% if api_key_present %}
+      <div class="settings-current">Current: <code class="settings-masked">{{ api_key_masked }}</code></div>
+    {% else %}
+      <div class="settings-current settings-current--missing">Not set</div>
+    {% endif %}
+
+    <details class="settings-edit">
+      <summary class="settings-edit-toggle">Change API key</summary>
+      <form method="post" action="/settings/api-key" class="settings-form">
+        <input type="text"
+               name="api_key"
+               class="settings-input"
+               autocomplete="off"
+               spellcheck="false"
+               placeholder="32-character hex string"
+               required>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+      {% if api_key_error %}
+        <p class="settings-error">{{ api_key_error }}</p>
+      {% endif %}
+      {% if api_key_saved %}
+        <p class="settings-success">API key updated.</p>
+      {% endif %}
+    </details>
+  </div>
+
+  <div class="settings-section">
+    <h2 class="settings-section-title">SteamID</h2>
+    <p class="settings-section-help">
+      Numeric SteamID64, vanity URL, or a profile URL all work.
+    </p>
+    {% if steam_id %}
+      <div class="settings-current">Current: <code>{{ steam_id }}</code></div>
+    {% else %}
+      <div class="settings-current settings-current--missing">Not set</div>
+    {% endif %}
+
+    <details class="settings-edit">
+      <summary class="settings-edit-toggle">Change SteamID</summary>
+      <form method="post" action="/settings/steam-id" class="settings-form">
+        <input type="text"
+               name="steam_id_input"
+               class="settings-input"
+               autocomplete="off"
+               spellcheck="false"
+               placeholder="76561198… or steamcommunity.com/id/yourname"
+               required>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+      </form>
+      {% if steam_id_error %}
+        <p class="settings-error">{{ steam_id_error }}</p>
+      {% endif %}
+      {% if steam_id_saved %}
+        <p class="settings-success">SteamID updated.</p>
+      {% endif %}
+    </details>
+  </div>
+
+  <p class="settings-footer">
+    Storage backend: <em>{% if keyring_available %}OS keychain{% else %}.env file fallback{% endif %}</em>
+  </p>
+
+</section>
+{% endblock %}

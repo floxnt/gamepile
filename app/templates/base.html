@@ -31,6 +31,9 @@
           class="btn btn-ghost btn-sm"
           title="Bypass HLTB cache — re-fetches everything"
         >Force</button>
+        <a href="/settings"
+           class="nav-settings-link {% if request.url.path == '/settings' %}active{% endif %}"
+           title="Manage credentials">Settings</a>
       </div>
     </nav>
   </header>

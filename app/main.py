@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import credentials
 from app import database as db
-from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, setup, shortlist
+from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, settings, setup, shortlist
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +37,7 @@ app.include_router(game_detail.router)
 app.include_router(refresh.router)
 app.include_router(feedback.router)
 app.include_router(setup.router)
+app.include_router(settings.router)
 
 
 # Routes / path prefixes that bypass the first-run redirect. /setup/* is

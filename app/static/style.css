@@ -2382,3 +2382,144 @@ a.affinity-pill--clickable:focus-visible {
   font-size: 0.82rem;
   color: var(--warn);
 }
+
+/* ===== v4 settings page ===== */
+.nav-settings-link {
+  margin-left: 0.7rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.nav-settings-link:hover {
+  color: var(--text);
+  background: var(--surface2);
+  text-decoration: none;
+}
+
+.nav-settings-link.active {
+  color: var(--text);
+  background: var(--surface2);
+}
+
+.settings-page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.settings-banner {
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius);
+  margin-bottom: 1.4rem;
+  font-size: 0.9rem;
+}
+
+.settings-banner--warn {
+  background: rgba(230, 168, 23, 0.08);
+  border: 1px solid rgba(230, 168, 23, 0.3);
+  color: var(--text);
+}
+
+.settings-banner code {
+  background: var(--surface2);
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  font-size: 0.85rem;
+}
+
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1.2rem;
+}
+
+.settings-section-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.settings-section-help {
+  color: var(--muted);
+  font-size: 0.86rem;
+  margin-bottom: 0.7rem;
+}
+
+.settings-current {
+  font-size: 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.settings-current code {
+  background: var(--surface2);
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.settings-current--missing {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.settings-masked {
+  letter-spacing: 0.1em;
+}
+
+.settings-edit {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.6rem;
+}
+
+.settings-edit-toggle {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 0.86rem;
+  user-select: none;
+}
+
+.settings-form {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-top: 0.6rem;
+}
+
+.settings-input {
+  flex: 1;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.settings-error {
+  color: var(--warn);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(230, 168, 23, 0.08);
+  border-left: 2px solid var(--warn);
+  border-radius: 3px;
+}
+
+.settings-success {
+  color: var(--success);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+.settings-footer {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 1.5rem;
+  text-align: right;
+}
