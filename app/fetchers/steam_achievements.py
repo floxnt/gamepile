@@ -32,7 +32,7 @@ from typing import Optional
 
 import httpx
 
-from app.config import STEAM_API_KEY
+from app.credentials import get_steam_api_key
 
 log = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ async def fetch_achievement_schema(
         try:
             resp = await client.get(
                 _SCHEMA_URL,
-                params={"key": STEAM_API_KEY, "appid": appid, "l": "english"},
+                params={"key": get_steam_api_key(), "appid": appid, "l": "english"},
                 timeout=15,
             )
         except httpx.RequestError as exc:

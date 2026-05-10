@@ -16,7 +16,7 @@ from typing import Optional
 
 import httpx
 
-from app.config import STEAM_API_KEY, STEAM_ID
+from app.credentials import get_steam_api_key, get_steam_id
 
 log = logging.getLogger(__name__)
 
@@ -59,11 +59,22 @@ _REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 _STORE_DELAY = 1.5
 
 
-async def fetch_owned_games(client: httpx.AsyncClient) -> list[dict]:
-    """Return list of {appid, name, playtime_forever, rtime_last_played}."""
+async def fetch_owned_games(
+    client: httpx.AsyncClient,
+    api_key: Optional[str] = None,
+    steam_id: Optional[str] = None,
+) -> list[dict]:
+    """Return list of {appid, name, playtime_forever, rtime_last_played}.
+
+    api_key / steam_id explicit overrides exist for the v4 setup wizard's
+    validation step (it tests credentials BEFORE persisting them, so the
+    credentials module accessors don't have the values yet). Defaults
+    pull from credentials accessors for normal sync operation."""
+    key = api_key or get_steam_api_key()
+    sid = steam_id or get_steam_id()
     resp = await client.get(_OWNED_URL, params={
-        "key": STEAM_API_KEY,
-        "steamid": STEAM_ID,
+        "key": key,
+        "steamid": sid,
         "include_appinfo": 1,
         "include_played_free_games": 1,
     }, timeout=30)

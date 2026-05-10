@@ -77,18 +77,11 @@ def _find_and_load_env() -> None:
 _find_and_load_env()
 
 
-def _require(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(
-            f"Missing required config: {name}\n"
-            f"Add it to .env (see .env.example)"
-        )
-    return value
-
-
-STEAM_API_KEY: str = _require("STEAM_API_KEY")
-STEAM_ID: str = _require("STEAM_ID")
+# v4: STEAM_API_KEY / STEAM_ID are no longer eagerly required at import
+# time. Missing credentials trigger the first-run wizard via the
+# /setup middleware. Callers that need a credential value should import
+# from app.credentials (get_steam_api_key / get_steam_id) — those
+# accessors honor the keyring + .env precedence rules.
 PORT: int = int(os.environ.get("PORT", "8765"))
 
 # XDG data directory — used for the SQLite database

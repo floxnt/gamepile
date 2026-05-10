@@ -12,6 +12,7 @@ dependencies = [
     "howlongtobeatpy>=1.0.21",
     "pywebview>=4.0",
     "PyGObject>=3.42",
+    "keyring>=25.7.0",
 ]
 
 [project.scripts]
