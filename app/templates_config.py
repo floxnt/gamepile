@@ -4,10 +4,11 @@ Import `templates` from here in all route files instead of constructing
 a new Jinja2Templates per file.
 """
 
-from pathlib import Path
 from typing import Optional
 
 from fastapi.templating import Jinja2Templates
+
+from app._resources import app_resource_dir
 
 
 def _fmt_hours(h) -> str:
@@ -89,7 +90,7 @@ def _duration_label(h) -> str:
     return "Lifestyle game"
 
 
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates = Jinja2Templates(directory=str(app_resource_dir() / "templates"))
 templates.env.filters["fmt_hours"] = _fmt_hours
 templates.env.filters["fmt_minutes"] = _fmt_minutes
 templates.env.filters["fmt_count"] = _fmt_count

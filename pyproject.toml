@@ -11,7 +11,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "howlongtobeatpy>=1.0.21",
     "pywebview>=4.0",
-    "PyGObject>=3.42",
+    "PyGObject>=3.42; sys_platform == 'linux'",
     "keyring>=25.7.0",
     "platformdirs>=4.9.6",
 ]

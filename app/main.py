@@ -2,7 +2,6 @@ import logging
 import sys
 import threading
 import time
-from pathlib import Path
 
 import httpx
 import uvicorn
@@ -13,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import credentials
 from app import database as db
+from app._resources import app_resource_dir
 from app.routes import backlog, dashboard, feedback, game_detail, library, refresh, settings, setup, shortlist
 
 logging.basicConfig(
@@ -25,7 +25,7 @@ app = FastAPI(title="GamePile", docs_url=None, redoc_url=None)
 
 app.mount(
     "/static",
-    StaticFiles(directory=str(Path(__file__).parent / "static")),
+    StaticFiles(directory=str(app_resource_dir() / "static")),
     name="static",
 )
 
@@ -95,20 +95,112 @@ def _wait_for_server(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
-def run() -> None:
-    from app.config import PORT
+_WEBVIEW2_INSTALL_URL = "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
 
+
+def _webview2_installed() -> bool:
+    """True when WebView2 Runtime is registered on this Windows machine.
+
+    pywebview's Windows backend renders through WebView2; if the runtime
+    is absent (Windows 11 LTSC, very old Windows 10 builds) pywebview
+    crashes opaquely. We probe three registry locations covering both
+    machine-wide installs (system + WOW6432) and per-user installs.
+    Returns False on any non-Windows platform or registry error."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    client_id = r"{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    locations = [
+        (winreg.HKEY_LOCAL_MACHINE,
+         rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{client_id}"),
+        (winreg.HKEY_LOCAL_MACHINE,
+         rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{client_id}"),
+        (winreg.HKEY_CURRENT_USER,
+         rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{client_id}"),
+    ]
+    for root, subkey in locations:
+        try:
+            with winreg.OpenKey(root, subkey) as key:
+                version, _ = winreg.QueryValueEx(key, "pv")
+                # Some uninstalls blank the value rather than removing the key.
+                if version and version != "0.0.0.0":
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _check_webview2_runtime() -> None:
+    """No-op on non-Windows. On Windows without WebView2, open the install
+    page in the user's default browser and exit cleanly — better UX than
+    a pywebview backtrace for users on LTSC / fresh Windows 10."""
+    if sys.platform != "win32":
+        return
+    if _webview2_installed():
+        return
+    import webbrowser
+    print(
+        "GamePile requires Microsoft Edge WebView2 Runtime on Windows.\n"
+        f"Opening installer page: {_WEBVIEW2_INSTALL_URL}\n"
+        "After installing, re-launch GamePile.",
+        file=sys.stderr,
+    )
+    try:
+        webbrowser.open(_WEBVIEW2_INSTALL_URL)
+    except Exception:
+        pass
+    sys.exit(2)
+
+
+def _start_server_thread(port: int) -> threading.Thread:
+    """Run uvicorn in a daemon thread — pywebview's GTK event loop owns the
+    main thread on Linux. Daemon means the server dies with the process.
+
+    Passing the FastAPI `app` object directly (not the import string
+    "app.main:app") so this works inside the PyInstaller --onedir bundle,
+    where uvicorn's dynamic module resolution fails due to PyInstaller
+    flattening the script entry point."""
     server = uvicorn.Server(uvicorn.Config(
-        "app.main:app",
+        app,
         host="127.0.0.1",
-        port=PORT,
+        port=port,
         log_level="warning",
     ))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return thread
 
-    # uvicorn must run in a daemon thread — pywebview's GTK event loop owns
-    # the main thread (GTK requires this on Linux).
-    server_thread = threading.Thread(target=server.run, daemon=True)
-    server_thread.start()
+
+def _run_healthz_only() -> None:
+    """CI smoke-test mode used by the Windows runner in .github/workflows/
+    release.yml. Starts uvicorn, polls /healthz, prints 'ok'/'fail',
+    exits 0/1. No GUI subsystem touched — verifies the bundle imports
+    and boots without bringing up pywebview."""
+    from app.config import PORT
+    _start_server_thread(PORT)
+    healthz_url = f"http://127.0.0.1:{PORT}/healthz"
+    # 30s timeout: windows-latest cold-starts can be slow (Python init +
+    # SQLite schema + Jinja compile). Not load-bearing for performance.
+    if _wait_for_server(healthz_url, timeout=30.0):
+        print("ok")
+        sys.exit(0)
+    print("fail: healthz timeout after 30s", file=sys.stderr)
+    sys.exit(1)
+
+
+def run() -> None:
+    # CI smoke-test bypass — never opens a window, exits with status.
+    if "--healthz-only" in sys.argv:
+        _run_healthz_only()
+        return
+
+    _check_webview2_runtime()
+
+    from app.config import PORT
+    _start_server_thread(PORT)
 
     healthz_url = f"http://127.0.0.1:{PORT}/healthz"
     if not _wait_for_server(healthz_url):
@@ -117,7 +209,7 @@ def run() -> None:
 
     log.info("Server ready at http://127.0.0.1:%d", PORT)
 
-    window = webview.create_window(
+    webview.create_window(
         title="GamePile",
         url=f"http://127.0.0.1:{PORT}/",
         width=1200,
@@ -126,9 +218,12 @@ def run() -> None:
         background_color="#0f0f13",  # matches --bg in style.css
     )
 
-    # webview.start() blocks until the window is closed. Because the server
-    # thread is a daemon, it dies automatically when this process exits.
-    webview.start(gui="gtk")
+    # gui="gtk" is correct on Linux; on Windows pass None so pywebview
+    # auto-selects edgechromium (and only edgechromium — we've already
+    # verified the WebView2 runtime above). macOS isn't shipped in v5
+    # but the auto-detect path would pick cocoa.
+    gui = "gtk" if sys.platform == "linux" else None
+    webview.start(gui=gui)
     sys.exit(0)
 
 
