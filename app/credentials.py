@@ -31,11 +31,11 @@ Threading:
     probe result is safe (one process, one window).
 """
 
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import platformdirs
 from dotenv import dotenv_values
 
 # Keyring service identifier — appears in OS credential store as the
@@ -90,10 +90,6 @@ def _reset_probe_cache() -> None:
 # .env discovery
 # ---------------------------------------------------------------------------
 
-def _xdg_data_dir() -> Path:
-    return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
-
-
 def _project_root_env() -> Path:
     """Project-root .env — the dev convention. Never migrated."""
     return Path(__file__).parent.parent / ".env"
@@ -101,8 +97,10 @@ def _project_root_env() -> Path:
 
 def _data_dir_env() -> Path:
     """Data-dir .env — the legacy bundled-binary location. The migration
-    target when keyring is available and has no creds yet."""
-    return _xdg_data_dir() / SERVICE_NAME / ".env"
+    target when keyring is available and has no creds yet. Resolves per-
+    platform via platformdirs: Linux ~/.local/share/gamepile/, Windows
+    %LOCALAPPDATA%\\gamepile\\, macOS ~/Library/Application Support/gamepile/."""
+    return Path(platformdirs.user_data_dir(SERVICE_NAME, appauthor=False)) / ".env"
 
 
 def _read_env_file(path: Path) -> dict:

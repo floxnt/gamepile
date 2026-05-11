@@ -13,6 +13,7 @@ dependencies = [
     "pywebview>=4.0",
     "PyGObject>=3.42",
     "keyring>=25.7.0",
+    "platformdirs>=4.9.6",
 ]
 
 [project.scripts]

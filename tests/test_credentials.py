@@ -16,7 +16,6 @@ real OS keychain in tests; mocks file paths to isolate from any real
 .env files in the user's environment.
 """
 
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -108,7 +107,7 @@ def test_clear_credentials_removes_keyring_entries():
     # after the keyring is cleared.)
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 fake, patcher = _patch_keyring_available()
                 with patcher:
@@ -147,7 +146,7 @@ def test_keyring_value_wins_over_env():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=ENV_KEY\nSTEAM_ID=ENV_ID\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 fake, patcher = _patch_keyring_available()
                 with patcher:
@@ -165,7 +164,7 @@ def test_env_value_used_when_keyring_empty():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=ENV_KEY\nSTEAM_ID=ENV_ID\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 fake, patcher = _patch_keyring_available()
                 with patcher:
@@ -184,7 +183,7 @@ def test_project_root_env_wins_over_data_dir_env():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=DATA_KEY\nSTEAM_ID=DATA_ID\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=proj):
                 with _patch_keyring_unavailable():
                     _reset_module_state()
@@ -203,7 +202,7 @@ def test_keyring_unavailable_uses_env_fallback():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=FALLBACK_KEY\nSTEAM_ID=FALLBACK_ID\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 with _patch_keyring_unavailable():
                     _reset_module_state()
@@ -222,7 +221,7 @@ def test_using_env_fallback_false_when_keyring_works():
             data_env = td / "data" / "gamepile" / ".env"
             data_env.parent.mkdir(parents=True)
             data_env.write_text("STEAM_API_KEY=X\nSTEAM_ID=Y\n")
-            with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+            with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
                 with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                     assert credentials.using_env_fallback() is False
 
@@ -231,7 +230,7 @@ def test_using_env_fallback_false_when_no_env_and_no_keyring():
     with _patch_keyring_unavailable():
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
-            with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+            with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
                 with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                     _reset_module_state()
                     # Genuinely no creds anywhere — not "fallback", just "not configured".
@@ -248,7 +247,7 @@ def test_has_complete_requires_both_credentials():
         _reset_module_state()
         with tempfile.TemporaryDirectory() as td:
             td = Path(td)
-            with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+            with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
                 with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                     assert credentials.has_complete_credentials() is False
                     credentials.set_steam_api_key("X")
@@ -268,7 +267,7 @@ def test_migration_target_is_data_dir_env_only():
         proj = td / "project.env"
         proj.write_text("STEAM_API_KEY=K\nSTEAM_ID=S\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=proj):
                 fake, patcher = _patch_keyring_available()
                 with patcher:
@@ -284,7 +283,7 @@ def test_migration_target_data_dir_only():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=K\nSTEAM_ID=S\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 fake, patcher = _patch_keyring_available()
                 with patcher:
@@ -299,7 +298,7 @@ def test_migrate_env_to_keyring_copies_values():
         data_env.parent.mkdir(parents=True)
         data_env.write_text("STEAM_API_KEY=ENV_K\nSTEAM_ID=ENV_S\n")
 
-        with patch("os.environ.get", side_effect=lambda k, d=None: str(td / "data") if k == "XDG_DATA_HOME" else d):
+        with patch.object(credentials, "_data_dir_env", return_value=td / "data" / "gamepile" / ".env"):
             with patch.object(credentials, "_project_root_env", return_value=td / "nonexistent"):
                 fake, patcher = _patch_keyring_available()
                 with patcher:

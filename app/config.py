@@ -1,13 +1,24 @@
 import os
+import sys
 from pathlib import Path
+
+import platformdirs
 from dotenv import load_dotenv
 
 
-_xdg_data = os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))
+# platformdirs.user_data_dir resolves per-platform:
+#   Linux:   $XDG_DATA_HOME/gamepile  (defaults to ~/.local/share/gamepile)
+#   Windows: %LOCALAPPDATA%\gamepile
+#   macOS:   ~/Library/Application Support/gamepile
+# appauthor=False suppresses the extra company-name directory on Windows.
 _DATA_DIR_NAME = "gamepile"
 _DB_FILENAME = "gamepile.db"
 _LEGACY_DIR_NAMES = ("tonights-pick", "game-roulette")
 _LEGACY_DB_FILENAMES = ("tonights-pick.db", "game-roulette.db")
+
+
+def _resolve_data_dir() -> Path:
+    return Path(platformdirs.user_data_dir(_DATA_DIR_NAME, appauthor=False))
 
 
 def _migrate_legacy_data(target_dir: Path) -> None:
@@ -15,7 +26,12 @@ def _migrate_legacy_data(target_dir: Path) -> None:
     One-shot migration: if the new gamepile data dir doesn't exist but a legacy
     one does, rename the directory and its DB file. Refuses to start if any
     rename fails — a clear error beats silently losing user data.
+
+    Linux-only: tonights-pick and game-roulette only ever existed under
+    ~/.local/share/. Skip on other platforms where these dirs can't exist.
     """
+    if sys.platform != "linux":
+        return
     if target_dir.exists():
         return
 
@@ -59,19 +75,22 @@ def _find_and_load_env() -> None:
         load_dotenv(project_root)
         return
 
-    # Bundled binary: XDG data dir
-    data_env = Path(_xdg_data) / _DATA_DIR_NAME / ".env"
+    # Bundled binary: per-platform data dir (Linux XDG, Windows AppData, macOS Application Support)
+    data_dir = _resolve_data_dir()
+    data_env = data_dir / ".env"
     if data_env.exists():
         load_dotenv(data_env)
         return
 
     # Fall back to legacy locations so existing installs keep working until
     # _migrate_legacy_data moves them into place on the next startup.
-    for legacy_name in _LEGACY_DIR_NAMES:
-        legacy_env = Path(_xdg_data) / legacy_name / ".env"
-        if legacy_env.exists():
-            load_dotenv(legacy_env)
-            return
+    # Linux-only: legacy dirs never existed elsewhere.
+    if sys.platform == "linux":
+        for legacy_name in _LEGACY_DIR_NAMES:
+            legacy_env = data_dir.parent / legacy_name / ".env"
+            if legacy_env.exists():
+                load_dotenv(legacy_env)
+                return
 
 
 _find_and_load_env()
@@ -84,8 +103,8 @@ _find_and_load_env()
 # accessors honor the keyring + .env precedence rules.
 PORT: int = int(os.environ.get("PORT", "8765"))
 
-# XDG data directory — used for the SQLite database
-DATA_DIR: Path = Path(_xdg_data) / _DATA_DIR_NAME
+# Per-platform data directory — used for the SQLite database.
+DATA_DIR: Path = _resolve_data_dir()
 _migrate_legacy_data(DATA_DIR)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
