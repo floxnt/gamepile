@@ -390,6 +390,71 @@ Four commits:
 - `b4290e7 v4-setup: settings page + nav link`
 - (this doc commit)
 
+## v5 — shipped (session of 2026-05-10)
+
+Cross-platform binary distribution. The CI pipeline ships; real-world
+cross-platform validation is the v5.x patch-release loop (friend runs
+the bundle on Windows, reports issues, fixes ship in `v0.5.1` etc.).
+
+See `SPEC_V5_DISTRIBUTION.md` for the full design. Highlights:
+
+- **Path resolution audited and migrated to `platformdirs`.** Production
+  sites (`app/config.py`, `app/credentials.py`) swapped from XDG-only
+  resolution to `platformdirs.user_data_dir("gamepile", appauthor=False)`.
+  Resolves: Linux `$XDG_DATA_HOME/gamepile`, Windows `%LOCALAPPDATA%\gamepile`,
+  macOS `~/Library/Application Support/gamepile`. Legacy
+  `tonights-pick` / `game-roulette` migration guarded by
+  `sys.platform == "linux"`. New `tests/test_paths.py` (9 tests) plus a
+  regression-canary grep against hardcoded XDG patterns in production code.
+- **`pyproject.toml` PEP 508 marker** on `PyGObject>=3.42; sys_platform == 'linux'`
+  keeps `uv sync` working on the Windows CI runner (no wheel exists).
+- **PyInstaller spec rewritten** for cross-platform `--onedir` builds.
+  `--onedir` not `--onefile` — Windows Defender flags --onefile far more
+  often. Per-platform hiddenimports/excludes select active backends:
+  edgechromium on Windows, gtk on Linux. Keyring backends scoped
+  per-platform (Linux Secret Service depends on `secretstorage` which
+  isn't on Windows wheels).
+- **`app/_resources.py`** — frozen-aware resource resolver. Returns
+  `sys._MEIPASS/app` inside a PyInstaller bundle (where `__file__`-based
+  resolution breaks because PyInstaller flattens the script entry point),
+  package dir in dev. Both StaticFiles and Jinja2Templates route through it.
+- **`app/main.py` WebView2 runtime detection** (Windows-only) probes
+  3 registry locations; on missing runtime, auto-opens the WebView2
+  installer page via `webbrowser.open` and exits cleanly. Better than
+  pywebview's opaque crash on LTSC / fresh Windows installs.
+- **`--healthz-only` CLI flag** for CI smoke-testing: starts uvicorn,
+  polls `/healthz`, prints "ok"/"fail", exits 0/1. No GUI. 30s timeout
+  absorbs slow cold-start on windows-latest runners.
+- **`uvicorn.Config(app, ...)`** receives the FastAPI app object directly
+  (not the `"app.main:app"` import string) — the import string fails in
+  the bundle because PyInstaller flattens the script entry.
+- **`.github/workflows/release.yml`** — tag-driven (`v*`) cross-platform
+  build pipeline. Matrix runs `ubuntu-latest` + `windows-latest` in
+  parallel. Linux: install GTK/WebKit2 system deps → uv sync → run full
+  test suite → pyinstaller → tar.gz. Windows: uv sync → pyinstaller →
+  `--healthz-only` smoke test → ZIP. Tag pushes upload to a draft GitHub
+  Release via `softprops/action-gh-release@v2`; `workflow_dispatch` runs
+  upload to actions/upload-artifact only (no Release object touched).
+- **`README.md`** rewritten as developer-facing; **`README.bundled.md`**
+  ships inside each release archive as user-facing (install / first-run /
+  troubleshooting: SmartScreen, WebView2, data location).
+
+Versioning: semver starting `v0.5.0`. `v1.0.0` reserved for "friend
+validation has shaken bugs out and the app feels stable."
+
+Cross-platform validation status: Linux bundle smoke-tested locally end
+to end (`/healthz`, `/static/style.css`, `/setup/welcome` all respond
+correctly). Windows bundle untested until the workflow runs against a
+real tag push and a friend runs the artifact on Windows. Expected
+follow-ups in v5.x: WebView2 runtime path verification, Windows
+Credential Manager round-trip, SmartScreen UX confirmation.
+
+Four commits:
+- `eccd4ab v5-dist: platformdirs migration + path-resolution audit`
+- `4647d0f v5-dist: cross-platform PyInstaller spec + WebView2 detection + --healthz-only`
+- `e6b625c v5-dist: GitHub Actions release workflow (Linux + Windows)`
+- (this doc commit)
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com

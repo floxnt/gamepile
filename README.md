@@ -1,90 +1,125 @@
 # GamePile
 
-A local desktop app that helps you manage your Steam backlog and decide
-what to play. The **Shortlist** feature ("suggest 5 games") is the
-headline interactive mode; the broader purpose is backlog management
-and progress tracking.
+A local desktop app for managing your Steam backlog and deciding what to play.
+The **Shortlist** feature ("suggest 5 games") is the headline interactive
+mode; the broader purpose is backlog management and progress tracking.
 
-Opens as a native window. No browser, no server to manage.
+Native window, no browser tab, no server to manage. Single-user, no cloud.
 
-## Requirements
+---
 
-### Runtime (Linux)
+This is the **developer README**. For end-user install / first-run / troubleshooting,
+see the README bundled with each release archive (or `README.bundled.md` in this repo).
 
-| Package | Why |
+## Stack
+
+- Python 3.12+, FastAPI backend
+- HTMX + Jinja2, vanilla CSS, no JS frameworks
+- SQLite via `sqlite3` stdlib (no ORM)
+- pywebview for the native window (GTK on Linux, EdgeChromium/WebView2 on Windows)
+- [uv](https://github.com/astral-sh/uv) for dependency management
+- PyInstaller (--onedir) for binary distribution
+
+## Runtime requirements
+
+### Linux (development + binary)
+
+Install GTK + WebKit2 system libraries before `uv sync`:
+
+| Distro | Command |
 |---|---|
-| `webkit2gtk-4.1` | WebKit rendering engine for the native window |
-| `python-gobject` | GObject bindings used by pywebview's GTK backend |
-| `gtk3` | GTK3 libraries |
+| Arch | `sudo pacman -S webkit2gtk-4.1 python-gobject gtk3` |
+| Ubuntu/Debian | `sudo apt install python3-gi gir1.2-webkit2-4.1 libwebkit2gtk-4.1-0` |
 
-Install on Arch: `sudo pacman -S webkit2gtk-4.1 python-gobject gtk3`
+These cannot be bundled portably — PyInstaller can't ship system libraries.
 
-Install on Ubuntu/Debian: `sudo apt install python3-gi gir1.2-webkit2-4.1`
+### Windows (binary only)
 
-### Development
+Microsoft Edge **WebView2 Runtime** is required. Preinstalled on Windows 11 standard
+SKUs; missing on Windows 11 LTSC and some Windows 10 builds. GamePile detects this
+at launch and auto-opens the installer page.
 
-- Python 3.12+
-- [uv](https://github.com/astral-sh/uv)
-
-## Setup
+## Dev setup
 
 ```bash
-# Clone and install dependencies
+# Clone, install deps
 uv sync
 
-# Copy and fill in your credentials
-cp .env.example .env
-$EDITOR .env
-```
+# First-run wizard handles credential setup, OR drop a .env at project root:
+cat > .env <<EOF
+STEAM_API_KEY=your_key_from_steamcommunity.com/dev/apikey
+STEAM_ID=your_steamid64_or_vanity
+EOF
 
-Your `.env` needs:
-- `STEAM_API_KEY` — get one at https://steamcommunity.com/dev/apikey
-- `STEAM_ID` — your 64-bit SteamID (find it at https://steamid.io)
-
-## Running
-
-```bash
+# Run
 uv run gamepile
 ```
 
-A native window opens. Hit **Refresh Library** to pull your Steam library and
-enrich it with HLTB / SteamSpy data. First refresh takes a while (~2s per game
-for HLTB lookups); progress is shown in the banner.
+The first launch (with no creds + no .env) walks through the setup wizard at
+`/setup/welcome`. Credentials persist in the OS keychain via the
+[`keyring`](https://pypi.org/project/keyring/) library (Windows Credential
+Manager / macOS Keychain / Linux Secret Service).
 
-## Shortlist modes
+## Data location
 
-The Shortlist tab offers five user-intent modes:
+| Platform | Path |
+|---|---|
+| Linux | `~/.local/share/gamepile/` (respects `$XDG_DATA_HOME`) |
+| Windows | `%LOCALAPPDATA%\gamepile\` |
+| macOS | `~/Library/Application Support/gamepile/` |
 
-- **I only have tonight** — games that fit your time window (±50%)
-- **Continue something** — surfaces in-progress games, especially those near completion
-- **Comfort pick** — favors high-playtime games you've clearly enjoyed
-- **Start something new** — never-played (and effectively-untouched) games worth committing to
-- **Surprise me** — randomized with a quality bias
+Resolved via the [`platformdirs`](https://pypi.org/project/platformdirs/) library.
 
-## Building the binary (optional)
+## Running tests
 
-Requires `pyinstaller`. Only do this after the app works via `uv run`.
+```bash
+uv run python tests/run_tests.py
+```
+
+Aggregates every `tests/test_*.py` suite. No pytest dependency — each suite
+runs as a script with its own `main()`.
+
+## Building binaries locally
 
 ```bash
 uv pip install pyinstaller
-pyinstaller gamepile.spec
+uv run pyinstaller gamepile.spec --noconfirm
 ```
 
-Output: `dist/gamepile` — a single self-contained executable.
+Output: `dist/gamepile/gamepile` (Linux) or `dist\gamepile\gamepile.exe` (Windows).
+Smoke-test with the `--healthz-only` flag:
 
-**Linux note:** The binary still requires `webkit2gtk-4.1` to be installed on
-the target machine. PyInstaller cannot bundle GTK/WebKit system libraries.
+```bash
+dist/gamepile/gamepile --healthz-only   # expect "ok" on stdout, exit 0
+```
 
-## Data storage
+## Building binaries via CI
 
-All data lives in `~/.local/share/gamepile/` (or `$XDG_DATA_HOME/gamepile/`):
+Push a tag matching `v*` (e.g. `v0.5.0`):
 
-- `gamepile.db` — SQLite database
-- `.env` — credentials (when running the binary)
+```bash
+git tag v0.5.0
+git push --tags
+```
 
-If a legacy install exists at `~/.local/share/tonights-pick/` or
-`~/.local/share/game-roulette/`, the app migrates it automatically on
-first launch. If the migration fails, the app refuses to start rather
-than risk losing data.
+`.github/workflows/release.yml` runs on `ubuntu-latest` + `windows-latest`,
+builds both bundles, uploads them as a **draft** GitHub Release. Promote
+manually once you've verified the artifacts.
 
-During development, `.env` is read from the project root instead.
+Manual dry-runs without tagging: trigger the workflow via the Actions tab
+("Run workflow"). Artifacts land on the run page only, not in Releases.
+
+## Architecture
+
+See `docs/PROJECT_STATE.md` for the full version-by-version status and
+`docs/DESIGN_CONTRACT.md` for design rules every contributor must follow.
+
+Per-feature design docs:
+- `SPEC.md` / `SPEC_V2.md` / `SPEC_V3_*.md` — versioned feature specs
+- `SPEC_V4_SETUP.md` — setup wizard + keyring credential storage
+- `SPEC_V5_DISTRIBUTION.md` — binary distribution pipeline
+
+## Contributing
+
+This is a personal project. Bug reports and PRs from friends running the
+binary are welcome at <https://github.com/anthropics/gamepile/issues>.

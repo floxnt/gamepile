@@ -93,6 +93,18 @@ jobs:
           Write-Host "Smoke test FAILED — no 'ok' in output"
           exit 1
 
+      # README.bundled.md ships inside each archive as README.md — gives
+      # users the install / first-run / troubleshooting docs without
+      # needing to visit GitHub.
+      - name: Stage bundled README (Linux)
+        if: matrix.platform_label == 'linux'
+        run: cp README.bundled.md dist/gamepile/README.md
+
+      - name: Stage bundled README (Windows)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: Copy-Item README.bundled.md dist\gamepile\README.md
+
       - name: Archive bundle (Linux)
         if: matrix.platform_label == 'linux'
         run: |
