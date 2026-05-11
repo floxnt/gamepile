@@ -37,20 +37,24 @@ IS_MACOS = sys.platform == "darwin"
 webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
 
 # Keyring backends are lazy-imported by the keyring library at runtime.
-# PyInstaller's static analysis misses them; declare each platform's
-# backends explicitly so the bundle includes them.
+# PyInstaller's static analysis misses them; declare the active
+# platform's backends explicitly. Linux Secret Service depends on
+# `secretstorage` which isn't installed on Windows wheels, so we
+# can't blanket-import all backends — they get scoped per platform.
 keyring_hiddenimports = [
-    # Linux
-    "keyring.backends.SecretService",
-    "keyring.backends.kwallet",
-    # Windows
-    "keyring.backends.Windows",
-    # macOS
-    "keyring.backends.macOS",
-    # Always-present fallback
     "keyring.backends.fail",
     "keyring.backends.chainer",
 ]
+if IS_WINDOWS:
+    keyring_hiddenimports += ["keyring.backends.Windows"]
+elif IS_LINUX:
+    keyring_hiddenimports += [
+        "keyring.backends.SecretService",
+        "keyring.backends.kwallet",
+        "secretstorage",
+    ]
+elif IS_MACOS:
+    keyring_hiddenimports += ["keyring.backends.macOS"]
 
 # Per-platform pywebview backend choices. We hard-include the active
 # backend and exclude the others to keep bundle size minimal.

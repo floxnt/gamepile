@@ -1,0 +1,131 @@
+name: Release
+
+# Tag-driven: pushing a tag matching v* (e.g. v0.5.0) triggers a real
+# release build that uploads draft artifacts to a GitHub Release.
+# workflow_dispatch lets us manually rebuild without tagging; those
+# runs only upload to the Actions run page (no Release object touched).
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # creating Releases requires write on contents
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform_label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform_label: linux
+            archive_ext: tar.gz
+          - os: windows-latest
+            platform_label: windows
+            archive_ext: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      # Linux runner needs the GTK + WebKit system libraries before
+      # PyGObject can import; without them, pyinstaller produces a
+      # bundle that crashes at runtime trying to load gi.repository.
+      # webkit2gtk-4.1 is the rendering engine pywebview's gtk backend uses.
+      - name: Install GTK runtime (Linux only)
+        if: matrix.platform_label == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-0 \
+            libgirepository1.0-dev \
+            gir1.2-webkit2-4.1 \
+            gir1.2-gtk-3.0 \
+            python3-gi
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Install PyInstaller
+        run: uv pip install pyinstaller
+
+      # Tests run on Linux only (full suite); Windows skips ahead to the
+      # build + bundle-smoke-test path. Rationale: the credentials /
+      # paths / hook_metrics / dashboard suites are platform-agnostic
+      # business logic, and running them once is enough signal.
+      - name: Run test suite (Linux only)
+        if: matrix.platform_label == 'linux'
+        run: uv run python tests/run_tests.py
+
+      - name: Build PyInstaller bundle
+        run: uv run pyinstaller gamepile.spec --noconfirm
+
+      # Smoke-test the Windows bundle: the built executable must
+      # start uvicorn, respond on /healthz, and exit cleanly. Catches
+      # missing-dependency / import-error regressions that wouldn't
+      # surface in dev. 30s timeout absorbs slow cold-start variance
+      # on windows-latest runners.
+      - name: Smoke-test bundle (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $output = & ".\dist\gamepile\gamepile.exe" --healthz-only 2>&1
+          Write-Host "Bundle output:"
+          $output | ForEach-Object { Write-Host "  $_" }
+          if ($output -match "ok") {
+            Write-Host "Smoke test PASSED"
+            exit 0
+          }
+          Write-Host "Smoke test FAILED — no 'ok' in output"
+          exit 1
+
+      - name: Archive bundle (Linux)
+        if: matrix.platform_label == 'linux'
+        run: |
+          cd dist
+          tar -czf "../gamepile-${{ github.ref_name }}-linux-x64.tar.gz" gamepile
+
+      - name: Archive bundle (Windows)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\gamepile -DestinationPath "gamepile-${{ github.ref_name }}-windows-x64.zip"
+
+      # Tag pushes go to a draft Release for manual promote. Manual
+      # workflow_dispatch runs upload to the Actions run page only —
+      # keeps the Releases list clean during workflow iteration.
+      - name: Upload to draft Release (tag pushes)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            gamepile-${{ github.ref_name }}-linux-x64.tar.gz
+            gamepile-${{ github.ref_name }}-windows-x64.zip
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+
+      - name: Upload bundle as workflow artifact (dispatch runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gamepile-${{ matrix.platform_label }}-${{ github.sha }}
+          path: |
+            gamepile-*-linux-x64.tar.gz
+            gamepile-*-windows-x64.zip
+          if-no-files-found: ignore
+          retention-days: 14
