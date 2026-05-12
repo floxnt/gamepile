@@ -7,7 +7,7 @@
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <header>
     <nav>
       <a href="/" class="nav-brand">GamePile</a>

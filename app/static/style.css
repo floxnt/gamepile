@@ -95,6 +95,14 @@ main {
   padding: 2rem 1.5rem;
 }
 
+/* Library page needs more horizontal room for its 13-column table.
+   Without this, Steam %, Steam Reviews, and Metacritic scroll off the
+   right edge inside .table-wrapper and look "missing" to the user. */
+body.page-library main {
+  max-width: 1600px;
+  padding: 1.5rem 1rem;
+}
+
 /* ===== Buttons ===== */
 .btn {
   display: inline-flex;
@@ -646,7 +654,7 @@ select option {
 .library-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
 }
 
 .library-table thead {
@@ -667,7 +675,7 @@ select option {
 
 .sort-link {
   display: block;
-  padding: 0.55rem 0.5rem;
+  padding: 0.5rem 0.4rem;
   color: var(--muted);
   text-decoration: none;
   white-space: nowrap;
@@ -676,7 +684,7 @@ select option {
 
 .sort-link:hover { color: var(--text); text-decoration: none; }
 .sort-link--active { color: var(--text); }
-.sort-link--unsortable { cursor: default; padding: 0.55rem 0.5rem; display: block; }
+.sort-link--unsortable { cursor: default; padding: 0.5rem 0.4rem; display: block; }
 .sort-link--unsortable:hover { color: var(--muted); }
 
 .sort-arrow {
@@ -686,7 +694,7 @@ select option {
 }
 
 .library-table td {
-  padding: 0.45rem 0.5rem;
+  padding: 0.4rem 0.4rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   vertical-align: middle;
@@ -698,19 +706,19 @@ select option {
 .game-name {
   white-space: normal;
   min-width: 140px;
-  max-width: 220px;
+  max-width: 200px;
 }
 
 .library-developer {
   white-space: normal;
-  max-width: 140px;
+  max-width: 120px;
   line-height: 1.3;
 }
 
 .library-tags {
   white-space: normal;
-  max-width: 180px;
-  font-size: 0.78rem;
+  max-width: 160px;
+  font-size: 0.75rem;
   color: var(--text);
   line-height: 1.3;
 }
