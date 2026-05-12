@@ -27,7 +27,19 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
+from app.game_type import GAME_TYPE_BETA_PLAYTEST, GAME_TYPE_SOFTWARE, resolve_type
 from app.models import GameStatus, GameWithState
+
+
+# Game types globally excluded from every Shortlist mode. Software entries
+# (Wallpaper Engine, Lossless Scaling, 3DMark, etc.) aren't games the
+# "Find Games" surface should ever recommend. Beta/playtest entries are
+# transient builds and equally inappropriate. Early Access and Expansion
+# stay eligible — both surface real games the user may want to play.
+_SHORTLIST_EXCLUDED_GAME_TYPES: frozenset = frozenset({
+    GAME_TYPE_SOFTWARE,
+    GAME_TYPE_BETA_PLAYTEST,
+})
 
 
 class RecommendMode(str, Enum):
@@ -143,6 +155,8 @@ def _is_globally_excluded(gws: GameWithState) -> bool:
     if state.status == GameStatus.not_interested:
         return True
     if state.status == GameStatus.dropped and state.dropped_strength == "strong":
+        return True
+    if resolve_type(gws.game) in _SHORTLIST_EXCLUDED_GAME_TYPES:
         return True
     return False
 
