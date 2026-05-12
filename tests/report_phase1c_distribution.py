@@ -26,14 +26,18 @@ from app.hook_metrics import (
     BADGE_LIMITED_DATA,
     BADGE_MARATHON,
     BADGE_MIXED_SIGNALS,
+    BADGE_OFTEN_FILTERS,
     BADGE_STANDARD_ENGAGEMENT,
+    BADGE_USUALLY_HOOKS,
     compute_stickiness_signal,
 )
 
 
 _BADGE_LABELS = {
     BADGE_HOOKS_PLAYERS:       "Hooks players",
+    BADGE_USUALLY_HOOKS:       "Usually hooks",
     BADGE_FILTERS_EARLY:       "Filters early",
+    BADGE_OFTEN_FILTERS:       "Often filters",
     BADGE_MARATHON:            "Marathon",
     BADGE_MIXED_SIGNALS:       "Mixed signals",
     BADGE_STANDARD_ENGAGEMENT: "Standard engagement",
@@ -42,7 +46,9 @@ _BADGE_LABELS = {
 
 _BADGE_ORDER = (
     BADGE_HOOKS_PLAYERS,
+    BADGE_USUALLY_HOOKS,
     BADGE_FILTERS_EARLY,
+    BADGE_OFTEN_FILTERS,
     BADGE_MARATHON,
     BADGE_MIXED_SIGNALS,
     BADGE_STANDARD_ENGAGEMENT,
@@ -119,22 +125,25 @@ def main():
     print("--- 2. Per-game-type breakdown ---")
     print()
     print(f"  {'type':<16s} {'n':>4s}  "
-          f"{'Hooks':>5s}  {'Filt':>4s}  {'Mara':>4s}  "
-          f"{'Mixed':>5s}  {'Std':>4s}  {'Lim':>4s}")
-    print("  " + "-" * 60)
+          f"{'Hooks':>5s} {'Usu':>3s}  {'Filt':>4s} {'Oft':>3s}  "
+          f"{'Mara':>4s}  {'Mixed':>5s}  {'Std':>4s}  {'Lim':>4s}")
+    print("  " + "-" * 72)
     for gt in ALL_GAME_TYPES:
         type_counts = by_type.get(gt) or Counter()
         n = sum(type_counts.values())
         if n == 0:
             continue
         h = type_counts.get(BADGE_HOOKS_PLAYERS, 0)
+        u = type_counts.get(BADGE_USUALLY_HOOKS, 0)
         f = type_counts.get(BADGE_FILTERS_EARLY, 0)
+        o = type_counts.get(BADGE_OFTEN_FILTERS, 0)
         m = type_counts.get(BADGE_MARATHON, 0)
         x = type_counts.get(BADGE_MIXED_SIGNALS, 0)
         s = type_counts.get(BADGE_STANDARD_ENGAGEMENT, 0)
         l = type_counts.get(BADGE_LIMITED_DATA, 0)
         print(f"  {gt:<16s} {n:>4d}  "
-              f"{h:>5d}  {f:>4d}  {m:>4d}  {x:>5d}  {s:>4d}  {l:>4d}")
+              f"{h:>5d} {u:>3d}  {f:>4d} {o:>3d}  "
+              f"{m:>4d}  {x:>5d}  {s:>4d}  {l:>4d}")
 
     # ----- 3. Phase 1b → Phase 1c shift -----
     print()
@@ -162,12 +171,14 @@ def main():
     avg_split = (
         overall.get(BADGE_MARATHON, 0)
         + overall.get(BADGE_MIXED_SIGNALS, 0)
+        + overall.get(BADGE_USUALLY_HOOKS, 0)
+        + overall.get(BADGE_OFTEN_FILTERS, 0)
         + overall.get(BADGE_STANDARD_ENGAGEMENT, 0)
     )
     n_avg, _ = _PHASE_1B_DISTRIBUTION["Average"]
     delta_avg = avg_split - n_avg
     sign = "+" if delta_avg >= 0 else ""
-    print(f"  Marathon+Mixed+Std     {avg_split:>5d}        was Average={n_avg} ({sign}{delta_avg})")
+    print(f"  Mar+Mix+Usu+Oft+Std    {avg_split:>5d}        was Average={n_avg} ({sign}{delta_avg})")
 
     # ----- 4. Target envelope check -----
     print()
@@ -188,6 +199,14 @@ def main():
     in_band = pct_ms <= 60
     verdict = "OK" if in_band else "MISS"
     print(f"  {'Mixed + Standard':<22s}  {pct_ms:>6.1f}%  {'≤ 60%':>10s}  {verdict:>8s}")
+
+    # Standard-alone threshold check — flagged by the workbook brief as
+    # the signal that score-formula revisiting may be needed if the lean
+    # split doesn't pull enough games out of Standard.
+    n_std = overall.get(BADGE_STANDARD_ENGAGEMENT, 0)
+    pct_std = 100 * n_std / total if total else 0
+    std_verdict = "OK" if pct_std <= 30 else "FLAG"
+    print(f"  {'Standard (alone)':<22s}  {pct_std:>6.1f}%  {'≤ 30%':>10s}  {std_verdict:>8s}")
 
     # ----- 5. Diagnostic samples -----
     print()

@@ -387,6 +387,15 @@ WEIGHT_COMPLETION_LOW = 0.3
 SCORE_HOOKS_THRESHOLD = 1.5
 SCORE_FILTERS_THRESHOLD = -1.0
 
+# Sub-bands inside the middle score range for splitting Standard by lean.
+# Used only when no qualifying strong signal is present (Mixed signals
+# precedence still applies). The asymmetry mirrors SCORE_FILTERS_THRESHOLD:
+# +0.5 sits at one-third of the +1.5 Hooks threshold; -0.5 sits at half of
+# the -1.0 Filters threshold. Score exactly at ±0.5 lands in the lean
+# bucket — Standard is reserved for the truly-neutral middle.
+SCORE_USUALLY_HOOKS_MIN = 0.5
+SCORE_OFTEN_FILTERS_MAX = -0.5
+
 # Marathon thresholds. High engagement + low confirmed completion =
 # open-ended / sandbox-y games people play forever without finishing.
 # Restricted to high-confidence completion so sparse-data games can't
@@ -396,19 +405,24 @@ MARATHON_COMPLETION_MAX = 0.10
 
 # Combined-badge values surfaced to the user.
 BADGE_HOOKS_PLAYERS = "hooks_players"
+BADGE_USUALLY_HOOKS = "usually_hooks"
 BADGE_FILTERS_EARLY = "filters_early"
+BADGE_OFTEN_FILTERS = "often_filters"
 BADGE_MARATHON = "marathon"
 BADGE_MIXED_SIGNALS = "mixed_signals"
 BADGE_STANDARD_ENGAGEMENT = "standard_engagement"
 BADGE_LIMITED_DATA = "limited_data"
 
-# The five badges valid for manual override. Limited_data is excluded —
-# manually asserting "no signal" is meaningless; clearing the override
-# is the right way to revert. The Game Detail route validates against
-# this set before persisting.
+# Badges valid for manual override. Limited_data is excluded — manually
+# asserting "no signal" is meaningless; clearing the override is the right
+# way to revert. The Game Detail route validates against this set before
+# persisting. Order is also the dropdown order (library + game detail
+# override picker): each lean slots next to its strong category.
 ACTIVE_BADGES = (
     BADGE_HOOKS_PLAYERS,
+    BADGE_USUALLY_HOOKS,
     BADGE_FILTERS_EARLY,
+    BADGE_OFTEN_FILTERS,
     BADGE_MARATHON,
     BADGE_MIXED_SIGNALS,
     BADGE_STANDARD_ENGAGEMENT,
@@ -416,7 +430,9 @@ ACTIVE_BADGES = (
 
 BADGE_LABELS = {
     BADGE_HOOKS_PLAYERS:       "Hooks players",
+    BADGE_USUALLY_HOOKS:       "Usually hooks",
     BADGE_FILTERS_EARLY:       "Filters early",
+    BADGE_OFTEN_FILTERS:       "Often filters",
     BADGE_MARATHON:            "Marathon",
     BADGE_MIXED_SIGNALS:       "Mixed signals",
     BADGE_STANDARD_ENGAGEMENT: "Standard engagement",
@@ -426,8 +442,12 @@ BADGE_LABELS = {
 BADGE_TOOLTIPS = {
     BADGE_HOOKS_PLAYERS:
         "Most reviewers play deep into the game; cliff patterns suggest engagement holds",
+    BADGE_USUALLY_HOOKS:
+        "Leans positive — engagement signals tilt sticky but not strong enough for Hooks players",
     BADGE_FILTERS_EARLY:
         "Many players abandon in the early or mid-game",
+    BADGE_OFTEN_FILTERS:
+        "Leans negative — engagement signals tilt toward filtering but not strong enough for Filters early",
     BADGE_MARATHON:
         "High engagement, low completion — the kind of game people play forever without finishing",
     BADGE_MIXED_SIGNALS:
@@ -548,8 +568,9 @@ def _qualifies_strong_signal(
 def compute_stickiness_signal(game) -> tuple:
     """Composite categorical signal. Returns (badge, score, breakdown).
 
-    badge: one of the BADGE_* constants (hooks_players / filters_early /
-        marathon / mixed_signals / standard_engagement / limited_data).
+    badge: one of the BADGE_* constants (hooks_players / usually_hooks /
+        filters_early / often_filters / marathon / mixed_signals /
+        standard_engagement / limited_data).
     score: float — sum of weighted per-signal contributions.
     breakdown: dict {signal_name: {value, weight, contribution, description}}.
         Used by Game Detail to render the per-signal score breakdown line.
@@ -565,7 +586,13 @@ def compute_stickiness_signal(game) -> tuple:
         0.7 for high-confidence.
 
     Order of evaluation: limited_data → hooks_players → filters_early →
-    marathon → mixed_signals → standard_engagement.
+    marathon → usually_hooks → often_filters → mixed_signals →
+    standard_engagement. Marathon stays on top of every middle-band
+    label per spec. Lean buckets sit above Mixed signals so a game whose
+    strong signals net to a clear directional lean (e.g., stickiness +1
+    + cliff -1 = +0.5) lands in Usually hooks rather than Mixed —
+    Mixed is reserved for the truly-balanced case where strong signals
+    cancel out to a near-zero score.
     """
     from app.game_type import engagement_display_rules, resolve_type
 
@@ -663,15 +690,26 @@ def compute_stickiness_signal(game) -> tuple:
         and game.completion_rate < MARATHON_COMPLETION_MAX):
         return (BADGE_MARATHON, score, breakdown)
 
-    # 5. Mixed signals — at least one strong signal (stickiness / cliff /
-    # high-conf completion) at ±1. Low-conf completion alone doesn't
-    # promote here per spec.
+    # 5. Lean buckets — score has a clear directional lean within the
+    # middle band. Wins over Mixed signals: a game with strong signals
+    # that net positive (e.g., stickiness +1 + cliff -1 = +0.5) goes here
+    # rather than Mixed, because the lean is the more informative read.
+    # Mixed signals is reserved for the truly-balanced case where strong
+    # signals genuinely cancel out to near zero.
+    if score >= SCORE_USUALLY_HOOKS_MIN:
+        return (BADGE_USUALLY_HOOKS, score, breakdown)
+    if score <= SCORE_OFTEN_FILTERS_MAX:
+        return (BADGE_OFTEN_FILTERS, score, breakdown)
+
+    # 6. Mixed signals — score lands in [-0.5, +0.5] AND at least one
+    # strong signal (stickiness / cliff / high-conf completion) is
+    # present. Low-conf completion alone doesn't promote here per spec.
     stickiness_value = breakdown.get("stickiness", {}).get("value", 0)
     cliff_value = breakdown.get("cliff", {}).get("value", 0)
     if _qualifies_strong_signal(stickiness_value, cliff_value, high_conf_completion_value):
         return (BADGE_MIXED_SIGNALS, score, breakdown)
 
-    # 6. Default — middle bucket with no strong signals.
+    # 7. Standard engagement — middle band, no strong contributor, no lean.
     return (BADGE_STANDARD_ENGAGEMENT, score, breakdown)
 
 

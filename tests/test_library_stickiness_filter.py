@@ -139,17 +139,15 @@ def _marathon_game(name: str = "Marathon Game"):
 
 
 def _mixed_signals_game(name: str = "Mixed Game"):
-    # In-band score, at least one strong signal (stickiness +1).
-    # +1.5 + 0 cliff + 0 completion = +1.5… but +1.5 hits SCORE_HOOKS_THRESHOLD.
-    # Need to land in (-1.0, +1.5). Use stickiness +1 alone with NO completion
-    # data — score = +1.5 exactly, which IS hooks_players. Need one less.
-    # Use cliff -1 AND stickiness +1: -1 + 1.5 = +0.5, in band, two strong
-    # signals → Mixed.
+    # Score strictly in (-0.5, +0.5) with at least one strong contributor —
+    # the lean buckets win at score ±0.5 so Mixed lives in the truly-balanced
+    # middle. cliff -1 mid (-1.0) + high-conf completion +1 (+0.7) +
+    # stickiness 0 = -0.3 → in Mixed range, two strong signals.
     return _gws(
         name=name,
-        cliff_metric=25.0, cliff_position=0.5,  # mid & large → -1
-        stickiness_ratio=0.95,                  # +1
-        completion_rate=0.10, completion_rate_confidence="high",  # 0 (mid)
+        cliff_metric=25.0, cliff_position=0.5,           # mid & large → -1
+        stickiness_ratio=0.85,                            # 0
+        completion_rate=0.30, completion_rate_confidence="high",  # +1
     )
 
 

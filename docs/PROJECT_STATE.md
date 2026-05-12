@@ -270,6 +270,37 @@ addresses the structural Filters miss only via a new data source (e.g.,
 review-burst pattern detection from the Steam reviews fetcher) rather
 than further threshold tuning.
 
+### Phase 1c refinement — sub-divide Standard by score lean (session of 2026-05-11)
+
+Added two lean buckets between the strong categories and Standard to
+expose direction inside the middle band. `Usually hooks` fires on
+composite score in `[+0.5, +1.5)`; `Often filters` on `(-1.0, -0.5]`.
+Boundaries inclusive on the lean side — leans win at exactly ±0.5.
+Marathon precedence unchanged (still wins over every middle-band
+label). Leans take precedence over Mixed signals at the ±0.5 boundary,
+which collapses Mixed to the truly-balanced cancellation case.
+
+Live distribution across 636 active games after the split:
+- Hooks players: 65 (10.2%) — unchanged
+- Usually hooks: 48 (7.5%) — new
+- Filters early: 24 (3.8%) — unchanged
+- Often filters: 12 (1.9%) — new
+- Marathon: 4 (0.6%) — unchanged
+- Mixed signals: 3 (0.5%) — shrunk from 63 (60 absorbed by leans)
+- Standard engagement: 291 (45.8%) — *unchanged*, flagged
+- Limited data: 189 (29.7%) — unchanged
+
+Standard engagement at 45.8% is *unchanged* by the split — flagged per
+the workbook brief. Structural reason: a game with no strong contributor
+(stickiness_value/cliff_value/high_conf_completion_value all zero) can
+only contribute via low-confidence completion, which weights ±0.3 max.
+Score magnitude tops out at 0.3, never reaching the ±0.5 lean threshold.
+The split therefore successfully reorganized Mixed (strong-but-leaning
+games) but cannot drain Standard without a score-formula revisit. The
+workbook brief anticipated this — "it'd suggest the score formula itself
+needs revisiting, not just additional thresholds." Deferred to a Phase
+1d/1e session if Standard's opacity becomes a workflow problem.
+
 ## Phase 4 — manual curation overrides (session of 2026-05-09)
 
 Three Game Detail surfaces extending the manual-override pattern that

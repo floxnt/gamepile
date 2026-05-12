@@ -30,17 +30,21 @@ _SORT_COLUMNS = [
     "metacritic",
 ]
 
-# Stickiness sort order (Phase 1c). Hooks players first (most engaged
-# proven-good signal), then Marathon (engaged but open-ended), Mixed
-# signals (interesting but split), Standard engagement, Filters early,
-# Limited data sinks to the bottom regardless of direction.
+# Stickiness sort order (Phase 1c, expanded for the lean sub-buckets).
+# Hooks players first (proven-good engagement), then Usually hooks (weak
+# positive lean), Marathon (engaged but open-ended), Mixed signals
+# (strong-but-conflicting), Standard engagement (no lean), Often filters
+# (weak negative lean), Filters early (proven filter), Limited data sinks
+# to the bottom regardless of direction.
 _STICKINESS_SORT_ORDER = {
     "hooks_players":       0,
-    "marathon":            1,
-    "mixed_signals":       2,
-    "standard_engagement": 3,
-    "filters_early":       4,
-    "limited_data":        5,
+    "usually_hooks":       1,
+    "marathon":            2,
+    "mixed_signals":       3,
+    "standard_engagement": 4,
+    "often_filters":       5,
+    "filters_early":       6,
+    "limited_data":        7,
 }
 
 # Sentinel values for nulls-last regardless of sort direction.

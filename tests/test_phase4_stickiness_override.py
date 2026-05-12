@@ -80,18 +80,21 @@ def test_active_badges_excludes_limited_data():
     assert BADGE_LIMITED_DATA not in ACTIVE_BADGES
 
 
-def test_active_badges_has_five_entries():
-    assert len(ACTIVE_BADGES) == 5
+def test_active_badges_has_seven_entries():
+    from app.hook_metrics import BADGE_USUALLY_HOOKS, BADGE_OFTEN_FILTERS
+    assert len(ACTIVE_BADGES) == 7
     assert set(ACTIVE_BADGES) == {
         BADGE_HOOKS_PLAYERS,
+        BADGE_USUALLY_HOOKS,
         BADGE_FILTERS_EARLY,
+        BADGE_OFTEN_FILTERS,
         BADGE_MARATHON,
         BADGE_MIXED_SIGNALS,
         BADGE_STANDARD_ENGAGEMENT,
     }
 
 
-def test_badge_labels_cover_all_six_badges():
+def test_badge_labels_cover_all_badges():
     # Display layer needs labels for limited_data too — the no-data
     # state on Library / Game Detail.
     assert BADGE_LIMITED_DATA in BADGE_LABELS

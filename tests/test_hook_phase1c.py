@@ -255,8 +255,8 @@ def test_signal_marathon_requires_high_confidence_completion():
 
 def test_signal_marathon_requires_long_playtime():
     # Below 50h playtime → Marathon doesn't fire even with high-conf
-    # low completion. Falls to Mixed (high-conf completion at -1 is a
-    # strong signal).
+    # low completion. Falls to Often filters (score -0.7 lands in the
+    # negative lean band; leans win over Mixed when the lean is clear).
     g = _game(
         game_type="linear",
         cliff_metric=10.0, cliff_position=0.5,
@@ -264,10 +264,10 @@ def test_signal_marathon_requires_long_playtime():
         completion_rate=0.05, completion_rate_confidence="high",
         review_playtime_median=20 * 60,                   # 20h
     )
+    from app.hook_metrics import BADGE_OFTEN_FILTERS
     badge, _, _ = compute_stickiness_signal(g)
-    # high-conf completion -1 = strong filter signal → Mixed signals.
-    # (Score: 0 + 0 + -0.7 = -0.7, in middle band.)
-    assert badge == BADGE_MIXED_SIGNALS
+    # Score: 0 + 0 + -0.7 = -0.7, in (-1.0, -0.5] → Often filters.
+    assert badge == BADGE_OFTEN_FILTERS
 
 
 def test_signal_marathon_wins_over_mixed_when_both_match():
@@ -290,9 +290,11 @@ def test_signal_marathon_wins_over_mixed_when_both_match():
 # compute_stickiness_signal — Mixed signals vs Standard engagement
 # ---------------------------------------------------------------------------
 
-def test_signal_mixed_via_high_conf_completion_alone():
-    # All else neutral, high-conf completion +1 = strong signal → Mixed.
-    # Score: 0 + 0 + 0.7 = 0.7 (in band).
+def test_signal_usually_hooks_via_high_conf_completion_alone():
+    # All else neutral, high-conf completion +1 → score 0.7. The lean
+    # buckets win over Mixed when the score has a clear directional
+    # lean; this case lands in Usually hooks.
+    from app.hook_metrics import BADGE_USUALLY_HOOKS
     g = _game(
         game_type="linear",
         cliff_metric=10.0, cliff_position=0.5,
@@ -300,14 +302,15 @@ def test_signal_mixed_via_high_conf_completion_alone():
         completion_rate=0.30, completion_rate_confidence="high",
     )
     badge, _, _ = compute_stickiness_signal(g)
-    assert badge == BADGE_MIXED_SIGNALS
+    assert badge == BADGE_USUALLY_HOOKS
 
 
-def test_signal_mixed_via_stickiness_strong():
-    # stickiness ±1 alone → Mixed. Score = ±1.5 — but threshold is
-    # ≥ +1.5 / ≤ -1.5 (inclusive), so ±1.5 hits Hooks/Filters not Mixed.
-    # Use a value just inside the band: stickiness +1 + cliff -1 (early)
-    # = 1.5 - 1.0 = 0.5 (band). Strong signals: both. Mixed.
+def test_signal_mixed_when_strong_signals_cancel_to_neutral():
+    # stickiness +1 (1.5) + cliff -1 early (-1.0) = +0.5 score. Under
+    # the new ordering this lands in Usually hooks (lean wins over Mixed
+    # when the lean is clear). Mixed signals is reserved for strong
+    # signals that genuinely cancel — score in [-0.5, +0.5] strictly.
+    from app.hook_metrics import BADGE_USUALLY_HOOKS
     g = _game(
         game_type="linear",
         cliff_metric=25.0, cliff_position=0.1,
@@ -316,6 +319,21 @@ def test_signal_mixed_via_stickiness_strong():
     )
     badge, score, _ = compute_stickiness_signal(g)
     assert abs(score - 0.5) < 0.001
+    assert badge == BADGE_USUALLY_HOOKS
+
+
+def test_signal_mixed_signals_when_strong_signals_truly_cancel():
+    # high-conf completion +1 (0.7) + cliff -1 mid (-1.0) = -0.3 score.
+    # Two strong signals point in opposite directions but the composite
+    # lands strictly inside [-0.5, +0.5] — that's Mixed signals.
+    g = _game(
+        game_type="linear",
+        cliff_metric=25.0, cliff_position=0.5,
+        stickiness_ratio=0.75,
+        completion_rate=0.30, completion_rate_confidence="high",
+    )
+    badge, score, _ = compute_stickiness_signal(g)
+    assert abs(score - (-0.3)) < 0.001
     assert badge == BADGE_MIXED_SIGNALS
 
 
@@ -362,6 +380,72 @@ def test_signal_standard_when_all_neutral():
     badge, score, _ = compute_stickiness_signal(g)
     assert score == 0.0
     assert badge == BADGE_STANDARD_ENGAGEMENT
+
+
+# ---------------------------------------------------------------------------
+# compute_stickiness_signal — Usually hooks / Often filters lean buckets
+# ---------------------------------------------------------------------------
+
+def test_signal_usually_hooks_at_score_threshold():
+    # Score = exactly +0.5 → Usually hooks (boundary inclusive on the lean side).
+    from app.hook_metrics import BADGE_USUALLY_HOOKS
+    g = _game(
+        game_type="linear",
+        cliff_metric=25.0, cliff_position=0.1,            # -1 (-1.0)
+        stickiness_ratio=0.95,                            # +1 (+1.5)
+        completion_rate=None,                             # 0
+    )
+    badge, score, _ = compute_stickiness_signal(g)
+    assert abs(score - 0.5) < 0.001
+    assert badge == BADGE_USUALLY_HOOKS
+
+
+def test_signal_often_filters_via_strong_negative_mix():
+    # stickiness -1 (-1.5) + cliff 0 + high-conf completion +1 (+0.7)
+    # = -0.8 score, in (-1.0, -0.5] → Often filters.
+    from app.hook_metrics import BADGE_OFTEN_FILTERS
+    g = _game(
+        game_type="linear",
+        cliff_metric=10.0, cliff_position=0.5,
+        stickiness_ratio=0.30,
+        completion_rate=0.30, completion_rate_confidence="high",
+    )
+    badge, score, _ = compute_stickiness_signal(g)
+    assert abs(score - (-0.8)) < 0.001
+    assert badge == BADGE_OFTEN_FILTERS
+
+
+def test_signal_marathon_wins_over_usually_hooks():
+    # Marathon conditions met AND score in Usually hooks range — Marathon
+    # takes precedence per spec.
+    g = _game(
+        game_type="linear",
+        cliff_metric=10.0, cliff_position=0.5,
+        stickiness_ratio=0.95,                            # +1
+        completion_rate=0.05, completion_rate_confidence="high",  # Marathon: <0.10 ✓
+        review_playtime_median=80 * 60,                   # 80h, Marathon: ≥50h ✓
+    )
+    badge, score, _ = compute_stickiness_signal(g)
+    # Score: 1.5 + 0 + -0.7 = 0.8 (would be Usually hooks without Marathon).
+    assert abs(score - 0.8) < 0.001
+    assert badge == BADGE_MARATHON
+
+
+def test_signal_usually_hooks_just_below_hooks_threshold():
+    # stickiness 0 + cliff -1 mid (-1.0) + high-conf completion +1 (+0.7)
+    # + low-conf nothing = -0.3 — wrong direction. Use:
+    # stickiness +1 (+1.5) + cliff -1 mid (-1.0) + low-conf completion +1 (+0.3)
+    # = +0.8 → in [+0.5, +1.5) → Usually hooks.
+    from app.hook_metrics import BADGE_USUALLY_HOOKS
+    g = _game(
+        game_type="linear",
+        cliff_metric=25.0, cliff_position=0.5,            # -1 mid (-1.0)
+        stickiness_ratio=0.95,                            # +1 (+1.5)
+        completion_rate=0.30, completion_rate_confidence="low",  # +1 low (+0.3)
+    )
+    badge, score, _ = compute_stickiness_signal(g)
+    assert abs(score - 0.8) < 0.001
+    assert badge == BADGE_USUALLY_HOOKS
 
 
 # ---------------------------------------------------------------------------

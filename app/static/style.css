@@ -2162,9 +2162,13 @@ a.affinity-pill--clickable:focus-visible {
    uses a teal/blue tone — high engagement but not a "good" label, more
    "different category." Mixed signals and Standard share muted greys
    distinguished by saturation: Mixed slightly more chromatic to suggest
-   "interesting but split." */
+   "interesting but split." Usually hooks / Often filters are
+   desaturated versions of Hooks/Filters — visible lean without claiming
+   the strong category. */
 .stickiness-badge--hooks_players       { background: #16321c; color: #7ecf7e; }
+.stickiness-badge--usually_hooks       { background: #1f2a23; color: #9ab89e; }
 .stickiness-badge--filters_early       { background: #2a2010; color: #e8b84b; }
+.stickiness-badge--often_filters       { background: #2a2520; color: #c4ad7a; }
 .stickiness-badge--marathon            { background: #1b2c34; color: #7ec0d2; }
 .stickiness-badge--mixed_signals       { background: #2a2533; color: #b89dd0; }
 .stickiness-badge--standard_engagement { background: #22222f; color: #9a9aaf; }
@@ -2183,7 +2187,9 @@ a.affinity-pill--clickable:focus-visible {
 }
 
 .stickiness-pill--hooks_players       { background: #16321c; color: #7ecf7e; }
+.stickiness-pill--usually_hooks       { background: #1f2a23; color: #9ab89e; }
 .stickiness-pill--filters_early       { background: #2a2010; color: #e8b84b; }
+.stickiness-pill--often_filters       { background: #2a2520; color: #c4ad7a; }
 .stickiness-pill--marathon            { background: #1b2c34; color: #7ec0d2; }
 .stickiness-pill--mixed_signals       { background: #2a2533; color: #b89dd0; }
 .stickiness-pill--standard_engagement { background: #22222f; color: #9a9aaf; }

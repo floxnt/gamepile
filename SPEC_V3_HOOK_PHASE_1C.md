@@ -97,10 +97,12 @@ Score thresholds:
 - `score ≤ -1.5` → `Filters early`
 - between → falls through to sub-classification (change 4)
 
-### 4. Split "Average" into three meaningful labels
+### 4. Split "Average" into five meaningful labels
 
 The Phase 1b "Average" bucket was 60% of the library and conveyed
-nothing. Differentiate based on signal pattern:
+nothing. The initial Phase 1c ship differentiated based on signal
+*pattern* (Marathon / Mixed / Standard); the refinement below adds
+two score-*lean* buckets that further sub-divide the middle band.
 
 - **`Marathon`** — `review_playtime_median ≥ 50h` AND **high-confidence**
   `completion_rate < 0.10`. High engagement, low confirmed completion =
@@ -108,18 +110,33 @@ nothing. Differentiate based on signal pattern:
   Restricting to high-confidence completion prevents sparse-data games
   from earning Marathon labels off noisy heuristic estimates.
 
-- **`Mixed signals`** — composite score in `(-1.5, +1.5)` AND at least
+- **`Usually hooks`** *(refinement, post-initial ship)* — composite
+  score in `[+0.5, +1.5)`. Above-neutral lean (above-neutral stickiness,
+  marginal completion + small late cliff, etc.) but not strong enough
+  for Hooks players. Wins over Mixed signals when both qualify — a
+  clear directional lean is more informative than "strong signals
+  present".
+
+- **`Often filters`** *(refinement, post-initial ship)* — composite
+  score in `(-1.0, -0.5]`. Below-neutral lean, mirror of Usually hooks.
+  Asymmetric inner threshold at -0.5 (parallel to Usually hooks at +0.5)
+  rather than the SCORE_FILTERS_THRESHOLD-mirroring -0.75, because
+  -0.5 is the cleanest "meaningful lean" cut and the boundary the
+  workbook brief specified.
+
+- **`Mixed signals`** — composite score in `(-0.5, +0.5)` AND at least
   one of `stickiness` / `cliff` / **high-confidence** `completion`
-  contributes a non-zero signal. Low-confidence completion still feeds
-  the score but does not qualify as the strong signal that promotes a
-  game from Standard to Mixed (it's too noisy to justify an upgrade
-  on its own).
+  contributes a non-zero signal. Lean buckets win over Mixed at the
+  ±0.5 boundary, so Mixed now fires only when strong signals genuinely
+  cancel out to a near-zero composite. Low-confidence completion still
+  feeds the score but doesn't qualify as the strong signal that promotes
+  a game from Standard to Mixed.
 
-- **`Standard engagement`** — score in `(-1.5, +1.5)` AND no qualifying
-  strong signal. Genuinely middle-of-the-road metrics across the board.
+- **`Standard engagement`** — score in `[-0.5, +0.5]` AND no qualifying
+  strong signal. Truly middle-of-the-road metrics across the board.
 
-Marathon takes precedence when both Marathon and Mixed conditions
-match — it's the more specific characterization.
+Marathon takes precedence over Mixed signals, Usually hooks, Often
+filters, and Standard when its playtime + completion conditions match.
 
 Marathon eligibility honors game type rules: applies wherever
 `review_playtime` is shown (everything except `software`, with
@@ -131,7 +148,9 @@ Marathon eligibility honors game type rules: applies wherever
 | Phase 1b badge       | Phase 1c badge          | Tooltip                                                                  |
 |----------------------|-------------------------|--------------------------------------------------------------------------|
 | Sticky               | **Hooks players**       | Most reviewers play deep into the game; cliff patterns suggest engagement holds |
+| (split from Average) | **Usually hooks**       | Leans positive — engagement signals tilt sticky but not strong enough for Hooks players |
 | Filters players hard | **Filters early**       | Many players abandon in the early or mid-game                            |
+| (split from Average) | **Often filters**       | Leans negative — engagement signals tilt toward filtering but not strong enough for Filters early |
 | (split from Average) | **Marathon**            | High engagement, low completion — the kind of game people play forever without finishing |
 | (split from Average) | **Mixed signals**       | Strong signals in different directions — taste-dependent                 |
 | (split from Average) | **Standard engagement** | Middle-of-the-road metrics across the board                              |
@@ -159,11 +178,15 @@ The badge resolution order is:
    metrics are NULL. Low-confidence completion counts as populated for
    this gate so the soft-signal path stays useful on sparse-data games.
 2. **Hooks players** — score ≥ +1.5
-3. **Filters early** — score ≤ -1.5
-4. **Marathon** — score in middle, Marathon condition met
-5. **Mixed signals** — score in middle, no Marathon, qualifying strong
-   signal present
-6. **Standard engagement** — none of the above; default for in-band
+3. **Filters early** — score ≤ -1.0 (asymmetric)
+4. **Marathon** — Marathon condition met (precedence over every
+   middle-band label)
+5. **Usually hooks** — score ≥ +0.5 (lean wins over Mixed when the lean
+   is clear)
+6. **Often filters** — score ≤ -0.5
+7. **Mixed signals** — score in (-0.5, +0.5), qualifying strong signal
+   present (now only fires when strong signals truly cancel)
+8. **Standard engagement** — none of the above; default for in-band
    scores with no strong contributing signals
 
 ## Game type interaction
@@ -227,6 +250,15 @@ WEIGHT_COMPLETION_LOW = 0.3
 SCORE_HOOKS_THRESHOLD = 1.5
 SCORE_FILTERS_THRESHOLD = -1.0
 
+# Lean sub-bands (Phase 1c refinement — split Standard by score lean).
+# Score in [+0.5, +1.5) → Usually hooks; (-1.0, -0.5] → Often filters.
+# Boundaries inclusive on the lean side: at exactly ±0.5 the lean wins.
+# This pulls directional games out of Mixed signals (which now fires
+# only when strong signals truly cancel inside the middle band) and
+# exposes the underlying lean.
+SCORE_USUALLY_HOOKS_MIN = 0.5
+SCORE_OFTEN_FILTERS_MAX = -0.5
+
 # Marathon thresholds
 MARATHON_PLAYTIME_MIN_HOURS = 50.0      # = 3000 minutes
 MARATHON_COMPLETION_MAX = 0.10
@@ -267,12 +299,14 @@ The `compute_stickiness_signal` return shape changes from Phase 1b's
 ## New badge constants
 
 ```python
-BADGE_HOOKS_PLAYERS = "hooks_players"
-BADGE_FILTERS_EARLY = "filters_early"
-BADGE_MARATHON = "marathon"
-BADGE_MIXED_SIGNALS = "mixed_signals"
+BADGE_HOOKS_PLAYERS       = "hooks_players"
+BADGE_USUALLY_HOOKS       = "usually_hooks"        # refinement, post-initial ship
+BADGE_FILTERS_EARLY       = "filters_early"
+BADGE_OFTEN_FILTERS       = "often_filters"        # refinement, post-initial ship
+BADGE_MARATHON            = "marathon"
+BADGE_MIXED_SIGNALS       = "mixed_signals"
 BADGE_STANDARD_ENGAGEMENT = "standard_engagement"
-BADGE_LIMITED_DATA = "limited_data"
+BADGE_LIMITED_DATA        = "limited_data"
 ```
 
 The Phase 1b badge constants (`BADGE_STICKY`, `BADGE_AVERAGE`,
@@ -307,19 +341,23 @@ basic cases (mirrors `compute_cliff_metric` envelope tests).
 
 ## CSS additions / renames
 
-Three new badge variants in addition to the renamed Phase 1b classes:
+Badge variants in addition to the renamed Phase 1b classes:
 
 ```
 .stickiness-badge--hooks_players        (replaces --sticky)
+.stickiness-badge--usually_hooks        (refinement — desaturated green)
 .stickiness-badge--filters_early        (replaces --filters_hard)
+.stickiness-badge--often_filters        (refinement — desaturated amber)
 .stickiness-badge--marathon             (new)
 .stickiness-badge--mixed_signals        (new — split from --average)
 .stickiness-badge--standard_engagement  (split from --average)
 ```
 
-Same pattern for `.stickiness-pill--*`. Phase 1b CSS classes
-(`--sticky`, `--filters_hard`, `--average`) are renamed in place to
-keep the stylesheet single-purpose.
+Same pattern for `.stickiness-pill--*`. Usually hooks / Often filters
+use desaturated versions of their strong-category neighbors —
+visually communicates "lean" without claiming the strong category.
+Phase 1b CSS classes (`--sticky`, `--filters_hard`, `--average`) are
+renamed in place to keep the stylesheet single-purpose.
 
 Game Detail breakdown line styling: `.engagement-signal-breakdown` (the
 indented per-signal list); `.engagement-signal-breakdown-row` per line.
