@@ -101,9 +101,69 @@ def test_software_via_curated_appid():
 
 
 def test_software_via_app_type_non_game():
-    """app_type values like "advertising"/"music"/"video" indicate non-game."""
+    """app_type values like "advertising"/"music"/"video" indicate non-game.
+
+    Uses the _game() default playtime=0 so the game-evidence escape hatch
+    does NOT fire (substantial playtime requires >=30min).
+    """
     for at in ("advertising", "music", "video", "tool"):
-        assert classify_game(_game(app_type=at)) == GAME_TYPE_SOFTWARE, f"failed for {at}"
+        assert classify_game(_game(app_type=at, playtime=0)) == GAME_TYPE_SOFTWARE, f"failed for {at}"
+
+
+def test_software_app_type_escaped_by_playtime_plus_game_genre():
+    """Steam-side app_type can be wrong (e.g. Darksiders II returns
+    app_type='advertising'). Substantial playtime + a recognizable game
+    genre overrides the app_type signal."""
+    g = _game(
+        appid=50650,
+        name="Darksiders II",
+        app_type="advertising",
+        genres="Action,Adventure,RPG",
+        playtime=370,
+    )
+    assert classify_game(g) != GAME_TYPE_SOFTWARE
+    # And specifically that it falls through to a downstream rule.
+    assert classify_game(g) == GAME_TYPE_LINEAR
+
+
+def test_software_app_type_escaped_by_achievements_alone():
+    """The OR branch: having achievements (completion_rate populated by
+    sync) is itself sufficient game-evidence to override app_type."""
+    g = _game(app_type="advertising", genres="Action", playtime=0)
+    # Without achievements, the default test fixture has playtime=0 so
+    # the AND branch can't fire — confirm the OR branch covers this.
+    g.completion_rate = 0.42
+    assert classify_game(g) != GAME_TYPE_SOFTWARE
+
+
+def test_software_app_type_not_escaped_by_playtime_alone():
+    """Playtime without game genres is NOT enough — protects against
+    'utility with playtime' false-negatives (e.g. a productivity app
+    accidentally tagged advertising that the user has used)."""
+    g = _game(app_type="advertising", genres="Utilities", playtime=600)
+    # Note: this entry would also trigger the genre rule, but the
+    # important check is that app_type alone doesn't get escaped.
+    assert classify_game(g) == GAME_TYPE_SOFTWARE
+
+
+def test_software_app_type_not_escaped_when_playtime_below_threshold():
+    """29 minutes is below the 30-min substantial-playtime floor."""
+    g = _game(app_type="advertising", genres="Action", playtime=29)
+    assert classify_game(g) == GAME_TYPE_SOFTWARE
+
+
+def test_software_genre_path_not_escaped_by_game_evidence():
+    """The escape hatch only protects against the weaker app_type
+    signal. A game with Utilities genre + Action genre + heavy playtime
+    + achievements (Wallpaper Engine shape) still classifies as software."""
+    g = _game(
+        name="Wallpaper Engine-like",
+        app_type="game",
+        genres="Casual,Indie,Utilities",
+        playtime=14000,
+    )
+    g.completion_rate = 0.01
+    assert classify_game(g) == GAME_TYPE_SOFTWARE
 
 
 def test_software_via_genre_hint():
@@ -425,6 +485,11 @@ TESTS = [
     test_beta_overrides_multiplayer,
     test_software_via_curated_appid,
     test_software_via_app_type_non_game,
+    test_software_app_type_escaped_by_playtime_plus_game_genre,
+    test_software_app_type_escaped_by_achievements_alone,
+    test_software_app_type_not_escaped_by_playtime_alone,
+    test_software_app_type_not_escaped_when_playtime_below_threshold,
+    test_software_genre_path_not_escaped_by_game_evidence,
     test_software_via_genre_hint,
     test_software_overrides_dlc,
     test_expansion_via_dlc_app_type,

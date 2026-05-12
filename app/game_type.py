@@ -133,6 +133,32 @@ NON_GAME_APP_TYPES: frozenset = frozenset({
     "hardware",
 })
 
+# Recognizable game-genre names (lowercased) used as positive evidence that
+# an entry is a real game even when Steam's app_type metadata claims it
+# isn't. Used by _has_game_evidence to override the app_type-based software
+# rule. Intentionally does NOT include the SOFTWARE_GENRE_HINTS — a game
+# tagged with both "Action" and "Utilities" still classifies as software
+# via the genre path; this list only protects against the weaker app_type
+# signal.
+RECOGNIZABLE_GAME_GENRES: frozenset = frozenset({
+    "action",
+    "adventure",
+    "rpg",
+    "strategy",
+    "simulation",
+    "sports",
+    "racing",
+    "indie",
+    "casual",
+    "massively multiplayer",
+    "free to play",
+})
+
+# Minimum playtime (minutes) to count as "substantial" for the
+# game-evidence override. Matches the codebase's existing "effectively
+# untouched" threshold used in _start_something_new.
+GAME_EVIDENCE_PLAYTIME_MIN = 30
+
 # MMO patterns — checked against BOTH user_tags AND Steam categories
 # (case-insensitive substring).
 MMO_PATTERNS: tuple = ("mmo", "massively multiplayer")
@@ -218,6 +244,31 @@ def _is_software_by_genre(game) -> bool:
     return bool(_genre_set(game) & SOFTWARE_GENRE_HINTS)
 
 
+def _has_game_evidence(game) -> bool:
+    """Strong evidence the entry is actually a game, used to override
+    weak software signals — specifically app_type metadata, which Steam
+    occasionally sets to 'advertising' / 'music' / etc. for legitimate
+    old games (e.g. Darksiders II appdetails returns app_type='advertising').
+
+    Returns True when:
+        (substantial playtime AND recognizable game genre) OR has achievements
+
+    Achievements are detected via completion_rate being non-None — the
+    column is populated only when the sync layer successfully fetched
+    Steam global achievement percentages, which only exist for entries
+    Steam considers games.
+
+    Does NOT short-circuit the genre-based software detection: a game
+    tagged "Action,Utilities" still classifies as software because the
+    Utilities genre is a stronger signal than app_type. This helper only
+    feeds into the app_type rule.
+    """
+    has_playtime = (game.playtime_minutes or 0) >= GAME_EVIDENCE_PLAYTIME_MIN
+    has_game_genre = bool(_genre_set(game) & RECOGNIZABLE_GAME_GENRES)
+    has_achievements = game.completion_rate is not None
+    return (has_playtime and has_game_genre) or has_achievements
+
+
 def _is_dlc(game) -> bool:
     return (game.app_type or "").lower() == "dlc"
 
@@ -292,10 +343,12 @@ def classify_game(game, coming_soon: bool = False) -> str:
     if _name_has_beta_keyword(game.name):
         return GAME_TYPE_BETA_PLAYTEST
 
-    # Rule 2: software — curated list, then app_type, then genre hints.
+    # Rule 2: software — curated list, then app_type (with game-evidence
+    # escape hatch — Steam occasionally returns a non-game app_type for
+    # real games), then genre hints.
     if _is_software_by_curation(game):
         return GAME_TYPE_SOFTWARE
-    if _is_software_by_app_type(game):
+    if _is_software_by_app_type(game) and not _has_game_evidence(game):
         return GAME_TYPE_SOFTWARE
     if _is_software_by_genre(game):
         return GAME_TYPE_SOFTWARE
