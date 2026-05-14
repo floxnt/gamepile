@@ -83,18 +83,23 @@ jobs:
       # missing-dependency / import-error regressions that wouldn't
       # surface in dev. 30s timeout absorbs slow cold-start variance
       # on windows-latest runners.
+      #
+      # We check the exit code, not stdout: the PyInstaller bundle is
+      # built with console=False (correct — gamepile is a pywebview GUI
+      # app), so the resulting GUI-subsystem EXE has no console attached
+      # and stdout writes go to a black hole on Windows. The Python side
+      # already calls sys.exit(0) on healthz success and sys.exit(1) on
+      # timeout in _run_healthz_only — that signal IS reliable.
       - name: Smoke-test bundle (Windows only)
         if: matrix.platform_label == 'windows'
         shell: pwsh
         run: |
-          $output = & ".\dist\gamepile\gamepile.exe" --healthz-only 2>&1
-          Write-Host "Bundle output:"
-          $output | ForEach-Object { Write-Host "  $_" }
-          if ($output -match "ok") {
-            Write-Host "Smoke test PASSED"
+          & ".\dist\gamepile\gamepile.exe" --healthz-only
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Smoke test PASSED (exit 0)"
             exit 0
           }
-          Write-Host "Smoke test FAILED — no 'ok' in output"
+          Write-Host "Smoke test FAILED — exit code $LASTEXITCODE"
           exit 1
 
       # README.bundled.md ships inside each archive as README.md — gives
