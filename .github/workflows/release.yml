@@ -89,22 +89,29 @@ jobs:
       # surface in dev. 30s timeout absorbs slow cold-start variance
       # on windows-latest runners.
       #
-      # We check the exit code, not stdout: the PyInstaller bundle is
-      # built with console=False (correct — gamepile is a pywebview GUI
-      # app), so the resulting GUI-subsystem EXE has no console attached
-      # and stdout writes go to a black hole on Windows. The Python side
-      # already calls sys.exit(0) on healthz success and sys.exit(1) on
-      # timeout in _run_healthz_only — that signal IS reliable.
+      # We use Start-Process -Wait, not the `&` call operator: the
+      # PyInstaller bundle is built with console=False (correct —
+      # gamepile is a pywebview GUI app), which produces a GUI-subsystem
+      # EXE on Windows. PowerShell's `&` does NOT block for GUI-subsystem
+      # processes — it returns immediately with $LASTEXITCODE unset, so
+      # the check races the EXE and reads a null exit code (verified in
+      # the v0.5.2 run log: the EXE's "ok" print landed ~1.3s AFTER the
+      # smoke-test step had already failed). Start-Process -Wait blocks
+      # until the process exits regardless of subsystem; -PassThru gives
+      # us the Process object whose .ExitCode is the reliable signal.
+      # -NoNewWindow keeps any incidental sub-process output flowing
+      # through the captured pwsh stream instead of a transient console.
       - name: Smoke-test bundle (Windows only)
         if: matrix.platform_label == 'windows'
         shell: pwsh
         run: |
-          & ".\dist\gamepile\gamepile.exe" --healthz-only
-          if ($LASTEXITCODE -eq 0) {
+          $proc = Start-Process -FilePath ".\dist\gamepile\gamepile.exe" `
+              -ArgumentList "--healthz-only" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -eq 0) {
             Write-Host "Smoke test PASSED (exit 0)"
             exit 0
           }
-          Write-Host "Smoke test FAILED — exit code $LASTEXITCODE"
+          Write-Host "Smoke test FAILED — exit code $($proc.ExitCode)"
           exit 1
 
       # README.bundled.md ships inside each archive as README.md — gives
