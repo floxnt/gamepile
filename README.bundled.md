@@ -126,7 +126,7 @@ libraries fall into this. Same root cause as above — known Steam limitation.
 
 ## Filing bugs
 
-Bug reports welcome at <https://github.com/anthropics/gamepile/issues>.
+Bug reports welcome at <https://github.com/floxnt/gamepile/issues>.
 Include:
 - GamePile version (visible at the bottom of the Settings page)
 - Your OS + version
