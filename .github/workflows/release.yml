@@ -49,6 +49,10 @@ jobs:
       # libcairo2-dev is required for the pycairo source build that uv
       # falls back to when no matching wheel is available; libcairo2
       # itself (runtime) is already pulled in transitively by webkit2gtk.
+      # libgirepository-2.0-dev is required for the pygobject 3.56 source
+      # build (pygobject 3.51+ switched its build namespace to the 2.0
+      # girepository); libgirepository1.0-dev stays for now — they install
+      # cleanly side-by-side and pruning 1.0 is deferred to housekeeping.
       - name: Install GTK runtime (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
@@ -56,6 +60,7 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-0 \
             libgirepository1.0-dev \
+            libgirepository-2.0-dev \
             libcairo2-dev \
             gir1.2-webkit2-4.1 \
             gir1.2-gtk-3.0 \
