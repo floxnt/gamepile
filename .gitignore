@@ -6,5 +6,4 @@ build/
 *.egg-info/
 .venv/
 .uv/
-uv.lock
 .claude/
