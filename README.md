@@ -122,4 +122,4 @@ Per-feature design docs:
 ## Contributing
 
 This is a personal project. Bug reports and PRs from friends running the
-binary are welcome at <https://github.com/anthropics/gamepile/issues>.
+binary are welcome at <https://github.com/floxnt/gamepile/issues>.
