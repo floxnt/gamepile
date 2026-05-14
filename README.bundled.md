@@ -21,7 +21,7 @@ Local-only. Single-user. No cloud sync. No telemetry.
 ### Windows
 
 1. Download `gamepile-vX.Y.Z-windows-x64.zip` from the
-   [Releases page](https://github.com/anthropics/gamepile/releases).
+   [Releases page](https://github.com/floxnt/gamepile/releases).
 2. Extract the ZIP somewhere — `C:\Users\<you>\GamePile\` works fine.
 3. Double-click `gamepile.exe` inside the extracted folder.
 
@@ -29,7 +29,7 @@ Local-only. Single-user. No cloud sync. No telemetry.
 prevented an unrecognized app from starting." Click **More info**, then
 **Run anyway**. The binary is unsigned because this is a friend-distributed
 build — not a sign of malware. Source code is at
-<https://github.com/anthropics/gamepile> if you want to verify.
+<https://github.com/floxnt/gamepile> if you want to verify.
 
 **WebView2 Runtime:** If your Windows 11 install is the LTSC edition (or an
 older Windows 10 build), GamePile will detect a missing WebView2 Runtime
