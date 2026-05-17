@@ -703,6 +703,18 @@ select option {
 .library-table tbody tr:last-child td { border-bottom: none; }
 .library-table tbody tr:hover { background: var(--surface2); }
 
+/* Edit-action column (last column). Header is empty and the cell has
+   no width-shaping unlike every other column — without these rules the
+   button sits flush against the .table-wrapper right edge and reads as
+   clipped, especially at sub-1600px viewports where the wrapper's
+   overflow-x scroll kicks in. */
+.library-table th:last-child,
+.library-table td:last-child {
+  text-align: right;
+  padding-right: 0.75rem;
+  min-width: 64px;
+}
+
 .game-name {
   white-space: normal;
   min-width: 140px;
