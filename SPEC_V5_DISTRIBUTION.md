@@ -74,29 +74,82 @@ keeps `uv sync` from trying to install PyGObject on the Windows CI runner
 
 **`collect_all("pythonnet")` + `collect_all("clr_loader")` (Windows only).**
 pywebview's edgechromium and winforms backend modules both do
-`import clr` at module load. That fires the chain pythonnet →
-clr_loader → netfx loader → reflection lookup of
-`Python.Runtime.Loader.Initialize` inside `Python.Runtime.dll`.
-PyInstaller's binary auto-walk finds `Python.Runtime.dll` itself but
-misses its non-DLL companions in `pythonnet/runtime/`:
-`Python.Runtime.dll.config` (binding redirects to the in-box
-netstandard 2.0 facade), `Python.Runtime.runtimeconfig.json`,
-`Python.Runtime.deps.json`. It can also miss `clr_loader/ffi/dlls/clr.dll`
-— the native CLR-host shim. Without those, the netfx loader on
-Windows 11 (which has .NET Framework 4.8 preinstalled and should "just
-work") loads the assembly but can't resolve its entry-point type,
-crashing with `RuntimeError: Failed to resolve
-Python.Runtime.Loader.Initialize from …\\Python.Runtime.dll` before
-any window opens.
+`import clr` at module load. PyInstaller's binary auto-walk finds
+`Python.Runtime.dll` itself but misses its non-DLL companions in
+`pythonnet/runtime/`: `Python.Runtime.dll.config`,
+`Python.Runtime.runtimeconfig.json`, `Python.Runtime.deps.json`. It
+can also miss `clr_loader/ffi/dlls/clr.dll` — the native CLR-host
+shim. `collect_all` closes that gap. Gated to `sys.platform == "win32"`
+— pythonnet isn't load-bearing on the Linux GTK backend (no
+`import clr`) and is dead weight there.
 
-This was discovered when v0.5.3 and v0.5.4 Windows bundles crashed at
-end-user launch on clean Windows 11 machines with that exact error
-despite `Python.Runtime.dll` being physically present in
-`gamepile/_internal/pythonnet/runtime/`. CI never caught it because
-`--healthz-only` runs uvicorn alone and bypasses every code path that
-touches `import clr`. The `collect_all` calls are gated to
-`sys.platform == "win32"` — pythonnet isn't load-bearing on the Linux
-GTK backend (no `import clr`) and is dead weight there.
+### Self-contained .NET runtime (Windows)
+
+**Why bundled, not host-resolved.** pythonnet's default runtime
+selection on Windows is the netfx (.NET Framework) loader. That worked
+on the GitHub Actions `windows-latest` runner (a developer image with
+.NET Framework 4.8.1 Developer Pack, multiple .NET Core SDKs, populated
+GAC, registered AssemblyFoldersEx) and reliably failed on clean
+consumer Windows 11 (in-box .NET Framework 4.8 only). The failure mode
+was always the same: `Python.Runtime.dll` loaded successfully, but
+`GetType("Python.Runtime.Loader")` returned null because some facade
+assembly in its dependency chain didn't resolve — manifesting as
+`RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize from
+…\Python.Runtime.dll` before any window opened. This shipped broken in
+v0.5.3 (caught manually), v0.5.4 (caught manually after the empty-
+releases-page distraction), and v0.5.5 (caught manually after a
+CI-only smoke test produced a false negative — the runner satisfied
+the facade resolution that the consumer machine could not).
+
+The .NET Framework facade-resolution path under `Reflection.LoadFile`
+is not formally specified, varies between 4.8.0 and 4.8.1, varies
+between consumer and developer SKUs, and cannot be reliably simulated
+on GitHub-hosted runners. Fixing netfx properly would mean shipping
+manual facade-assembly DLLs alongside `Python.Runtime.dll` AND hoping
+the host's .NET Framework cooperates AND accepting that CI can never
+honestly test the failure mode against a clean consumer environment.
+The simpler-and-strictly-better path is to stop depending on the host
+.NET entirely.
+
+**Architecture.** The release workflow downloads a pinned .NET 8 LTS
+runtime (Microsoft.NETCore.App + Microsoft.WindowsDesktop.App,
+8.0.27, SHA512-verified against the official Microsoft release
+metadata), extracts it into `dotnet/runtime/`, and the spec bundles
+it into the app at `_internal/dotnet/`. Both SKUs are needed:
+NETCore.App is the base CLR + BCL; WindowsDesktop.App contains
+System.Windows.Forms, which pywebview's edgechromium backend uses to
+host the WebView2 control. NETCore.App alone is insufficient.
+
+`app/main.py` runs a top-of-module block (Windows + frozen only) that:
+1. Sets `DOTNET_ROOT` env var to `sys._MEIPASS / "dotnet"`.
+2. Calls `pythonnet.set_runtime(clr_loader.get_coreclr(runtime_config=…))`
+   pointing at the version-controlled `dotnet/Python.Runtime.runtimeconfig.json`
+   (targets `net8.0` / `Microsoft.WindowsDesktop.App` 8.0.0).
+3. Returns control to the import chain. Subsequent `import webview`
+   triggers `import clr` which now uses the bundled coreclr runtime,
+   not the host's netfx loader.
+
+The set_runtime call is load-bearing on import order: it must run
+BEFORE any module that pulls pywebview. The block carries a code
+comment naming that constraint explicitly so a future refactor cannot
+silently reintroduce the host-dependency crash by reordering imports.
+
+**Bundle size impact.** Combined download for both runtime SKUs is
+~70 MB compressed (NETCore.App 33.2 MB + WindowsDesktop.App 36.8 MB);
+extracted in-bundle footprint pushes the published Windows zip from
+~22 MB (v0.5.5) to ~80–100 MB (v0.5.6+). One-time download cost, not
+per-launch. Acceptable for friend-distribution; would be the first
+optimization target if size becomes a complaint.
+
+**.NET runtime version pin.** Bundled runtime is .NET 8.0.27
+(release 2026-05-12, LTS, support phase "maintenance", EOL
+2026-11-10). Pinned by URL + SHA512 in both runtime download steps in
+`.github/workflows/release.yml`. To bump for a security patch: update
+version + both URLs + both SHA512s in the workflow's "Download and
+verify bundled .NET 8 runtime" step (values come from the
+`builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json`
+metadata, fields `releases[0].runtime` and `releases[0].windowsdesktop`).
+Tracked in deferred housekeeping.
 
 ### Frozen-aware resource resolution
 
@@ -329,3 +382,14 @@ PyInstaller bundle verified locally on Linux:
   exclude pruning is a v5.x patch-release task if size becomes a problem)
 - Per-Linux-distro packaging (.deb, .rpm, Flatpak, Snap) — the tar.gz
   + system-libs documentation is enough for friend-distribution
+- **Revisit bundled .NET runtime pin before .NET 8 LTS EOL (2026-11-10).**
+  The .NET 10 LTS lands Nov 2026; once it's proven (a few months of
+  patch-release maturity), bump the bundled runtime. Don't preempt — pin
+  is revisited on the EOL clock, not on every minor .NET update.
+- **Update pinned .NET 8 runtime URL/SHA when a security patch warrants.**
+  The pin in `.github/workflows/release.yml` is to 8.0.27 (2026-05-12).
+  When a security advisory lands for a later 8.0.X, bump both URLs and
+  both SHA512s from `builds.dotnet.microsoft.com/dotnet/release-metadata/
+  8.0/releases.json`. Same pattern as the Node 20 / windows-2025
+  deferred items: pinned URLs are expected to go stale; the discipline
+  is to track that staleness explicitly rather than let it rot silently.

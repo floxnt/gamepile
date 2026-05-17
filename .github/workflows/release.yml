@@ -72,6 +72,57 @@ jobs:
       - name: Install PyInstaller
         run: uv pip install pyinstaller
 
+      # Self-contained .NET 8 runtime bundled into the Windows app.
+      # Pinned to a specific 8.0.X patch with SHA512 from the official
+      # Microsoft release-metadata feed
+      # (builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json).
+      # When a security patch warrants bumping, update version + both URLs
+      # + both SHA512 hashes together; deferred-housekeeping item tracked
+      # in SPEC_V5_DISTRIBUTION.md.
+      #
+      # We bundle BOTH Microsoft.NETCore.App (base CLR + BCL) AND
+      # Microsoft.WindowsDesktop.App (System.Windows.Forms, used by
+      # pywebview's edgechromium backend to host the WebView2 control).
+      # NETCore.App alone is insufficient — WinForms is not in it.
+      #
+      # The two zips share a directory layout that merges cleanly when
+      # extracted into the same root (NETCore.App under
+      # shared/Microsoft.NETCore.App/, WindowsDesktop.App under
+      # shared/Microsoft.WindowsDesktop.App/ — no path collision).
+      - name: Download and verify bundled .NET 8 runtime (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $runtimes = @(
+            @{
+              Url  = "https://builds.dotnet.microsoft.com/dotnet/Runtime/8.0.27/dotnet-runtime-8.0.27-win-x64.zip"
+              Sha  = "e31528b5452afdec4cdf78fb073e8693ed0c24a14f5b69065e7018f89eefc38e52fcfd4eed8255b5d58867aa850f66790fead5b66f0fab13a72bebf098e98937"
+              Name = "dotnet-runtime-8.0.27-win-x64.zip"
+            },
+            @{
+              Url  = "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/8.0.27/windowsdesktop-runtime-8.0.27-win-x64.zip"
+              Sha  = "c56ef39aca978a39be22e9377518787acaf0bbebf7b019415e84ed8558e8a06000c95f34863911ad5bfe3a87462bc6b67aa01d256edac03a3c55c90def86da17"
+              Name = "windowsdesktop-runtime-8.0.27-win-x64.zip"
+            }
+          )
+          New-Item -ItemType Directory -Force -Path dotnet\runtime | Out-Null
+          foreach ($rt in $runtimes) {
+            Write-Host "Downloading $($rt.Name)..."
+            Invoke-WebRequest -Uri $rt.Url -OutFile $rt.Name -UseBasicParsing
+            $actual = (Get-FileHash $rt.Name -Algorithm SHA512).Hash.ToLower()
+            if ($actual -ne $rt.Sha) {
+              Write-Host "SHA512 mismatch for $($rt.Name)"
+              Write-Host "  expected: $($rt.Sha)"
+              Write-Host "  actual:   $actual"
+              exit 1
+            }
+            Write-Host "  SHA512 verified."
+            Expand-Archive -Path $rt.Name -DestinationPath dotnet\runtime -Force
+            Remove-Item $rt.Name
+          }
+          Write-Host "Bundled .NET 8.0.27 runtime ready in dotnet\runtime\"
+          Get-ChildItem dotnet\runtime\shared | Select-Object Name
+
       # Tests run on Linux only (full suite); Windows skips ahead to the
       # build + bundle-smoke-test path. Rationale: the credentials /
       # paths / hook_metrics / dashboard suites are platform-agnostic

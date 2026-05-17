@@ -53,9 +53,25 @@ webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
 if IS_WINDOWS:
     pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = collect_all("pythonnet")
     clr_loader_datas, clr_loader_binaries, clr_loader_hiddenimports = collect_all("clr_loader")
+    # Bundled self-contained .NET 8 runtime — see SPEC_V5_DISTRIBUTION.md
+    # "Self-contained .NET runtime (Windows)". The release workflow
+    # downloads, SHA-verifies, and extracts BOTH Microsoft.NETCore.App
+    # and Microsoft.WindowsDesktop.App runtimes into dotnet/runtime/
+    # before invoking pyinstaller. The WindowsDesktop SKU is required:
+    # pywebview's edgechromium backend uses System.Windows.Forms to host
+    # the WebView2 control, and WinForms is not in the base NETCore.App.
+    # Pinning the runtime version inside the bundle removes the
+    # host-environment dependency that broke v0.5.3..v0.5.5 on clean
+    # Windows 11 (.NET Framework facade-assembly resolution varies
+    # between developer images and consumer machines).
+    dotnet_datas = [
+        ("dotnet/runtime", "dotnet"),
+        ("dotnet/Python.Runtime.runtimeconfig.json", "dotnet"),
+    ]
 else:
     pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = [], [], []
     clr_loader_datas, clr_loader_binaries, clr_loader_hiddenimports = [], [], []
+    dotnet_datas = []
 
 # Keyring backends are lazy-imported by the keyring library at runtime.
 # PyInstaller's static analysis misses them; declare the active
@@ -131,6 +147,7 @@ a = Analysis(
         *webview_datas,
         *pythonnet_datas,
         *clr_loader_datas,
+        *dotnet_datas,
     ],
     hiddenimports=[
         *platform_hiddenimports,

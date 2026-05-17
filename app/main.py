@@ -1,7 +1,38 @@
 import logging
+import os
 import sys
 import threading
 import time
+
+# LOAD-BEARING ORDER (Windows-frozen only). pywebview's edgechromium and
+# winforms backends `import clr` at module load. `import clr` triggers
+# pythonnet's default runtime selection, which on Windows is the netfx
+# (.NET Framework) loader. The netfx path's success depends on the host
+# machine's .NET Framework facade-assembly resolution behavior — which
+# differs in load-bearing ways between developer images (e.g. GitHub
+# Actions windows-latest, where it works) and clean consumer Windows 11
+# machines (where it does NOT — v0.5.3, v0.5.4, and v0.5.5 all shipped
+# Windows bundles that passed CI and crashed at end-user launch with
+# RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize).
+#
+# The fix: bundle a self-contained .NET 8 runtime alongside the app and
+# pin pythonnet to clr_loader's coreclr backend pointing at the bundled
+# runtimeconfig. This removes the host-.NET dependency entirely — the
+# bundled runtime is what gets loaded, regardless of what the host has.
+#
+# DO NOT move `import webview` (or any module that pulls pywebview)
+# above this block. DO NOT defer set_runtime() into a function body.
+# Both reorderings silently reintroduce the v0.5.3..v0.5.5 crash.
+if sys.platform == "win32" and getattr(sys, "frozen", False):
+    from pathlib import Path
+    _meipass = Path(sys._MEIPASS)
+    _dotnet_root = _meipass / "dotnet"
+    _runtimeconfig = _dotnet_root / "Python.Runtime.runtimeconfig.json"
+    if _dotnet_root.is_dir() and _runtimeconfig.is_file():
+        os.environ["DOTNET_ROOT"] = str(_dotnet_root)
+        import clr_loader
+        import pythonnet
+        pythonnet.set_runtime(clr_loader.get_coreclr(runtime_config=str(_runtimeconfig)))
 
 import httpx
 import uvicorn
