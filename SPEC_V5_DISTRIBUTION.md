@@ -137,19 +137,45 @@ Windows backend crash opaquely.
 
 No-op on non-Windows platforms.
 
-### CI smoke-test mode (`--healthz-only`)
+### CI smoke-test modes
 
-`app/main.py` accepts a `--healthz-only` command-line flag:
+The Windows CI smoke-test runs two complementary modes against the
+built `gamepile.exe`. Both exit 0/1 with no display, no window, no
+interactivity required.
+
+**`--healthz-only`** — uvicorn/FastAPI half.
 
 1. Starts uvicorn in a daemon thread (same path as production)
 2. Polls `/healthz` for up to 30 seconds
 3. Prints `ok` on success / `fail: <reason>` on timeout
-4. Exits 0 / 1 — no pywebview, no GUI subsystem
+4. Exits 0 / 1 — no pywebview, no GUI subsystem touched
 
-Used by the Windows CI runner to verify the built executable actually
-imports and boots, catching missing-hidden-import and path-resolution
-regressions that won't surface in dev. 30s timeout absorbs slow
-cold-start on windows-latest runners.
+Catches missing-hidden-import and path-resolution regressions in the
+server-side bundle. 30s timeout absorbs slow cold-start on
+windows-latest runners.
+
+**`--check-windows-runtime`** — pywebview/.NET loader half.
+
+1. `import clr` — triggers pythonnet → clr_loader → netfx →
+   reflection lookup of `Python.Runtime.Loader.Initialize` in the
+   bundled `Python.Runtime.dll`
+2. `import webview.platforms.edgechromium` — forces pywebview's
+   Windows backend module to load its C# bindings
+3. Prints `ok` / `fail: <ExcType>: <msg>`, exits 0 / 1
+4. On non-Windows: no-op exit 0 (so the same step is portable across
+   the matrix without a separate `if:` guard at the workflow level)
+
+No window opens; `clr.dll` activates the CLR but creates no UI, and
+the edgechromium import loads bindings without instantiating
+`EdgeChrome`. This is the exact failure class that ate v0.5.3 and
+v0.5.4 — they passed `--healthz-only` because that flag never imports
+clr, so the broken bundle shipped to users. v0.5.5+ catches that class
+at build time, not at end-user launch.
+
+What this does NOT cover: the actual "window appears, UI renders"
+end-to-end check. That stays manual — download the zip on a clean
+Windows machine, double-click `gamepile.exe`, confirm a window opens
+before the release is considered validated.
 
 ## GitHub Actions workflow
 

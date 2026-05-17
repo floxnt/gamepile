@@ -191,10 +191,40 @@ def _run_healthz_only() -> None:
     sys.exit(1)
 
 
+def _run_check_windows_runtime() -> None:
+    """CI smoke-test mode that exercises the .NET loader chain bypassed
+    by --healthz-only. v0.5.3 and v0.5.4 Windows bundles shipped broken
+    because nothing tested `import clr` → pythonnet → clr_loader →
+    netfx → Python.Runtime.Loader.Initialize. This flag forces the full
+    chain to invoke without opening a window or starting uvicorn.
+
+    On non-Windows: no-op (prints "ok: non-windows skip", exits 0).
+    No display required — clr.dll activates the CLR but creates no
+    window; importing the edgechromium backend module loads C# bindings
+    but does not instantiate EdgeChrome."""
+    if sys.platform != "win32":
+        print("ok: non-windows skip")
+        sys.exit(0)
+    try:
+        import clr  # noqa: F401  triggers pythonnet → clr_loader → netfx loader
+        import webview.platforms.edgechromium  # noqa: F401  pywebview Windows backend module
+        print("ok")
+        sys.exit(0)
+    except Exception as exc:
+        print(f"fail: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def run() -> None:
-    # CI smoke-test bypass — never opens a window, exits with status.
+    # CI smoke-test bypasses — never open a window, exit with status.
+    # --healthz-only verifies the uvicorn/FastAPI half boots.
+    # --check-windows-runtime verifies the pywebview/.NET loader half
+    # resolves; required because --healthz-only doesn't `import clr`.
     if "--healthz-only" in sys.argv:
         _run_healthz_only()
+        return
+    if "--check-windows-runtime" in sys.argv:
+        _run_check_windows_runtime()
         return
 
     _check_webview2_runtime()

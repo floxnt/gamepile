@@ -105,14 +105,34 @@ jobs:
         if: matrix.platform_label == 'windows'
         shell: pwsh
         run: |
-          $proc = Start-Process -FilePath ".\dist\gamepile\gamepile.exe" `
+          # Two-stage smoke test. --healthz-only covers the uvicorn/FastAPI
+          # half (the bundle imports, boots, serves /healthz). It does NOT
+          # touch pywebview — by design — so it doesn't fire `import clr`
+          # and missed v0.5.3/v0.5.4's missing-pythonnet-companions bug.
+          # --check-windows-runtime covers exactly that gap: it forces
+          # `import clr` (pythonnet → clr_loader → netfx) and imports the
+          # edgechromium backend module. No window opens, no display
+          # required — only the .NET loader chain is exercised. If the
+          # bundle is missing Python.Runtime.dll.config / runtimeconfig.json
+          # / clr_loader's clr.dll shim, this step fails fast at build time
+          # instead of at end-user launch.
+          $hz = Start-Process -FilePath ".\dist\gamepile\gamepile.exe" `
               -ArgumentList "--healthz-only" -Wait -PassThru -NoNewWindow
-          if ($proc.ExitCode -eq 0) {
-            Write-Host "Smoke test PASSED (exit 0)"
-            exit 0
+          if ($hz.ExitCode -ne 0) {
+            Write-Host "--healthz-only FAILED — exit code $($hz.ExitCode)"
+            exit 1
           }
-          Write-Host "Smoke test FAILED — exit code $($proc.ExitCode)"
-          exit 1
+          Write-Host "--healthz-only PASSED"
+
+          $rt = Start-Process -FilePath ".\dist\gamepile\gamepile.exe" `
+              -ArgumentList "--check-windows-runtime" -Wait -PassThru -NoNewWindow
+          if ($rt.ExitCode -ne 0) {
+            Write-Host "--check-windows-runtime FAILED — exit code $($rt.ExitCode)"
+            exit 1
+          }
+          Write-Host "--check-windows-runtime PASSED"
+          Write-Host "Smoke test PASSED (both stages)"
+          exit 0
 
       # README.bundled.md ships inside each archive as README.md — gives
       # users the install / first-run / troubleshooting docs without
