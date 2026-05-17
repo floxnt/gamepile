@@ -72,6 +72,32 @@ on every platform.
 keeps `uv sync` from trying to install PyGObject on the Windows CI runner
 (no wheel exists).
 
+**`collect_all("pythonnet")` + `collect_all("clr_loader")` (Windows only).**
+pywebview's edgechromium and winforms backend modules both do
+`import clr` at module load. That fires the chain pythonnet →
+clr_loader → netfx loader → reflection lookup of
+`Python.Runtime.Loader.Initialize` inside `Python.Runtime.dll`.
+PyInstaller's binary auto-walk finds `Python.Runtime.dll` itself but
+misses its non-DLL companions in `pythonnet/runtime/`:
+`Python.Runtime.dll.config` (binding redirects to the in-box
+netstandard 2.0 facade), `Python.Runtime.runtimeconfig.json`,
+`Python.Runtime.deps.json`. It can also miss `clr_loader/ffi/dlls/clr.dll`
+— the native CLR-host shim. Without those, the netfx loader on
+Windows 11 (which has .NET Framework 4.8 preinstalled and should "just
+work") loads the assembly but can't resolve its entry-point type,
+crashing with `RuntimeError: Failed to resolve
+Python.Runtime.Loader.Initialize from …\\Python.Runtime.dll` before
+any window opens.
+
+This was discovered when v0.5.3 and v0.5.4 Windows bundles crashed at
+end-user launch on clean Windows 11 machines with that exact error
+despite `Python.Runtime.dll` being physically present in
+`gamepile/_internal/pythonnet/runtime/`. CI never caught it because
+`--healthz-only` runs uvicorn alone and bypasses every code path that
+touches `import clr`. The `collect_all` calls are gated to
+`sys.platform == "win32"` — pythonnet isn't load-bearing on the Linux
+GTK backend (no `import clr`) and is dead weight there.
+
 ### Frozen-aware resource resolution
 
 PyInstaller flattens `app/main.py` into the bundle's top level, which

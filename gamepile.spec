@@ -36,6 +36,27 @@ IS_MACOS = sys.platform == "darwin"
 # for the per-platform backend modules and their support data.
 webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
 
+# pythonnet + clr_loader: Windows-only. pywebview's edgechromium and
+# winforms backends both `import clr` at module load, which fires
+# pythonnet → clr_loader → netfx → Python.Runtime.Loader.Initialize.
+# PyInstaller's auto-walk finds Python.Runtime.dll but misses its
+# non-binary companions (Python.Runtime.dll.config binding redirects,
+# Python.Runtime.runtimeconfig.json, .deps.json) and may miss
+# clr_loader/ffi/dlls/clr.dll (the native CLR-host shim). Both v0.5.3
+# and v0.5.4 shipped Windows bundles that crashed at end-user launch
+# with "Failed to resolve Python.Runtime.Loader.Initialize" despite the
+# DLL being physically present — the netfx loader could load the
+# assembly but couldn't resolve its entry point because the .config
+# binding redirects to netstandard 2.0 were absent. collect_all closes
+# that gap. Not needed on Linux (GTK backend does not import clr) or
+# macOS (unsupported in v5).
+if IS_WINDOWS:
+    pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = collect_all("pythonnet")
+    clr_loader_datas, clr_loader_binaries, clr_loader_hiddenimports = collect_all("clr_loader")
+else:
+    pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = [], [], []
+    clr_loader_datas, clr_loader_binaries, clr_loader_hiddenimports = [], [], []
+
 # Keyring backends are lazy-imported by the keyring library at runtime.
 # PyInstaller's static analysis misses them; declare the active
 # platform's backends explicitly. Linux Secret Service depends on
@@ -99,16 +120,24 @@ else:  # macOS (not officially supported in v5; left functional in case someone 
 a = Analysis(
     ["app/main.py"],
     pathex=[],
-    binaries=webview_binaries,
+    binaries=[
+        *webview_binaries,
+        *pythonnet_binaries,
+        *clr_loader_binaries,
+    ],
     datas=[
         ("app/templates", "app/templates"),
         ("app/static", "app/static"),
         *webview_datas,
+        *pythonnet_datas,
+        *clr_loader_datas,
     ],
     hiddenimports=[
         *platform_hiddenimports,
         *keyring_hiddenimports,
         *webview_hiddenimports,
+        *pythonnet_hiddenimports,
+        *clr_loader_hiddenimports,
     ],
     hookspath=[],
     hooksconfig={},
