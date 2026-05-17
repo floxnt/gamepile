@@ -209,26 +209,73 @@ windows-latest runners.
 
 **`--check-windows-runtime`** — pywebview/.NET loader half.
 
-1. `import clr` — triggers pythonnet → clr_loader → netfx →
-   reflection lookup of `Python.Runtime.Loader.Initialize` in the
-   bundled `Python.Runtime.dll`
+1. `import clr` — triggers pythonnet → clr_loader → bundled coreclr
+   bootstrap → reflection lookup of `Python.Runtime.Loader.Initialize`
+   in the bundled `Python.Runtime.dll`
 2. `import webview.platforms.edgechromium` — forces pywebview's
    Windows backend module to load its C# bindings
-3. Prints `ok` / `fail: <ExcType>: <msg>`, exits 0 / 1
-4. On non-Windows: no-op exit 0 (so the same step is portable across
-   the matrix without a separate `if:` guard at the workflow level)
+3. **Verify `pythonnet.get_runtime_info().kind == "CoreCLR"`** —
+   asserts the bundled coreclr runtime is actually active, not netfx
+   fallback. If `set_runtime()` in `app/main.py`'s top-of-module block
+   silently failed to apply (missing bundled runtime files, malformed
+   runtimeconfig, import-order regression by a future refactor),
+   pythonnet falls back to netfx and this assertion fails, catching the
+   v0.5.3..v0.5.5-class regression at build time rather than at
+   end-user launch.
+4. Prints `ok: runtime=CoreCLR version=…` / `fail: <reason>`,
+   exits 0 / 1
+5. On non-Windows: no-op exit 0 (portable across the matrix without a
+   separate `if:` guard at the workflow level)
 
 No window opens; `clr.dll` activates the CLR but creates no UI, and
 the edgechromium import loads bindings without instantiating
-`EdgeChrome`. This is the exact failure class that ate v0.5.3 and
-v0.5.4 — they passed `--healthz-only` because that flag never imports
-clr, so the broken bundle shipped to users. v0.5.5+ catches that class
-at build time, not at end-user launch.
+`EdgeChrome`.
 
-What this does NOT cover: the actual "window appears, UI renders"
-end-to-end check. That stays manual — download the zip on a clean
-Windows machine, double-click `gamepile.exe`, confirm a window opens
-before the release is considered validated.
+### What CI can and cannot catch
+
+CI's role on Windows is bounded and worth stating plainly so the
+detector doesn't manufacture false confidence — that was v0.5.5's
+exact failure mode (CI green, real machine crash, three releases lost
+to the same illusion).
+
+**The detector catches:**
+- Bundle missing the .NET runtime directory entirely
+- Bundle missing the custom runtimeconfig.json
+- pythonnet / clr_loader data files missing (the v0.5.4 collect_all gap)
+- `set_runtime()` silently failing to apply (e.g., a future refactor
+  reorders imports so a pywebview-pulling module loads before the
+  runtime-selection block runs)
+- Any future regression where the bundled coreclr runtime fails to
+  bootstrap
+
+**The detector does NOT catch:**
+- "Window appears, UI renders" — the GUI subsystem cannot be exercised
+  without a display, and GitHub-hosted runners do not provide an
+  attached desktop session
+- WebView2 Runtime missing on the host (handled by the existing
+  `_check_webview2_runtime()` startup probe, separately)
+- File-system permission anomalies on user machines
+- AV / SmartScreen interference at end-user launch
+
+**The manual gate is structural, not a temporary state.** The
+windows-latest runner is a developer image by definition: it carries
+multiple .NET SDKs, the Framework Developer Pack, a populated GAC,
+and registry hints that a clean consumer Windows 11 machine does not
+have. The pre-v0.5.6 architecture (netfx with host-resolved facade
+assemblies) failed precisely because that environmental gap could not
+be reliably bridged in CI. The post-v0.5.6 architecture (bundled
+coreclr) closes the gap **for the .NET loader chain specifically** —
+because the relevant runtime is now the bundled one, identical on
+runner and end-user machine. But it does not close the gap for the
+GUI rendering layer, and CI runners will never honestly simulate a
+clean consumer desktop session.
+
+Concretely: **the `--check-windows-runtime` step passing in CI is
+necessary but not sufficient for release acceptance. The
+release-acceptance criterion is, and will remain, the manual
+download-and-double-click test on a real clean consumer Windows
+machine.** Do not promote a release from "CI green" to "ship to
+friends" without that manual check.
 
 ## GitHub Actions workflow
 

@@ -224,23 +224,56 @@ def _run_healthz_only() -> None:
 
 def _run_check_windows_runtime() -> None:
     """CI smoke-test mode that exercises the .NET loader chain bypassed
-    by --healthz-only. v0.5.3 and v0.5.4 Windows bundles shipped broken
-    because nothing tested `import clr` → pythonnet → clr_loader →
-    netfx → Python.Runtime.Loader.Initialize. This flag forces the full
-    chain to invoke without opening a window or starting uvicorn.
+    by --healthz-only. v0.5.3..v0.5.5 Windows bundles shipped broken
+    because nothing tested `import clr` against an environment that
+    matched a clean consumer machine. v0.5.6 sidesteps the environmental
+    dependency entirely by bundling a .NET 8 coreclr runtime and pinning
+    pythonnet to it — this detector verifies the pin actually took.
 
-    On non-Windows: no-op (prints "ok: non-windows skip", exits 0).
-    No display required — clr.dll activates the CLR but creates no
-    window; importing the edgechromium backend module loads C# bindings
-    but does not instantiate EdgeChrome."""
+    Two-stage check:
+    1. `import clr` succeeds — the bundled runtime resolved and the
+       pythonnet bootstrap completed.
+    2. The active runtime is coreclr, NOT netfx fallback. If
+       `pythonnet.set_runtime()` in app/main.py's top-of-module block
+       silently failed to apply (e.g., bundled runtime files missing,
+       runtimeconfig.json malformed, import order regressed by a future
+       refactor), pythonnet would fall back to netfx and the bundle
+       would once again be at the mercy of the host's .NET Framework
+       state. This second-stage assertion catches that regression at
+       build time.
+
+    On non-Windows: no-op exit 0. No display required — clr.dll
+    activates the CLR but creates no window; importing edgechromium
+    loads C# bindings but does not instantiate EdgeChrome.
+
+    What this does NOT cover: window-actually-renders. CI runners are
+    developer images and cannot honestly simulate a clean consumer
+    Windows 11 environment for the GUI-rendering layer. The manual
+    download-and-double-click test on real consumer hardware remains
+    the release-acceptance criterion."""
     if sys.platform != "win32":
         print("ok: non-windows skip")
         sys.exit(0)
     try:
-        import clr  # noqa: F401  triggers pythonnet → clr_loader → netfx loader
-        import webview.platforms.edgechromium  # noqa: F401  pywebview Windows backend module
-        print("ok")
-        sys.exit(0)
+        import clr  # noqa: F401  triggers pythonnet → clr_loader bootstrap
+        import pythonnet
+        import webview.platforms.edgechromium  # noqa: F401  pywebview backend
+        info = pythonnet.get_runtime_info()
+        kind = info.kind if info is not None else "None"
+        # "CoreCLR" is the only acceptable outcome on Windows; clr_loader's
+        # netfx backend returns ".NET Framework" here. Anything other than
+        # CoreCLR means set_runtime() in app/main.py's top-of-module block
+        # didn't apply — a v0.5.3..v0.5.5-class regression.
+        if kind == "CoreCLR":
+            print(f"ok: runtime={kind} version={info.version}")
+            sys.exit(0)
+        print(
+            f"fail: expected CoreCLR runtime active, got {kind!r}. "
+            "set_runtime() did not apply — Windows bundle would crash "
+            "on clean consumer machines exactly as v0.5.3..v0.5.5 did.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except Exception as exc:
         print(f"fail: {type(exc).__name__}: {exc}", file=sys.stderr)
         sys.exit(1)
