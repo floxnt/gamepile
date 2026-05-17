@@ -152,9 +152,9 @@ Windows only:
   Compress-Archive dist\gamepile gamepile-<tag>-windows-x64.zip
 
 Upload:
-  tag push     → softprops/action-gh-release@v2 draft Release
-                  (manual promote keeps the user in control of when
-                  releases go public)
+  tag push     → softprops/action-gh-release@v2 published Release
+                  (draft: false — tag push lands a public release with
+                  both bundles attached, no manual promote step)
   dispatch run → actions/upload-artifact@v4 (14-day retention)
 ```
 
@@ -164,13 +164,31 @@ spec issues).
 
 ## Distribution flow
 
-1. Author runs `git tag vX.Y.Z && git push --tags`
-2. Workflow builds both bundles, uploads to a draft Release
+1. Author runs `git tag vX.Y.Z && git push origin main --tags`
+2. Workflow builds both bundles and publishes a Release directly (no
+   draft intermediate)
 3. Author downloads and smoke-tests both artifacts on local machines
    (or sends to a friend with the target OS)
-4. If broken: delete the tag + draft Release, fix, re-tag
-5. If working: click **Publish release** on the GitHub Releases page
-6. Friends download from <https://github.com/anthropics/gamepile/releases>
+4. If broken: delete the tag + Release, fix, re-tag with a patch bump
+5. Friends download from <https://github.com/floxnt/gamepile/releases>
+
+### Why direct-publish instead of draft
+
+The original v5 design used `draft: true` on the gh-release action, on
+the theory that a manual "Publish release" click would keep the author
+in control of when a release went public. In practice that step was
+never taken — v0.5.0 through v0.5.3 all landed as drafts that were
+invisible to anonymous viewers of the Releases page, so to friends the
+project looked like it had no releases at all. "Author controls when
+releases go public" collapsed to "releases never go public," which is
+strictly worse for a friend-distribution project.
+
+The fix is `draft: false`: tag pushes publish immediately. The recovery
+path for a bad build is the same as for any other public release —
+delete the tag and the Release, patch-bump, re-tag. Friends will not be
+running every tag the moment it ships; the latency between tag and
+download already gives a window for "oh that one's broken, grab the
+next one instead."
 
 Versioning: semver from `v0.5.0`. Patch releases for bugfixes
 (`v0.5.1`, `v0.5.2`), minor bumps for new features (`v0.6.0`),

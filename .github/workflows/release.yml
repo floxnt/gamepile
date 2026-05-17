@@ -138,14 +138,20 @@ jobs:
         run: |
           Compress-Archive -Path dist\gamepile -DestinationPath "gamepile-${{ github.ref_name }}-windows-x64.zip"
 
-      # Tag pushes go to a draft Release for manual promote. Manual
-      # workflow_dispatch runs upload to the Actions run page only —
-      # keeps the Releases list clean during workflow iteration.
-      - name: Upload to draft Release (tag pushes)
+      # Tag pushes publish a Release directly. The earlier design routed
+      # tag pushes to a draft Release for manual promotion, on the theory
+      # that the author should control when releases go public. In
+      # practice the manual-promote step was never taken, so "user
+      # controls when releases go public" became "releases never go
+      # public" — strictly worse for a friend-distribution project.
+      # Direct publish wins.
+      # Manual workflow_dispatch runs still upload to the Actions run
+      # page only — keeps the Releases list clean during iteration.
+      - name: Publish Release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           files: |
             gamepile-${{ github.ref_name }}-linux-x64.tar.gz
             gamepile-${{ github.ref_name }}-windows-x64.zip
