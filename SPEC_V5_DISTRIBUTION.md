@@ -183,18 +183,47 @@ released a version that incorporates the fix. When pywebview does
 ship a release with the binding update, the workflow's download step
 and the spec's filter can both be removed and this section retired.
 
-**Implementation.** `.github/workflows/release.yml` "Download and
-verify WebView2 netcoreapp3.0 binding override" step (Windows-only):
-fetches the NuGet package by pinned URL, SHA512-verifies the bytes,
-extracts the two `lib_manual/netcoreapp3.0/` DLLs into
-`webview2_override/`. `gamepile.spec` filters
-`Microsoft.Web.WebView2.{Core,WinForms}.dll` out of
-`collect_all("webview")` output (with a sanity-raise if nothing
-matched, so a future pywebview layout change can't silently un-apply
-the override) and adds the overrides to `datas=` at
-`webview/lib/`. Explicit filter rather than relying on
-PyInstaller's undocumented datas-order-wins behavior — order behavior
-is the recurring failure mode this whole arc has cautioned against.
+**Implementation — two layers.** The override applies in two places
+because the spec-level layer turned out to be insufficient on its own.
+
+*Layer 1 (intent, documentation, belt-and-braces — NOT load-bearing).*
+`.github/workflows/release.yml` "Download and verify WebView2
+netcoreapp3.0 binding override" step (Windows-only): fetches the
+NuGet package by pinned URL, SHA512-verifies the bytes, extracts the
+two `lib_manual/netcoreapp3.0/` DLLs into `webview2_override/`.
+`gamepile.spec` filters `Microsoft.Web.WebView2.{Core,WinForms}.dll`
+out of `collect_all("webview")` output (with a sanity-raise if
+nothing matched). This layer removes the net462 DLLs from
+PyInstaller's tracked collection, but **pywebview ships a PyInstaller
+hook at `webview/__pyinstaller/hook-webview.py` that PyInstaller's
+`Analysis()` invokes independently during its module-dependency
+walk**. The hook calls `collect_data_files('webview', subdir='lib')`
+and `collect_dynamic_libs('webview')`, which re-discover and re-add
+the same net462 DLLs after the spec-level filter ran. v0.5.7 shipped
+broken because this hook-rediscovery mechanism wasn't accounted for.
+
+*Layer 2 (load-bearing — the actual override).* After `pyinstaller`
+finishes writing `dist/gamepile/`, a Windows-only workflow step
+`Copy-Item -Force`s the two netcoreapp3.0 DLLs over their final
+bundle path at `dist/gamepile/_internal/webview/lib/`, then
+SHA512-verifies the post-copy bytes against pinned hashes. This
+layer is filesystem-level last-write-wins — deterministic,
+unambiguous, immune to PyInstaller hook behavior. The post-copy SHA
+check is non-optional: every silent-success assumption in this arc
+has been wrong, so the bundle layer asserts that the bytes actually
+landed.
+
+pywebview's `interop_dll_path` (`webview/util.py:480-497`) resolves
+to `<_MEIPASS>/webview/lib/<dll_name>` first when frozen, which in
+the onedir bundle is `dist/gamepile/_internal/webview/lib/<dll_name>`
+— exactly where the post-build copy targets. Verified by reading the
+function directly, not theorized.
+
+The two-layer structure costs ~30 lines of non-load-bearing spec
+code that documents intent + provides belt-and-braces if a future
+PyInstaller release changes the hook-rediscovery behavior. Removing
+the spec filter would make the post-build `Copy-Item` look like an
+unexplained hack.
 
 ### Frozen-aware resource resolution
 

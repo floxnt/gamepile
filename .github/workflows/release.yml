@@ -191,6 +191,74 @@ jobs:
       - name: Build PyInstaller bundle
         run: uv run pyinstaller gamepile.spec --noconfirm
 
+      # Post-build WebView2 binding override (Windows only). The
+      # gamepile.spec filter that removes pywebview's net462 binding
+      # DLLs from collect_all('webview') output is necessary but not
+      # sufficient: pywebview's PyInstaller hook
+      # (webview/__pyinstaller/hook-webview.py) is re-invoked
+      # independently during PyInstaller's Analysis() phase via
+      # collect_data_files + collect_dynamic_libs, re-adding the
+      # net462 DLLs after the spec-level filter ran. v0.5.7 shipped
+      # broken for exactly this reason.
+      #
+      # The deterministic fix is filesystem-level last-write-wins:
+      # after PyInstaller produces dist/gamepile/, overwrite the two
+      # binding DLLs at their final bundle location with the
+      # netcoreapp3.0 variants. pywebview's interop_dll_path resolves
+      # to <_MEIPASS>/webview/lib/ in frozen mode (verified against
+      # webview/util.py:480-497), which translates to
+      # dist/gamepile/_internal/webview/lib/ in the onedir bundle.
+      #
+      # SHA512-verify after the copy. Every silent-success assumption
+      # in this arc has been wrong; we assert the bytes that actually
+      # landed in the bundle match the netcoreapp3.0 source. If a
+      # future PyInstaller change moves the destination path, the
+      # copy silently no-ops, or anything else interferes, the build
+      # fails loudly here rather than shipping a silently-broken
+      # bundle.
+      - name: Apply WebView2 binding override to built bundle (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $dst = "dist\gamepile\_internal\webview\lib"
+          if (-not (Test-Path $dst)) {
+            Write-Host "Expected destination $dst does not exist — pywebview layout in bundle may have changed; investigate before shipping."
+            exit 1
+          }
+          Copy-Item -Force "webview2_override\Microsoft.Web.WebView2.Core.dll"    "$dst\Microsoft.Web.WebView2.Core.dll"
+          Copy-Item -Force "webview2_override\Microsoft.Web.WebView2.WinForms.dll" "$dst\Microsoft.Web.WebView2.WinForms.dll"
+          Write-Host "Copied netcoreapp3.0 binding DLLs into $dst"
+
+          # Verify bytes-now-in-bundle match the netcoreapp3.0 source.
+          # SHA512 hashes computed at v0.5.8 commit time from the
+          # NuGet 1.0.3856.49 lib_manual/netcoreapp3.0/ files. If the
+          # pinned NuGet URL stops serving these exact bytes, the
+          # earlier "Download and verify WebView2 netcoreapp3.0
+          # binding override" step's package-level SHA check fails
+          # first; this is the bundle-layer cross-check.
+          $checks = @(
+            @{
+              File = "$dst\Microsoft.Web.WebView2.Core.dll"
+              Sha  = "6ba5910c6e1ca0124ec597fc6b64c858c260663ea4bd50552dd6df43e3198a5e75a2f1df972fddf732857292b66dc6f2fd874f966587e611c01fe11244d0114a"
+            },
+            @{
+              File = "$dst\Microsoft.Web.WebView2.WinForms.dll"
+              Sha  = "e30015047e7ac0e2e93e43fdcb205cf31fc184bd7ebbeb9fabaa64ea2027d06c93de3aa69b5cee9cef256b2b0d832e808aeead66a0a5e84ab3b86a4df6b7e1c6"
+            }
+          )
+          foreach ($c in $checks) {
+            $actual = (Get-FileHash $c.File -Algorithm SHA512).Hash.ToLower()
+            if ($actual -ne $c.Sha) {
+              Write-Host "SHA512 mismatch after override copy"
+              Write-Host "  file:     $($c.File)"
+              Write-Host "  expected: $($c.Sha)"
+              Write-Host "  actual:   $actual"
+              exit 1
+            }
+            Write-Host "  $([System.IO.Path]::GetFileName($c.File)): SHA512 verified."
+          }
+          Write-Host "WebView2 binding override verified at bundle layer."
+
       # Smoke-test the Windows bundle: the built executable must
       # start uvicorn, respond on /healthz, and exit cleanly. Catches
       # missing-dependency / import-error regressions that wouldn't

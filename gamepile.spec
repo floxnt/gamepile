@@ -41,12 +41,24 @@ webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
 # DLLs (Microsoft.Web.WebView2.{Core,WinForms}.dll under webview/lib/).
 # Under the bundled .NET 8 coreclr runtime, the net462 WinForms.dll's
 # ContextMenu type reference (removed in .NET Core 3.0+) causes
-# TypeLoadException at module-load — the v0.5.6 crash class. We replace
-# them below with the netcoreapp3.0-TFM variants from the same NuGet
-# package version (1.0.3856.49). Explicit filter rather than relying on
-# PyInstaller datas-order-wins behavior — order behavior is undocumented
-# and silently regressing is the recurring failure mode this whole arc
-# has been trying to eliminate.
+# TypeLoadException at module-load — the v0.5.6 crash class.
+#
+# IMPORTANT: this filter is NOT load-bearing on its own. pywebview ships
+# a PyInstaller hook (webview/__pyinstaller/hook-webview.py) that's
+# re-invoked independently during PyInstaller's Analysis() phase, which
+# re-adds the same net462 DLLs after this filter ran. v0.5.7 shipped
+# broken for exactly that reason. The LOAD-BEARING override happens at
+# the bundle filesystem layer via the release workflow's "Apply WebView2
+# binding override to built bundle" step, which Copy-Item -Force's the
+# netcoreapp3.0 DLLs over whatever PyInstaller placed at
+# _internal/webview/lib/ and SHA512-verifies the post-copy bytes.
+#
+# This spec-level filter stays for two reasons: (a) it removes the
+# DLLs from collect_all's tracked collection so the spec is correct
+# at its own layer; (b) belt-and-braces — if a future PyInstaller
+# release changes hook-rediscovery behavior, this layer may again
+# be sufficient. The sanity-raise below catches "filter matched
+# nothing" as a layout-change warning.
 #
 # Only filter on Windows. On Linux pywebview's gtk backend doesn't use
 # any of this; the binding files are absent from the install and the
