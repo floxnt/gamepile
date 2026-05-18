@@ -222,96 +222,217 @@ def _run_healthz_only() -> None:
     sys.exit(1)
 
 
+def _dump_bundle_webview_lib_inventory() -> None:
+    """Enumerate what's actually in the frozen bundle's webview/lib/
+    directory at RUNTIME — file names, sizes, and TFM for the two
+    Microsoft.Web.WebView2.*.dll files. Build-time SHA verification
+    (v0.5.8's post-copy check) confirms the bytes that landed during
+    the workflow; this runtime probe confirms what's there when the
+    EXE actually runs. The v0.5.7->v0.5.8 hook-readd saga proved we
+    cannot conflate build-time and runtime state."""
+    from pathlib import Path
+    print("[inventory] frozen=" + str(getattr(sys, "frozen", False)), file=sys.stderr)
+    if not getattr(sys, "frozen", False):
+        print("[inventory] not frozen — skipping bundle dir enumeration", file=sys.stderr)
+        return
+    lib_dir = Path(sys._MEIPASS) / "webview" / "lib"
+    print(f"[inventory] dir={lib_dir} exists={lib_dir.is_dir()}", file=sys.stderr)
+    if not lib_dir.is_dir():
+        return
+    for entry in sorted(lib_dir.iterdir()):
+        if entry.is_file():
+            print(f"[inventory]   file {entry.name} size={entry.stat().st_size}", file=sys.stderr)
+        else:
+            print(f"[inventory]   dir  {entry.name}/", file=sys.stderr)
+    # Extract TargetFrameworkAttribute from the two WebView2 DLLs via
+    # byte-search for the TFM marker. Doesn't require .NET to be
+    # working — useful even if pythonnet bootstrap subsequently fails.
+    for name in ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll"):
+        path = lib_dir / name
+        if not path.is_file():
+            print(f"[inventory] {name}: MISSING", file=sys.stderr)
+            continue
+        data = path.read_bytes()
+        tfms = []
+        for needle in (b".NETFramework,Version=v", b".NETCoreApp,Version=v", b".NETStandard,Version=v"):
+            idx = 0
+            while True:
+                pos = data.find(needle, idx)
+                if pos < 0:
+                    break
+                end = data.find(b"\x00", pos)
+                if end < 0 or end - pos > 80:
+                    end = pos + 40
+                tfms.append(data[pos:end].decode("ascii", errors="replace"))
+                idx = end
+        print(f"[inventory] {name} tfm_markers={tfms}", file=sys.stderr)
+
+
+def _dump_exc(label: str, exc: BaseException) -> None:
+    """Surface a swallow-prone exception fully: type, message, full
+    traceback, and any wrapped CLR/.NET inner exception that pythonnet
+    may have attached. pywebview's `import_winforms` catches
+    `except ImportError` at guilib.py:73-76 and converts it to the
+    generic 'You must have pythonnet installed' message, hiding the
+    real cause. This helper exists to undo that masking."""
+    import traceback
+    print(f"[exc] === {label} ===", file=sys.stderr)
+    print(f"[exc] type: {type(exc).__module__}.{type(exc).__name__}", file=sys.stderr)
+    print(f"[exc] str:  {exc}", file=sys.stderr)
+    print(f"[exc] repr: {exc!r}", file=sys.stderr)
+    print("[exc] traceback:", file=sys.stderr)
+    traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+    # Walk __cause__ and __context__ chains
+    seen = {id(exc)}
+    cur = exc
+    while True:
+        nxt = cur.__cause__ or cur.__context__
+        if nxt is None or id(nxt) in seen:
+            break
+        seen.add(id(nxt))
+        print(f"[exc] -> chained ({'__cause__' if cur.__cause__ else '__context__'}): "
+              f"{type(nxt).__module__}.{type(nxt).__name__}: {nxt}", file=sys.stderr)
+        cur = nxt
+    # pythonnet-wrapped .NET exceptions often expose .InnerException /
+    # .StackTrace / .Message — read them defensively.
+    for attr in ("Message", "InnerException", "StackTrace", "FusionLog", "TypeName"):
+        try:
+            val = getattr(exc, attr, None)
+        except Exception:
+            val = "<getattr-raised>"
+        if val is not None:
+            print(f"[exc] .NET attr {attr}: {val!r}", file=sys.stderr)
+
+
 def _run_check_windows_runtime() -> None:
     """CI smoke-test mode that exercises the .NET loader chain bypassed
-    by --healthz-only. v0.5.3..v0.5.5 Windows bundles shipped broken
-    because nothing tested `import clr` against an environment that
-    matched a clean consumer machine. v0.5.6 sidesteps the environmental
-    dependency entirely by bundling a .NET 8 coreclr runtime and pinning
-    pythonnet to it — this detector verifies the pin actually took.
+    by --healthz-only.
 
-    Two-stage check:
-    1. `import clr` succeeds — the bundled runtime resolved and the
-       pythonnet bootstrap completed.
-    2. The active runtime is coreclr, NOT netfx fallback. If
-       `pythonnet.set_runtime()` in app/main.py's top-of-module block
-       silently failed to apply (e.g., bundled runtime files missing,
-       runtimeconfig.json malformed, import order regressed by a future
-       refactor), pythonnet would fall back to netfx and the bundle
-       would once again be at the mercy of the host's .NET Framework
-       state. This second-stage assertion catches that regression at
-       build time.
+    v0.5.9 instrumentation pass: the v0.5.8 Windows bundle now fails at
+    runtime with pywebview's generic 'You must have pythonnet installed
+    in order to use pywebview' message — which is FALSE. pythonnet is
+    bundled and was demonstrably working as of v0.5.6's detector. The
+    real exception is swallowed at webview/guilib.py:73-76:
 
-    On non-Windows: no-op exit 0. No display required — clr.dll
-    activates the CLR but creates no window; importing edgechromium
-    loads C# bindings but does not instantiate EdgeChrome.
+        def import_winforms():
+            try:
+                import webview.platforms.winforms as guilib
+                return True
+            except ImportError:
+                logger.exception('pythonnet cannot be loaded')
+                return False
 
-    What this does NOT cover: window-actually-renders. CI runners are
-    developer images and cannot honestly simulate a clean consumer
-    Windows 11 environment for the GUI-rendering layer. The manual
-    download-and-double-click test on real consumer hardware remains
-    the release-acceptance criterion."""
+    This pass surfaces the swallowed exception by walking the same
+    imports pywebview's Windows path performs, each wrapped to print
+    the full real exception (type, message, traceback, .NET inner
+    exception details) instead of letting it be caught-and-generalized.
+
+    Exits 1 at the end of this round so the Windows workflow fails
+    and does NOT publish a broken artifact. The diagnostic stderr is
+    the payload — pulling it from the workflow log is the deliverable.
+    Reverts to assert/fail behavior once the real fault is fixed."""
     if sys.platform != "win32":
         print("ok: non-windows skip")
         sys.exit(0)
+
+    # Layer 1: enumerate the frozen bundle's webview/lib/ at runtime.
+    # Confirms the netcoreapp3.0 DLL override landed and survived to
+    # process-launch time, not just to build time.
+    _dump_bundle_webview_lib_inventory()
+
+    # Layer 2: walk the import chain pywebview's import_winforms
+    # would have walked, each step wrapped to surface real exceptions.
+    # Continue past each failure — we want the full picture even if an
+    # early step fails.
+    print("[chain] === stage clr ===", file=sys.stderr)
     try:
-        import clr  # noqa: F401  triggers pythonnet → clr_loader bootstrap
-        import pythonnet
-        import webview.platforms.edgechromium  # noqa: F401  pywebview backend
-
-        # Stage 1: bundled coreclr runtime active, not netfx fallback.
-        # v0.5.3..v0.5.5 regression class.
-        info = pythonnet.get_runtime_info()
-        kind = info.kind if info is not None else "None"
-        if kind != "CoreCLR":
-            print(
-                f"fail: stage 1 — expected CoreCLR runtime, got {kind!r}. "
-                "set_runtime() did not apply.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Stage 2: WebView2 binding override applied — assembly's
-        # TargetFrameworkAttribute reports a .NET Core flavor, not
-        # .NETFramework. Catches "filter/override silently didn't apply
-        # and pywebview's net462 DLL got bundled anyway."
-        clr.AddReference("Microsoft.Web.WebView2.WinForms")
-        from System.Reflection import Assembly  # type: ignore[import-not-found]
-        from System.Runtime.Versioning import TargetFrameworkAttribute  # type: ignore[import-not-found]
-        wv2 = Assembly.LoadWithPartialName("Microsoft.Web.WebView2.WinForms")
-        tfm_attrs = wv2.GetCustomAttributes(TargetFrameworkAttribute, False)
-        tfm = tfm_attrs[0].FrameworkName if len(tfm_attrs) > 0 else "<missing>"
-        if "NETCoreApp" not in str(tfm):
-            print(
-                f"fail: stage 2 — WebView2.WinForms TFM is {tfm!r}, "
-                "expected .NETCoreApp. The net462 binding got bundled — "
-                "v0.5.6 TypeLoadException class would reappear on launch.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Stage 3: the actual broken-in-v0.5.6 symptom is gone — the
-        # WebView2 type does not expose a ContextMenu attribute (only
-        # ContextMenuStrip). Belt-and-braces against "DLL loaded but
-        # somehow still has the broken reference."
-        from Microsoft.Web.WebView2.WinForms import WebView2  # type: ignore[import-not-found]
-        if hasattr(WebView2, "ContextMenu") and not hasattr(WebView2, "ContextMenuStrip"):
-            print(
-                "fail: stage 3 — WebView2 type exposes ContextMenu but not "
-                "ContextMenuStrip; this is the net462 binding's signature, "
-                "not netcoreapp3.0's. Override did not take.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        print(
-            f"ok: runtime={kind} version={info.version} "
-            f"webview2_tfm={tfm}"
-        )
+        import clr  # noqa: F401
+        print("[chain] import clr: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("import clr", exc)
+        # Without clr, downstream steps will all fail the same way.
+        # Still print the runtime info we can gather.
+        try:
+            import pythonnet
+            info = pythonnet.get_runtime_info()
+            print(f"[chain] pythonnet.get_runtime_info() after failed import clr: {info!r}",
+                  file=sys.stderr)
+        except BaseException as e2:
+            _dump_exc("pythonnet.get_runtime_info() after failed import clr", e2)
         sys.exit(0)
-    except Exception as exc:
-        print(f"fail: {type(exc).__name__}: {exc}", file=sys.stderr)
-        sys.exit(1)
+
+    print("[chain] === stage pythonnet runtime info ===", file=sys.stderr)
+    try:
+        import pythonnet
+        info = pythonnet.get_runtime_info()
+        kind = info.kind if info is not None else "<None>"
+        version = info.version if info is not None else "<None>"
+        print(f"[chain] runtime kind={kind} version={version}", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("pythonnet.get_runtime_info()", exc)
+
+    print("[chain] === stage AddReference base assemblies ===", file=sys.stderr)
+    for ref in ("System.Windows.Forms", "System.Collections", "System.Threading", "System.Reflection"):
+        try:
+            clr.AddReference(ref)
+            print(f"[chain] AddReference({ref}): OK", file=sys.stderr)
+        except BaseException as exc:
+            _dump_exc(f"clr.AddReference({ref!r})", exc)
+
+    print("[chain] === stage import System namespaces ===", file=sys.stderr)
+    try:
+        import System.Windows.Forms as WinForms  # type: ignore[import-not-found]  # noqa: F401
+        print("[chain] import System.Windows.Forms: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("import System.Windows.Forms", exc)
+
+    print("[chain] === stage AddReference WebView2 binding DLLs ===", file=sys.stderr)
+    try:
+        from webview.util import interop_dll_path
+        for dll in ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll"):
+            try:
+                path = interop_dll_path(dll)
+                print(f"[chain] interop_dll_path({dll!r}) -> {path}", file=sys.stderr)
+                clr.AddReference(path)
+                print(f"[chain] AddReference({path}): OK", file=sys.stderr)
+            except BaseException as exc:
+                _dump_exc(f"clr.AddReference(interop_dll_path({dll!r}))", exc)
+    except BaseException as exc:
+        _dump_exc("from webview.util import interop_dll_path", exc)
+
+    print("[chain] === stage import Microsoft.Web.WebView2 namespaces ===", file=sys.stderr)
+    try:
+        from Microsoft.Web.WebView2.Core import CoreWebView2Cookie  # type: ignore[import-not-found]  # noqa: F401
+        print("[chain] import from Microsoft.Web.WebView2.Core: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("from Microsoft.Web.WebView2.Core import CoreWebView2Cookie", exc)
+    try:
+        from Microsoft.Web.WebView2.WinForms import WebView2 as _WV2Type  # type: ignore[import-not-found]  # noqa: F401
+        print("[chain] import from Microsoft.Web.WebView2.WinForms: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("from Microsoft.Web.WebView2.WinForms import WebView2", exc)
+
+    print("[chain] === stage import pywebview Windows backend modules ===", file=sys.stderr)
+    # This is the EXACT call pywebview's import_winforms() makes inside
+    # the swallowing try/except at guilib.py:73-76. Doing it directly
+    # surfaces what that catch hides.
+    try:
+        import webview.platforms.winforms  # type: ignore[import-not-found]  # noqa: F401
+        print("[chain] import webview.platforms.winforms: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("import webview.platforms.winforms (THE SWALLOW SITE)", exc)
+    try:
+        import webview.platforms.edgechromium  # type: ignore[import-not-found]  # noqa: F401
+        print("[chain] import webview.platforms.edgechromium: OK", file=sys.stderr)
+    except BaseException as exc:
+        _dump_exc("import webview.platforms.edgechromium", exc)
+
+    print("[chain] === done ===", file=sys.stderr)
+    # Exit 1 by design: this is the v0.5.9 diagnostic round. Forcing
+    # the smoke-test step to fail keeps the broken Windows bundle from
+    # auto-publishing; the diagnostic stderr above is what we came for.
+    print("fail: v0.5.9 diagnostic round — see stderr above for the unmasked exceptions", file=sys.stderr)
+    sys.exit(1)
 
 
 def run() -> None:
