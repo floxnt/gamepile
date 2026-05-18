@@ -301,6 +301,27 @@ SHA, issue #1803 as upstream context, and the delete-when-upstream-
 ships condition. SHA512 of the full vendored file (header + body) is
 pinned in `.github/workflows/release.yml`.
 
+**`PYTHONNET_RUNTIME=coreclr` env var coupling.** The smparkes patch
+gates its .NET 8 compatibility branches on
+`os.environ.get('PYTHONNET_RUNTIME') == 'coreclr'` — the public
+documented way pywebview detects coreclr mode. Our `app/main.py`
+top-of-module set_runtime block must set this env var alongside the
+explicit `pythonnet.set_runtime()` call. The explicit API call still
+drives the actual runtime selection (it sets `pythonnet._RUNTIME`
+which wins over the env var fallback inside `import clr`); the env
+var is purely a marker for the smparkes-patched code to read.
+
+v0.6.1 shipped broken precisely because we'd set the runtime via the
+explicit API but not set the env var: the patch's coreclr branches
+never fired, the original OpenFolderDialog class body ran, and
+AttributeError on `iFileDialogType.GetMethod` raised exactly as in
+v0.5.9. The `--check-windows-runtime` three-stage assertions passed
+(coreclr runtime, netcoreapp3.0 WebView2 binding, no ContextMenu)
+because they don't cover the full pywebview load chain. v0.6.2's
+detector tightens this gap: any exception emitted during the chain
+walk fails the detector at the end, regardless of whether the
+later assertions would pass.
+
 The release workflow's "Apply pywebview winforms.py patch" step
 (Windows-only) runs after `uv sync` and before `Install PyInstaller`:
 

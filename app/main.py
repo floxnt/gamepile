@@ -30,6 +30,20 @@ if sys.platform == "win32" and getattr(sys, "frozen", False):
     _runtimeconfig = _dotnet_root / "Python.Runtime.runtimeconfig.json"
     if _dotnet_root.is_dir() and _runtimeconfig.is_file():
         os.environ["DOTNET_ROOT"] = str(_dotnet_root)
+        # PYTHONNET_RUNTIME=coreclr is a coupling point with the vendored
+        # pywebview winforms.py patch (smparkes/fix/dotnet8-coreclr). That
+        # patch gates its .NET 8 compatibility branches on
+        # `os.environ.get('PYTHONNET_RUNTIME') == 'coreclr'` — the public
+        # documented way pywebview detects coreclr mode. Our explicit
+        # pythonnet.set_runtime() below still drives the actual runtime
+        # choice (it wins because _RUNTIME is set before the env-var
+        # fallback fires inside `import clr`). The env var is purely a
+        # marker for the smparkes-patched code to read. v0.6.1 shipped
+        # broken because we set the runtime via the explicit API but
+        # didn't set the env var; the patch's coreclr branches never
+        # fired and OpenFolderDialog's class body raised AttributeError
+        # on .NET-Framework-internal type reflection.
+        os.environ["PYTHONNET_RUNTIME"] = "coreclr"
         import clr_loader
         import pythonnet
         pythonnet.set_runtime(clr_loader.get_coreclr(runtime_config=str(_runtimeconfig)))
@@ -268,13 +282,28 @@ def _dump_bundle_webview_lib_inventory() -> None:
         print(f"[inventory] {name} tfm_markers={tfms}", file=sys.stderr)
 
 
+# Module-level counter incremented by _dump_exc. Read at the end of
+# _run_check_windows_runtime to fail the detector if ANY chain step
+# raised — v0.6.1 shipped broken because the three-stage assertions
+# passed while the winforms.py import was still failing; the assertions
+# alone didn't cover the load chain. Treat every dumped exception as a
+# detector failure unless explicitly excluded.
+_CHAIN_EXC_COUNT = 0
+
+
 def _dump_exc(label: str, exc: BaseException) -> None:
     """Surface a swallow-prone exception fully: type, message, full
     traceback, and any wrapped CLR/.NET inner exception that pythonnet
     may have attached. pywebview's `import_winforms` catches
     `except ImportError` at guilib.py:73-76 and converts it to the
     generic 'You must have pythonnet installed' message, hiding the
-    real cause. This helper exists to undo that masking."""
+    real cause. This helper exists to undo that masking.
+
+    Increments _CHAIN_EXC_COUNT so the detector can fail at the end
+    if any chain step raised — preventing the v0.6.1-class regression
+    where chain failures silently coexisted with assertion passes."""
+    global _CHAIN_EXC_COUNT
+    _CHAIN_EXC_COUNT += 1
     import traceback
     print(f"[exc] === {label} ===", file=sys.stderr)
     print(f"[exc] type: {type(exc).__module__}.{type(exc).__name__}", file=sys.stderr)
@@ -430,7 +459,27 @@ def _run_check_windows_runtime() -> None:
     except BaseException as exc:
         _dump_exc("import webview.platforms.edgechromium", exc)
 
-    print("[chain] === done ===", file=sys.stderr)
+    print(f"[chain] === done — {_CHAIN_EXC_COUNT} exception(s) during chain walk ===",
+          file=sys.stderr)
+
+    # Layer 2.5: any chain-walk exception is a detector failure.
+    # v0.6.1 shipped broken because the three-stage assertions below
+    # passed (bundled coreclr active, WebView2 binding netcoreapp3.0,
+    # ContextMenuStrip present) while `import webview.platforms.winforms`
+    # was STILL failing with AttributeError. The smparkes patch gates on
+    # PYTHONNET_RUNTIME=coreclr env var which we hadn't set. The three
+    # stages don't cover the full load chain — failing here on any
+    # chain exception forces the silent-success class to surface.
+    if _CHAIN_EXC_COUNT > 0:
+        print(
+            f"fail: {_CHAIN_EXC_COUNT} chain-walk exception(s) emitted above. "
+            "The pywebview load chain is not clean even if the three-stage "
+            "runtime/TFM/ContextMenu assertions would pass. This is the "
+            "v0.6.1 regression class — silent assertion-pass alongside a "
+            "broken import. Bundle is NOT shippable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     # Layer 3: three-stage assertions on the loaded runtime + binding.
     # v0.6.0 onwards: these resume their pass/fail role. If the chain
