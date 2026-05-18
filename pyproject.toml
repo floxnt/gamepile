@@ -1,6 +1,6 @@
 [project]
 name = "gamepile"
-version = "0.5.7"
+version = "0.5.8"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
