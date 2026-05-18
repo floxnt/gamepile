@@ -1,0 +1,10 @@
+# Pin line endings for files where build-time SHA512 verification depends on
+# byte-exact reproducibility across platforms. Without an explicit eol=lf,
+# Git's core.autocrlf=true on Windows runners converts LF → CRLF on checkout,
+# changing the file's bytes and breaking SHA pins. v0.6.0's first CI run hit
+# exactly this: vendor/pywebview/winforms.py SHA mismatch between WSL commit
+# and windows-latest runner checkout.
+#
+# Scope: only files referenced by SHA-pinned workflow steps. Other files use
+# Git's default eol handling.
+vendor/pywebview/winforms.py text eol=lf
