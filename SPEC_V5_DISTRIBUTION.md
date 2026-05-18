@@ -259,22 +259,35 @@ windows-latest runners.
    in the bundled `Python.Runtime.dll`
 2. `import webview.platforms.edgechromium` — forces pywebview's
    Windows backend module to load its C# bindings
-3. **Verify `pythonnet.get_runtime_info().kind == "CoreCLR"`** —
+3. **Stage 1 assertion: `pythonnet.get_runtime_info().kind == "CoreCLR"`** —
    asserts the bundled coreclr runtime is actually active, not netfx
-   fallback. If `set_runtime()` in `app/main.py`'s top-of-module block
-   silently failed to apply (missing bundled runtime files, malformed
-   runtimeconfig, import-order regression by a future refactor),
-   pythonnet falls back to netfx and this assertion fails, catching the
-   v0.5.3..v0.5.5-class regression at build time rather than at
-   end-user launch.
-4. Prints `ok: runtime=CoreCLR version=…` / `fail: <reason>`,
-   exits 0 / 1
-5. On non-Windows: no-op exit 0 (portable across the matrix without a
+   fallback. Catches a v0.5.3..v0.5.5-class regression where
+   `set_runtime()` in `app/main.py`'s top-of-module block silently
+   failed to apply.
+4. **Stage 2 assertion: WebView2.WinForms assembly's
+   `TargetFrameworkAttribute` contains `"NETCoreApp"`** — asserts the
+   binding-override mechanism applied (the netcoreapp3.0 DLL is loaded,
+   not pywebview's bundled net462 DLL). Catches a v0.5.6-class
+   regression where the spec filter silently didn't apply
+   (e.g., pywebview's layout changed and the filter no longer matches,
+   override files weren't staged by the workflow, datas precedence
+   silently changed).
+5. **Stage 3 assertion: WebView2 type exposes `ContextMenuStrip` and
+   not `ContextMenu`** — asserts the actual broken-in-v0.5.6 symptom
+   is gone. Belt-and-braces against "right DLL loaded but somehow
+   still has the broken reference."
+6. Prints `ok: runtime=CoreCLR version=… webview2_tfm=…` /
+   `fail: stage N — <reason>`, exits 0 / 1
+7. On non-Windows: no-op exit 0 (portable across the matrix without a
    separate `if:` guard at the workflow level)
 
 No window opens; `clr.dll` activates the CLR but creates no UI, and
 the edgechromium import loads bindings without instantiating
-`EdgeChrome`.
+`EdgeChrome`. The three-stage assertion structure deliberately
+duplicates coverage between mechanism (stages 1, 2) and symptom
+(stage 3) — single-check passing while reality fails is the recurring
+failure mode of this whole arc; redundant checks at different layers
+is the cheap insurance.
 
 ### What CI can and cannot catch
 

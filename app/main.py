@@ -258,22 +258,57 @@ def _run_check_windows_runtime() -> None:
         import clr  # noqa: F401  triggers pythonnet → clr_loader bootstrap
         import pythonnet
         import webview.platforms.edgechromium  # noqa: F401  pywebview backend
+
+        # Stage 1: bundled coreclr runtime active, not netfx fallback.
+        # v0.5.3..v0.5.5 regression class.
         info = pythonnet.get_runtime_info()
         kind = info.kind if info is not None else "None"
-        # "CoreCLR" is the only acceptable outcome on Windows; clr_loader's
-        # netfx backend returns ".NET Framework" here. Anything other than
-        # CoreCLR means set_runtime() in app/main.py's top-of-module block
-        # didn't apply — a v0.5.3..v0.5.5-class regression.
-        if kind == "CoreCLR":
-            print(f"ok: runtime={kind} version={info.version}")
-            sys.exit(0)
+        if kind != "CoreCLR":
+            print(
+                f"fail: stage 1 — expected CoreCLR runtime, got {kind!r}. "
+                "set_runtime() did not apply.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Stage 2: WebView2 binding override applied — assembly's
+        # TargetFrameworkAttribute reports a .NET Core flavor, not
+        # .NETFramework. Catches "filter/override silently didn't apply
+        # and pywebview's net462 DLL got bundled anyway."
+        clr.AddReference("Microsoft.Web.WebView2.WinForms")
+        from System.Reflection import Assembly  # type: ignore[import-not-found]
+        from System.Runtime.Versioning import TargetFrameworkAttribute  # type: ignore[import-not-found]
+        wv2 = Assembly.LoadWithPartialName("Microsoft.Web.WebView2.WinForms")
+        tfm_attrs = wv2.GetCustomAttributes(TargetFrameworkAttribute, False)
+        tfm = tfm_attrs[0].FrameworkName if len(tfm_attrs) > 0 else "<missing>"
+        if "NETCoreApp" not in str(tfm):
+            print(
+                f"fail: stage 2 — WebView2.WinForms TFM is {tfm!r}, "
+                "expected .NETCoreApp. The net462 binding got bundled — "
+                "v0.5.6 TypeLoadException class would reappear on launch.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        # Stage 3: the actual broken-in-v0.5.6 symptom is gone — the
+        # WebView2 type does not expose a ContextMenu attribute (only
+        # ContextMenuStrip). Belt-and-braces against "DLL loaded but
+        # somehow still has the broken reference."
+        from Microsoft.Web.WebView2.WinForms import WebView2  # type: ignore[import-not-found]
+        if hasattr(WebView2, "ContextMenu") and not hasattr(WebView2, "ContextMenuStrip"):
+            print(
+                "fail: stage 3 — WebView2 type exposes ContextMenu but not "
+                "ContextMenuStrip; this is the net462 binding's signature, "
+                "not netcoreapp3.0's. Override did not take.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
         print(
-            f"fail: expected CoreCLR runtime active, got {kind!r}. "
-            "set_runtime() did not apply — Windows bundle would crash "
-            "on clean consumer machines exactly as v0.5.3..v0.5.5 did.",
-            file=sys.stderr,
+            f"ok: runtime={kind} version={info.version} "
+            f"webview2_tfm={tfm}"
         )
-        sys.exit(1)
+        sys.exit(0)
     except Exception as exc:
         print(f"fail: {type(exc).__name__}: {exc}", file=sys.stderr)
         sys.exit(1)
