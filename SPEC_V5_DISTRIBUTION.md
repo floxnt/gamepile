@@ -225,6 +225,105 @@ PyInstaller release changes the hook-rediscovery behavior. Removing
 the spec filter would make the post-build `Copy-Item` look like an
 unexplained hack.
 
+### pywebview winforms.py patch (Windows)
+
+**Why a patched winforms.py is needed.** Even with the bundled .NET 8
+runtime and the netcoreapp3.0 WebView2 binding override, pywebview
+6.2.1's `webview/platforms/winforms.py` crashes at module-load on
+.NET 8 coreclr. The `OpenFolderDialog` class body (lines 668-693)
+reflects over .NET-Framework-internal types
+(`System.Windows.Forms.FileDialogNative+IFileDialog`,
+`System.Windows.Forms.FileDialogNative+FOS`) that do not exist in
+.NET 8's WinForms (`Microsoft.WindowsDesktop.App`). `GetType()`
+returns `None` for them; the next line calls `.GetMethod(...)` on
+the `None`; `AttributeError: 'NoneType' object has no attribute
+'GetMethod'` propagates out of the module import, gets caught by
+`webview/guilib.py:73-76`'s `except ImportError` (or propagates past
+it depending on the Python version), and surfaces to the user as the
+misleading `WebViewException: You must have pythonnet installed in
+order to use pywebview.`
+
+This is `OpenFolderDialog`'s class body evaluation — it runs at
+import time regardless of whether the folder picker is ever
+invoked. GamePile doesn't use the folder picker; that's irrelevant
+to the crash. The whole module fails to load.
+
+v0.5.7 / v0.5.8 didn't surface this because the prior layer (the
+v0.5.6 WebView2 binding TypeLoadException) was crashing earlier in
+the chain. With the binding override in place, the import got far
+enough to evaluate `OpenFolderDialog`'s class body and the next .NET
+8 incompatibility surfaced. v0.5.9's diagnostic instrumentation
+made it visible in CI stderr; v0.6.0 fixes it.
+
+**The fix — vendor a patched winforms.py.** pywebview issue #1803
+tracks this exact problem; the smparkes:fix/dotnet8-coreclr fork
+branch (commit `a2bf0df4a4728b170cb02f1f1f698387fbaf0379`) carries
+the upstream-aware fix. The branch makes three changes to
+winforms.py:
+
+1. Adds `clr.AddReference('Microsoft.Win32.SystemEvents')` when
+   PYTHONNET_RUNTIME is coreclr. On .NET 8 the SystemEvents type
+   lives in a separate assembly; the AddReference is a no-op if
+   already loaded transitively (which it appears to be when bundled
+   `Microsoft.WindowsDesktop.App` is in play on Windows x64) but
+   defensive for stripped runtimes / Windows ARM64.
+2. Guards the `_is_chromium()` → `edge_build()` .NET Framework
+   registry probe with `if not is_coreclr:` and fixes a latent
+   UnboundLocalError on the `finally: winreg.CloseKey(net_key)`
+   path. Defensive against environments where .NET Framework isn't
+   registered (e.g. Windows ARM64).
+3. Splits `OpenFolderDialog` into two implementations gated by
+   `PYTHONNET_RUNTIME`. The netfx branch keeps the existing
+   FileDialogNative reflection. The coreclr branch uses the public
+   `WinForms.FolderBrowserDialog` (which exists in both .NET
+   Framework and .NET 8) and accepts but ignores the multi-folder
+   selection parameter (FolderBrowserDialog is single-select). This
+   is the load-bearing fix for our crash.
+
+(The branch also updates pywebview's bundled WebView2 binding DLLs.
+Those overlap with our v0.5.8 post-build binding override — the
+override wins post-build regardless, so smparkes' bundled DLLs are
+irrelevant to us. We pick up only the Python source change.)
+
+We apply all three sub-fixes, not just #3. Sub-fixes #1 and #2 are
+defensive against .NET 8 environment variance that our
+windows-latest CI runner doesn't exhibit (.NET Framework 4.8 is in-
+box, the runner is x64 not ARM64) but a real consumer machine might.
+The thread's hardest lesson is "CI environment ≠ consumer
+environment" — applying the complete patch inherits smparkes'
+complete hardening rather than a hand-picked subset we'd have to
+revisit when a consumer machine diverges from our runner.
+
+**Implementation.** `vendor/pywebview/winforms.py` is a copy of the
+smparkes-patched winforms.py with a provenance header documenting
+its derivation from pywebview 6.2.1 at the pinned smparkes commit
+SHA, issue #1803 as upstream context, and the delete-when-upstream-
+ships condition. SHA512 of the full vendored file (header + body) is
+pinned in `.github/workflows/release.yml`.
+
+The release workflow's "Apply pywebview winforms.py patch" step
+(Windows-only) runs after `uv sync` and before `Install PyInstaller`:
+
+1. SHA512-verify `vendor/pywebview/winforms.py` (source bytes).
+2. Locate `.venv\Lib\site-packages\webview\platforms\winforms.py` —
+   refuse if zero or multiple matches (layout-change canary).
+3. `Copy-Item -Force` the vendored file over the venv file.
+4. SHA512-verify the destination post-copy — same hash as the source.
+
+The double-verify pattern is identical to the v0.5.8 WebView2 binding
+override. PyInstaller then runs against the patched venv and bundles
+the patched winforms.py.
+
+**Empirical reflection inventory.** Audited all `GetType` /
+`GetMethod` / `GetField` / `GetConstructor` / `LoadWithPartialName`
+calls in pywebview 6.2.1's `winforms.py`. All 13 hits are inside
+the `OpenFolderDialog` class body. The other module-level class
+(`BrowserView`) uses only public .NET 8-compatible WinForms types
+(no reflection over internals). The 23 top-level functions are not
+evaluated at module-load. So `OpenFolderDialog` is the last
+class-body crash site under .NET 8 — there is no "next layer"
+lurking once it's guarded.
+
 ### Frozen-aware resource resolution
 
 PyInstaller flattens `app/main.py` into the bundle's top level, which
@@ -538,3 +637,24 @@ PyInstaller bundle verified locally on Linux:
   is 1.0.3856.49 (matching pywebview's own bundled version, just the
   netcoreapp3.0 TFM variant). If NuGet ever serves different bytes for
   the same version, the workflow's SHA512 check fails fast.
+- **Drop the vendored pywebview winforms.py patch when pywebview ships
+  an upstream fix.** Same pywebview issue #1803 also tracks merging
+  the smparkes:fix/dotnet8-coreclr .NET 8 compatibility patch into
+  upstream. When that lands in a pywebview release and we bump to it,
+  delete `vendor/pywebview/`, remove the workflow's "Apply pywebview
+  winforms.py patch" step, retire the "pywebview winforms.py patch"
+  SPEC section, and bump the pywebview pin in `pyproject.toml`. Until
+  then, the vendored file is pinned to smparkes commit
+  `a2bf0df4a4728b170cb02f1f1f698387fbaf0379`.
+- **Refactor SPEC_V5_DISTRIBUTION.md into v5-baseline + v5.x-maintenance-log
+  sections** once the Windows-bundle saga is closed and validated. The
+  v0.5.x → v0.6.0 arc grew this SPEC substantially with three layered
+  workarounds (bundled .NET 8 runtime, WebView2 binding override,
+  pywebview winforms.py patch), each tied to a specific failure mode
+  the project hit. The current append-in-place layout served the
+  incident well — every fix is documented next to its rationale — but
+  reads as one long "what we tried" log rather than a clean spec. After
+  v0.6.0 is hardware-validated and a few patch releases settle the dust,
+  separate the original v5 design into a baseline section and the
+  layered Windows workarounds into a maintenance-log section. Do NOT
+  refactor mid-incident; refactor from a position of stability.

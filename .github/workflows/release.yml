@@ -69,6 +69,66 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # pywebview 6.2.1's webview/platforms/winforms.py crashes at module-load
+      # under .NET 8 coreclr because OpenFolderDialog's class body reflects
+      # over .NET-Framework-internal types absent in .NET 8 WinForms. We carry
+      # a vendored copy patched with smparkes' fix/dotnet8-coreclr branch
+      # (commit a2bf0df4a4728b170cb02f1f1f698387fbaf0379) at
+      # vendor/pywebview/winforms.py. This step copies it over the venv's
+      # pywebview after uv sync and before PyInstaller scans, so the bundled
+      # winforms.py is the patched one. Verify the source AND destination
+      # SHA512s — every silent-success assumption in this arc has been
+      # wrong; assert the bytes that landed.
+      #
+      # See SPEC_V5_DISTRIBUTION.md "pywebview winforms.py patch" for full
+      # context. Pinned vendored-file SHA: a1c7c30…b92544c.
+      - name: Apply pywebview winforms.py patch (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $src = "vendor\pywebview\winforms.py"
+          $expected = "a1c7c3060c8f14352b552e987251e446957e64d0e49932fb09fd65f61b9cae43b93485277284bf8f391ab71dc9cff59e4636db8a6c88f5157385e30beb92544c"
+
+          # Step 1: verify the vendored source bytes match the pinned hash.
+          $srcActual = (Get-FileHash $src -Algorithm SHA512).Hash.ToLower()
+          if ($srcActual -ne $expected) {
+            Write-Host "Source SHA512 mismatch for $src"
+            Write-Host "  expected: $expected"
+            Write-Host "  actual:   $srcActual"
+            exit 1
+          }
+          Write-Host "Source SHA512 verified: $src"
+
+          # Step 2: locate the venv's webview/platforms/winforms.py and
+          # overwrite it with the vendored patched version.
+          $candidates = Get-ChildItem -Path .venv -Recurse -Filter "winforms.py" -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'webview[\\/]platforms[\\/]winforms\.py$' }
+          if ($candidates.Count -eq 0) {
+            Write-Host "Could not locate webview/platforms/winforms.py in .venv — pywebview install layout may have changed."
+            exit 1
+          }
+          if ($candidates.Count -gt 1) {
+            Write-Host "Multiple winforms.py matches under .venv — ambiguous; investigate before shipping."
+            $candidates | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
+          }
+          $dst = $candidates[0].FullName
+          Copy-Item -Force $src $dst
+          Write-Host "Copied vendored winforms.py to $dst"
+
+          # Step 3: verify the destination bytes match the same pinned hash.
+          # If Copy-Item silently no-op'd or the destination got truncated,
+          # this fails the build instead of shipping a still-broken bundle.
+          $dstActual = (Get-FileHash $dst -Algorithm SHA512).Hash.ToLower()
+          if ($dstActual -ne $expected) {
+            Write-Host "Destination SHA512 mismatch after copy"
+            Write-Host "  file:     $dst"
+            Write-Host "  expected: $expected"
+            Write-Host "  actual:   $dstActual"
+            exit 1
+          }
+          Write-Host "Destination SHA512 verified at venv layer."
+
       - name: Install PyInstaller
         run: uv pip install pyinstaller
 

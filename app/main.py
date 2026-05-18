@@ -308,29 +308,32 @@ def _run_check_windows_runtime() -> None:
     """CI smoke-test mode that exercises the .NET loader chain bypassed
     by --healthz-only.
 
-    v0.5.9 instrumentation pass: the v0.5.8 Windows bundle now fails at
-    runtime with pywebview's generic 'You must have pythonnet installed
-    in order to use pywebview' message — which is FALSE. pythonnet is
-    bundled and was demonstrably working as of v0.5.6's detector. The
-    real exception is swallowed at webview/guilib.py:73-76:
+    Three layers, retained as permanent diagnostic surface beyond v0.6.0:
 
-        def import_winforms():
-            try:
-                import webview.platforms.winforms as guilib
-                return True
-            except ImportError:
-                logger.exception('pythonnet cannot be loaded')
-                return False
+    1. _dump_bundle_webview_lib_inventory(): enumerate the frozen
+       bundle's webview/lib/ at runtime, dump file sizes and TFM
+       byte-markers. Distinguishes build-time DLL state from runtime
+       DLL state — a distinction the v0.5.7 hook-readd saga proved
+       we cannot conflate.
 
-    This pass surfaces the swallowed exception by walking the same
-    imports pywebview's Windows path performs, each wrapped to print
-    the full real exception (type, message, traceback, .NET inner
-    exception details) instead of letting it be caught-and-generalized.
+    2. Chain walk: perform the same imports pywebview's Windows path
+       performs, each wrapped to surface real exceptions instead of
+       letting them be caught by webview/guilib.py:73-76's
+       `except ImportError` (which converts everything into the
+       generic 'You must have pythonnet installed' message and hides
+       the actual cause — v0.5.8's failure class). Continues past
+       each failure so the workflow log captures the full picture.
 
-    Exits 1 at the end of this round so the Windows workflow fails
-    and does NOT publish a broken artifact. The diagnostic stderr is
-    the payload — pulling it from the workflow log is the deliverable.
-    Reverts to assert/fail behavior once the real fault is fixed."""
+    3. Three-stage assertions: kind=CoreCLR (v0.5.3..v0.5.5 class),
+       WebView2.WinForms TFM=NETCoreApp (v0.5.6 class),
+       ContextMenuStrip-not-ContextMenu (v0.5.6 belt-and-braces).
+       Resumed in v0.6.0 after the v0.5.9 diagnostic round
+       successfully unmasked the OpenFolderDialog class-body crash.
+
+    The chain-walking and exception-unmasking layers stay permanently
+    — they are load-bearing diagnostic surface, not scaffolding.
+    Future regressions get the same fast-feedback chain-walk for free
+    instead of someone rebuilding it under duress."""
     if sys.platform != "win32":
         print("ok: non-windows skip")
         sys.exit(0)
@@ -428,11 +431,52 @@ def _run_check_windows_runtime() -> None:
         _dump_exc("import webview.platforms.edgechromium", exc)
 
     print("[chain] === done ===", file=sys.stderr)
-    # Exit 1 by design: this is the v0.5.9 diagnostic round. Forcing
-    # the smoke-test step to fail keeps the broken Windows bundle from
-    # auto-publishing; the diagnostic stderr above is what we came for.
-    print("fail: v0.5.9 diagnostic round — see stderr above for the unmasked exceptions", file=sys.stderr)
-    sys.exit(1)
+
+    # Layer 3: three-stage assertions on the loaded runtime + binding.
+    # v0.6.0 onwards: these resume their pass/fail role. If the chain
+    # above completed cleanly, the bundled runtime and patched winforms
+    # are working; this layer asserts the specific invariants that
+    # past rounds violated.
+    try:
+        info = pythonnet.get_runtime_info()
+        kind = info.kind if info is not None else "<None>"
+        version = info.version if info is not None else "<None>"
+
+        # Stage 1: bundled coreclr active, not netfx fallback
+        # (v0.5.3..v0.5.5 regression class).
+        if kind != "CoreCLR":
+            print(f"fail: stage 1 — expected CoreCLR runtime, got {kind!r}",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        # Stage 2: WebView2.WinForms is the netcoreapp3.0 variant
+        # (v0.5.6 regression class — TypeLoadException on ContextMenu).
+        clr.AddReference("Microsoft.Web.WebView2.WinForms")
+        from System.Reflection import Assembly  # type: ignore[import-not-found]
+        from System.Runtime.Versioning import TargetFrameworkAttribute  # type: ignore[import-not-found]
+        wv2 = Assembly.LoadWithPartialName("Microsoft.Web.WebView2.WinForms")
+        tfm_attrs = wv2.GetCustomAttributes(TargetFrameworkAttribute, False)
+        tfm = tfm_attrs[0].FrameworkName if len(tfm_attrs) > 0 else "<missing>"
+        if "NETCoreApp" not in str(tfm):
+            print(f"fail: stage 2 — WebView2.WinForms TFM is {tfm!r}, expected NETCoreApp",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        # Stage 3: WebView2 type uses ContextMenuStrip (not ContextMenu).
+        # Belt-and-braces against "right DLL loaded, wrong signature."
+        from Microsoft.Web.WebView2.WinForms import WebView2  # type: ignore[import-not-found]
+        if hasattr(WebView2, "ContextMenu") and not hasattr(WebView2, "ContextMenuStrip"):
+            print("fail: stage 3 — WebView2 exposes ContextMenu without ContextMenuStrip",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        print(f"ok: runtime={kind} version={version} webview2_tfm={tfm}")
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except BaseException as exc:
+        _dump_exc("three-stage assertions", exc)
+        sys.exit(1)
 
 
 def run() -> None:
