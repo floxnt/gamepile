@@ -151,6 +151,51 @@ verify bundled .NET 8 runtime" step (values come from the
 metadata, fields `releases[0].runtime` and `releases[0].windowsdesktop`).
 Tracked in deferred housekeeping.
 
+### WebView2 binding override (Windows)
+
+**Why an override is needed.** pywebview 6.2.1 ships
+`Microsoft.Web.WebView2.{Core,WinForms}.dll` under `webview/lib/`,
+built for `.NETFramework v4.6.2`. The WinForms binding exposes a
+`ContextMenu` property; that type was removed from
+`System.Windows.Forms` in .NET Core 3.0+ and replaced by
+`ContextMenuStrip`. Under the bundled .NET 8 coreclr runtime,
+pythonnet's reflection over the WebView2 class hits the dead-type
+reference and throws `System.TypeLoadException: Could not load type
+'System.Windows.Forms.ContextMenu'` at module load — before any
+window opens. v0.5.6 caught this in CI via the `--check-windows-runtime`
+detector after the bundled-coreclr architecture went in; v0.5.6's
+Windows artifact never published as a result.
+
+**The fix.** Replace pywebview's bundled net462 binding DLLs with the
+`netcoreapp3.0`-TFM variants from the same `Microsoft.Web.WebView2`
+NuGet package version (1.0.3856.49 — matches the WebView2 binding
+version pywebview itself ships, just the .NET Core target instead of
+the .NET Framework target). The netcoreapp3.0 WinForms.dll only
+references `ContextMenuStrip` (which exists in both .NET Framework
+and .NET 8), not `ContextMenu`. Verified empirically via `strings`
+against the extracted DLLs.
+
+**Upstream context.** pywebview issue #1803 documents the exact
+failure mode, recommends an equivalent fix (different specific version
+but same approach), and references a fork branch with the upstream-
+aware patch. The issue is open as of v0.5.7; pywebview has not yet
+released a version that incorporates the fix. When pywebview does
+ship a release with the binding update, the workflow's download step
+and the spec's filter can both be removed and this section retired.
+
+**Implementation.** `.github/workflows/release.yml` "Download and
+verify WebView2 netcoreapp3.0 binding override" step (Windows-only):
+fetches the NuGet package by pinned URL, SHA512-verifies the bytes,
+extracts the two `lib_manual/netcoreapp3.0/` DLLs into
+`webview2_override/`. `gamepile.spec` filters
+`Microsoft.Web.WebView2.{Core,WinForms}.dll` out of
+`collect_all("webview")` output (with a sanity-raise if nothing
+matched, so a future pywebview layout change can't silently un-apply
+the override) and adds the overrides to `datas=` at
+`webview/lib/`. Explicit filter rather than relying on
+PyInstaller's undocumented datas-order-wins behavior — order behavior
+is the recurring failure mode this whole arc has cautioned against.
+
 ### Frozen-aware resource resolution
 
 PyInstaller flattens `app/main.py` into the bundle's top level, which
@@ -440,3 +485,14 @@ PyInstaller bundle verified locally on Linux:
   8.0/releases.json`. Same pattern as the Node 20 / windows-2025
   deferred items: pinned URLs are expected to go stale; the discipline
   is to track that staleness explicitly rather than let it rot silently.
+- **Drop the WebView2 binding override when pywebview ships an upstream
+  fix.** pywebview issue #1803 tracks merging a .NET-Core-compatible
+  bundled WebView2 binding into the upstream package. When that lands
+  in a pywebview release and we bump to it, the workflow's
+  "Download and verify WebView2 netcoreapp3.0 binding override" step,
+  `gamepile.spec`'s `_is_pywebview_net462_binding` filter, and the
+  `webview2_override_datas` entry can all be removed and the
+  "WebView2 binding override" section retired. Until then, the pin
+  is 1.0.3856.49 (matching pywebview's own bundled version, just the
+  netcoreapp3.0 TFM variant). If NuGet ever serves different bytes for
+  the same version, the workflow's SHA512 check fails fast.

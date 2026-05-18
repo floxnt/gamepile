@@ -24,6 +24,7 @@
 #     launch and opens the installer page in the user's browser before
 #     exiting.
 
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_all
@@ -35,6 +36,47 @@ IS_MACOS = sys.platform == "darwin"
 # Collect pywebview wholesale — we lean on PyInstaller's auto-discovery
 # for the per-platform backend modules and their support data.
 webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
+
+# Filter out pywebview's bundled .NETFramework 4.6.2 WebView2 binding
+# DLLs (Microsoft.Web.WebView2.{Core,WinForms}.dll under webview/lib/).
+# Under the bundled .NET 8 coreclr runtime, the net462 WinForms.dll's
+# ContextMenu type reference (removed in .NET Core 3.0+) causes
+# TypeLoadException at module-load — the v0.5.6 crash class. We replace
+# them below with the netcoreapp3.0-TFM variants from the same NuGet
+# package version (1.0.3856.49). Explicit filter rather than relying on
+# PyInstaller datas-order-wins behavior — order behavior is undocumented
+# and silently regressing is the recurring failure mode this whole arc
+# has been trying to eliminate.
+#
+# Only filter on Windows. On Linux pywebview's gtk backend doesn't use
+# any of this; the binding files are absent from the install and the
+# filter would be a no-op anyway, but the explicit IS_WINDOWS guard
+# documents the intent.
+if IS_WINDOWS:
+    _BINDING_NAMES = (
+        "Microsoft.Web.WebView2.Core.dll",
+        "Microsoft.Web.WebView2.WinForms.dll",
+    )
+
+    def _is_pywebview_net462_binding(entry):
+        # PyInstaller datas tuples are (src_path, dest_dir). The DLL
+        # filename lives at the tail of src_path. Match by basename so
+        # we don't depend on the exact venv-relative source layout.
+        src = entry[0] if isinstance(entry, tuple) else entry
+        return os.path.basename(src) in _BINDING_NAMES
+
+    _filtered_count = sum(1 for d in webview_datas if _is_pywebview_net462_binding(d))
+    webview_datas = [d for d in webview_datas if not _is_pywebview_net462_binding(d)]
+    webview_binaries = [b for b in webview_binaries if not _is_pywebview_net462_binding(b)]
+    if _filtered_count == 0:
+        raise RuntimeError(
+            "Expected to filter pywebview's bundled WebView2 binding "
+            "DLLs from collect_all('webview') output, found none. "
+            "Either pywebview's layout changed or collect_all stopped "
+            "including them — investigate before building, otherwise "
+            "the override below will quietly fail and v0.5.6's "
+            "TypeLoadException crash class returns."
+        )
 
 # pythonnet + clr_loader: Windows-only. pywebview's edgechromium and
 # winforms backends both `import clr` at module load, which fires
@@ -68,10 +110,22 @@ if IS_WINDOWS:
         ("dotnet/runtime", "dotnet"),
         ("dotnet/Python.Runtime.runtimeconfig.json", "dotnet"),
     ]
+    # WebView2 netcoreapp3.0 binding override DLLs — staged into
+    # webview2_override/ by the release workflow's "Download and verify
+    # WebView2 netcoreapp3.0 binding override" step. They land at
+    # _internal/webview/lib/ in the final bundle, the same location
+    # pywebview's loader uses (interop_dll_path in webview/util.py
+    # resolves to webview/lib/), with the net462 originals filtered out
+    # above so there's no ambiguity about which DLL gets loaded.
+    webview2_override_datas = [
+        ("webview2_override/Microsoft.Web.WebView2.Core.dll", "webview/lib"),
+        ("webview2_override/Microsoft.Web.WebView2.WinForms.dll", "webview/lib"),
+    ]
 else:
     pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = [], [], []
     clr_loader_datas, clr_loader_binaries, clr_loader_hiddenimports = [], [], []
     dotnet_datas = []
+    webview2_override_datas = []
 
 # Keyring backends are lazy-imported by the keyring library at runtime.
 # PyInstaller's static analysis misses them; declare the active
@@ -148,6 +202,7 @@ a = Analysis(
         *pythonnet_datas,
         *clr_loader_datas,
         *dotnet_datas,
+        *webview2_override_datas,
     ],
     hiddenimports=[
         *platform_hiddenimports,

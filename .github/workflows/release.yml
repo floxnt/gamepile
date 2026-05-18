@@ -89,6 +89,63 @@ jobs:
       # extracted into the same root (NETCore.App under
       # shared/Microsoft.NETCore.App/, WindowsDesktop.App under
       # shared/Microsoft.WindowsDesktop.App/ — no path collision).
+      # pywebview 6.2.1 ships Microsoft.Web.WebView2.{Core,WinForms}.dll
+      # built for .NETFramework 4.6.2. The WinForms.dll exposes a
+      # `ContextMenu` property; that type was removed in .NET Core 3.0+
+      # and replaced by `ContextMenuStrip`. Under the bundled .NET 8
+      # coreclr runtime, pythonnet's reflection over the WebView2 class
+      # hits the dead-type reference and throws TypeLoadException — the
+      # v0.5.6 crash class.
+      #
+      # Fix: replace pywebview's bundled net462 WebView2 DLLs with the
+      # netcoreapp3.0-TFM variants from the same Microsoft.Web.WebView2
+      # NuGet package. Pin matches pywebview's own bundled binding
+      # version (1.0.3856.49) — smallest behavioral delta from the
+      # upstream-tested combination. Verified empirically: the
+      # netcoreapp3.0 WinForms.dll only references ContextMenuStrip
+      # (which exists in both .NET Framework and .NET 8), not
+      # ContextMenu. Upstream context: pywebview issue #1803.
+      #
+      # SHA512 hash from sha512sum on the NuGet-served bytes. When the
+      # NuGet API changes the served bytes for the same version (it
+      # shouldn't — NuGet versions are supposed to be immutable — but
+      # tracking it is the same discipline as the .NET runtime pin),
+      # update URL + SHA together. Deferred-housekeeping item tracked
+      # in SPEC_V5_DISTRIBUTION.md.
+      - name: Download and verify WebView2 netcoreapp3.0 binding override (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.3856.49/microsoft.web.webview2.1.0.3856.49.nupkg"
+          $expected = "ddbf23b637f0da274ddc10aeafdd26f05575cb985697c55adcad087c0adc0b34000f7e5df0b153b4cdf7c137808a75bf0d907f2469e82e0e2f6d7db6a117d4fb"
+          Write-Host "Downloading Microsoft.Web.WebView2 1.0.3856.49 NuGet package..."
+          Invoke-WebRequest -Uri $url -OutFile webview2.nupkg -UseBasicParsing
+          $actual = (Get-FileHash webview2.nupkg -Algorithm SHA512).Hash.ToLower()
+          if ($actual -ne $expected) {
+            Write-Host "SHA512 mismatch for WebView2 NuGet package"
+            Write-Host "  expected: $expected"
+            Write-Host "  actual:   $actual"
+            exit 1
+          }
+          Write-Host "  SHA512 verified."
+          New-Item -ItemType Directory -Force -Path webview2_override | Out-Null
+          # NuGet packages are zip files; extract the two netcoreapp3.0
+          # DLLs we need. lib_manual/netcoreapp3.0/ is the package's
+          # .NET Core target directory.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead("$pwd\webview2.nupkg")
+          foreach ($entry in $zip.Entries) {
+            if ($entry.FullName -eq "lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.Core.dll" -or `
+                $entry.FullName -eq "lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.WinForms.dll") {
+              $dst = "$pwd\webview2_override\" + [System.IO.Path]::GetFileName($entry.FullName)
+              [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $dst, $true)
+              Write-Host "  extracted: $dst"
+            }
+          }
+          $zip.Dispose()
+          Remove-Item webview2.nupkg
+          Get-ChildItem webview2_override | Format-Table Name, Length
+
       - name: Download and verify bundled .NET 8 runtime (Windows only)
         if: matrix.platform_label == 'windows'
         shell: pwsh
