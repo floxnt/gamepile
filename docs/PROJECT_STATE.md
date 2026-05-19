@@ -643,6 +643,81 @@ callouts):
   log after one or two more clean release rounds without further saga
 - Node 20 action bumps, windows-2025-vs2026 pin (longstanding deferred)
 
+## v0.7.0 — hook-point retirement + median-unlock display stat (2026-05-19)
+
+Two-commit change: removed the hook-point / stickiness feature from the
+live product and added a single honest display-only stat in its place.
+The two are conceptually different — one was a behavioral inference
+that overpromised, the other is a labeled fact the user interprets
+themselves. They are not "one feature replacing another."
+
+### Hook-point retirement (commit 1)
+
+The empirical achievement-signal probe (2026-05-19) found that 90.3% of
+stored `completion_rate` values self-labeled as `'low'` confidence —
+the pipeline was presenting low-confidence inference as authoritative
+via the Phase 1c categorical badges. Removed from live UI:
+
+- Library Stickiness column + filter + sort
+- Game Detail Engagement signals section (entire section)
+- Game Detail manual-override surfaces for completion-achievement and
+  stickiness-badge (HLTB-ID override is unrelated and stays)
+- Shortlist card stickiness pill
+- Five POST/GET routes under `/games/{appid}/`
+- The hook-metrics call sites in `app/sync.py _phase_enrich`
+
+Preserved dormant (do not purge):
+
+- `app/hook_metrics.py` — all compute functions, threshold constants,
+  badge taxonomy — with a top-of-module `RETAINED DORMANT` header
+- Nine DB schema columns (`completion_rate`, `completion_rate_confidence`,
+  `cliff_metric`, `cliff_position`, `review_playtime_median`,
+  `stickiness_ratio`, `playtime_median_avg_ratio`,
+  `completion_achievement_name_manual`, `stickiness_badge_manual`)
+- All accumulated values in those columns (COALESCE-on-upsert kept)
+- Four tests covering the dormant pipeline pure-functions, with
+  `DORMANT (v0.7.0)` headers pointing at the retirement SPEC
+
+Recommender note: `app/recommender.py` was structurally already not
+using hook-point/stickiness as a scoring input. Its quality signal
+remained Metacritic + Steam review %; exclusions key off `game_type`.
+No degradation from the removal because the input wasn't there to
+remove.
+
+See `SPEC_HOOK_RETIREMENT.md` for the full removal record, preservation
+inventory, rationale, reevaluation intent (~v1.0), and continuity rules
+for future maintainers.
+
+### Median-unlock display stat (commit 2)
+
+New display-only stat: median per-achievement global unlock percent.
+Stored in a new nullable column `games.median_achievement_unlock_pct`,
+computed via `GetGlobalAchievementPercentagesForApp` (no-key endpoint)
+during normal library sync — same data source the hook-point pipeline
+used, different summary statistic. Sortable Library column; single
+stat on the Game Detail external-data card. "—" displays for the ~25%
+of the library with no achievements (no imputation, no zero-fill — an
+honest coverage boundary).
+
+Median, not mean, because per-game distributions are heavily right-
+skewed (probe-confirmed): every game has a few high-% launch
+achievements plus a long low-% tail; mean is dragged by achievement-
+list design, median is the robust honest summary.
+
+Display-only. Explicitly **NOT** wired into the Shortlist recommender's
+pick logic. This is the corrective discipline: a number we display, not
+a behavioral claim. Any future move to use it as pick-logic input
+requires an explicit decision and round of design, not a quiet wire-up.
+
+Migration: additive column only, starts NULL for everyone; populated by
+the normal sync path on next refresh. No bootstrap from the probe-time
+CSV — keeping dev-machine artifacts out of production data paths is
+the conservative call even at the cost of one slower first sync.
+
+See `SPEC_HOOK_RETIREMENT.md` and the in-file commit headers for the
+design decisions and the "must not evolve into a behavioral signal
+silently" continuity note.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com

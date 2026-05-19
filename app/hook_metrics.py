@@ -1,8 +1,23 @@
 """
 Hook-point Phase 1a — pure-functional engagement-signal computations.
 
+RETAINED DORMANT (v0.7.0). The hook-point / stickiness signal was removed
+from the live UI in v0.7.0 because it overpromised on low-confidence
+inference: ~90% of stored completion_rate values self-labeled as "low"
+confidence (see the empirical achievement-signal probe). This module is
+preserved in place — pipeline functions, badge taxonomy, threshold
+constants — but is no longer called by any live code path (sync, routes,
+templates). Data already in the DB (completion_rate / cliff_metric /
+cliff_position / review_playtime_median / stickiness_ratio /
+playtime_median_avg_ratio / stickiness_badge_manual /
+completion_achievement_name_manual) is preserved intact via upsert
+COALESCE; columns are unchanged. See SPEC_HOOK_RETIREMENT.md for the
+removal rationale and the reevaluation intent (~v1.0 when more data
+exists). Tests that exercise these functions remain green as a
+correctness guarantee — do NOT delete on a future cleanup pass.
+
 Five metrics, all per-game, all nullable when the underlying data is
-insufficient. Phase 1a stores the raw numbers; Phase 1b will combine them
+insufficient. Phase 1a stores the raw numbers; Phase 1b/1c combined them
 into a categorical "stickiness" badge after threshold tuning.
 
 No DB / FastAPI imports — keep this layer testable in isolation.

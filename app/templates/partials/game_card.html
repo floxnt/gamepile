@@ -36,20 +36,6 @@
           <span class="badge badge-pin">📌 Pinned from backlog</span>
         {% endif %}
       </div>
-      {# Phase 1c stickiness pill — hidden for limited_data. Phase 4 surfaces
-         the manual override here when set; bypasses limited_data hiding so
-         user-asserted badges always show through. #}
-      {% set sig = compute_stickiness_signal_display(game) %}
-      {% set sig_badge = sig[0] %}
-      {% set sig_overridden = sig[4] %}
-      {% if sig_badge != "limited_data" %}
-        {% set tip = stickiness_badge_tooltips[sig_badge] %}
-        {% if sig_overridden %}{% set tip = "Manually set: " + stickiness_badge_labels[sig_badge] %}{% endif %}
-        <span class="stickiness-pill stickiness-pill--{{ sig_badge }}{% if sig_overridden %} stickiness-pill--overridden{% endif %}"
-              title="{{ tip }}">
-          {% if sig_badge == "standard_engagement" %}Standard{% else %}{{ stickiness_badge_labels[sig_badge] }}{% endif %}
-        </span>
-      {% endif %}
     </div>
 
     {% if game.description %}

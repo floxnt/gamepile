@@ -1,5 +1,10 @@
 """Test fixtures for app.hook_metrics Phase 1c weighted-score signal.
 
+DORMANT (v0.7.0): exercises app.hook_metrics.compute_stickiness_signal,
+which was retained-dormant when hook-point/stickiness was removed from
+the live UI. Tests stay green as correctness guarantee — do NOT delete.
+See SPEC_HOOK_RETIREMENT.md.
+
 Run with: uv run python tests/test_hook_phase1c.py
 
 No pytest dependency — pure assertions, same pattern as other tests/.

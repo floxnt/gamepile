@@ -717,11 +717,11 @@ select option {
 
 /* position: sticky pins the header row at the top of .table-wrapper's
    scroll region. z-index keeps the header above scrolling body rows
-   including any with their own stacking context (e.g. stickiness badge
-   children). Solid background prevents body rows bleeding through.
-   With border-collapse: separate, border-bottom belongs to the th cell
-   alone — it doesn't merge with the first row's border-top, so it stays
-   pinned with the cell during scroll. */
+   including any with their own stacking context. Solid background
+   prevents body rows bleeding through. With border-collapse: separate,
+   border-bottom belongs to the th cell alone — it doesn't merge with
+   the first row's border-top, so it stays pinned with the cell during
+   scroll. */
 .library-table th {
   padding: 0;
   text-align: left;
@@ -1897,135 +1897,18 @@ a.affinity-pill--clickable:focus-visible {
   text-decoration: none;
 }
 
-/* ===== Game detail — Engagement signals (Phase 1a raw data) ===== */
-.game-detail-engagement {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.95rem 1.1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.engagement-subtitle {
-  font-size: 0.72rem;
-  color: var(--muted);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  margin-left: 0.5rem;
-}
-
-.engagement-row {
-  display: flex;
-  gap: 0.6rem;
-  align-items: baseline;
-  font-size: 0.85rem;
-}
-
-.engagement-label {
-  color: var(--muted);
-  min-width: 14rem;
-  font-size: 0.78rem;
-}
-
-.engagement-value {
-  color: var(--text);
-  font-variant-numeric: tabular-nums;
-}
-
-.engagement-value--missing {
-  color: var(--muted);
-  font-style: italic;
-}
-
-.engagement-aside {
-  color: var(--muted);
-  font-size: 0.78rem;
-  margin-left: 0.4rem;
-}
-
-.engagement-aside--high {
-  color: var(--success);
-}
-
-.engagement-aside--low {
-  color: var(--warn);
-}
-
-.engagement-aside--manual {
-  color: var(--accent);
-  font-style: italic;
-}
-
-.engagement-signal-aside--manual {
-  color: var(--accent);
-  font-style: italic;
-}
-
-/* "Auto would say…" disclosure under the manually-set badge — keeps
-   the auto-computed view available without competing with the
-   user's chosen badge. */
-.engagement-signal-auto-note {
-  color: var(--muted);
-  font-size: 0.82rem;
-  margin: 0 0 0.55rem 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem;
-}
-
-/* Subtle indicator that a stickiness badge is manually set — outlined
-   ring around the existing badge tone. Same dimensions; just adds an
-   accent-coloured border so the override registers visually. */
-.stickiness-badge--overridden,
-.stickiness-pill--overridden {
-  outline: 1px dashed var(--accent);
-  outline-offset: 1px;
-}
-
-.stickiness-override-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.stickiness-override-label {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.stickiness-override-select {
-  flex: 0 1 14rem;
-  min-width: 12rem;
-  background: var(--surface2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.82rem;
-  font-family: inherit;
-}
-
-/* Phase 4 — manual override blocks (completion-achievement, HLTB ID,
-   stickiness badge). Disclosure widget rendered with <details>; the
-   inner picker is lazy-loaded via HTMX on first toggle. */
-.engagement-override-block,
-.hltb-override-block,
-.stickiness-override-block {
+/* HLTB ID override — text input + Save button + error pane + hint.
+   (The completion-achievement and stickiness-badge override surfaces
+   alongside this one were removed in v0.7.0 with the hook-point gut;
+   HLTB ID override is unrelated and stays.) */
+.hltb-override-block {
   margin: 0.4rem 0 0.7rem 0;
   padding: 0;
   border-top: 1px dashed var(--border);
   padding-top: 0.5rem;
 }
 
-.engagement-override-summary,
-.hltb-override-summary,
-.stickiness-override-summary {
+.hltb-override-summary {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.78rem;
@@ -2033,58 +1916,20 @@ a.affinity-pill--clickable:focus-visible {
   user-select: none;
 }
 
-.engagement-override-summary:hover,
-.hltb-override-summary:hover,
-.stickiness-override-summary:hover {
+.hltb-override-summary:hover {
   color: var(--text);
 }
 
-.engagement-override-body,
-.hltb-override-body,
-.stickiness-override-body {
+.hltb-override-body {
   margin-top: 0.55rem;
 }
 
-.engagement-override-loading,
 .hltb-override-loading {
   color: var(--muted);
   font-size: 0.82rem;
   font-style: italic;
 }
 
-.completion-override-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.completion-override-label {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.completion-override-select {
-  flex: 1 1 22rem;
-  min-width: 16rem;
-  background: var(--surface2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.82rem;
-  font-family: inherit;
-}
-
-.completion-override-empty {
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-style: italic;
-  margin: 0;
-}
-
-/* HLTB ID override — text input + Save button + error pane + hint. */
 .hltb-override-form {
   display: flex;
   flex-wrap: wrap;
@@ -2131,154 +1976,6 @@ a.affinity-pill--clickable:focus-visible {
   padding: 0 0.25rem;
   border-radius: 2px;
   font-size: 0.78rem;
-}
-
-/* Type line + caveat (added in checkpoint 4 of v3 game-type work) */
-.engagement-type-line {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  font-size: 0.82rem;
-  margin-bottom: 0.4rem;
-}
-
-.engagement-type-label {
-  color: var(--muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.engagement-type-aside {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-style: italic;
-}
-
-.engagement-caveat {
-  font-size: 0.82rem;
-  color: var(--warn);
-  font-style: italic;
-  margin: 0 0 0.6rem 0;
-  padding: 0.4rem 0.6rem;
-  background: rgba(230, 168, 23, 0.08);
-  border-left: 2px solid var(--warn);
-  border-radius: 3px;
-}
-
-/* === Stickiness signal === */
-
-/* Game Detail header line — "Stickiness signal: <badge> · X of Y …". */
-.engagement-signal-line {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  margin: 0 0 0.7rem 0;
-  font-size: 0.88rem;
-}
-
-.engagement-signal-label {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.engagement-signal-aside {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-/* Per-signal breakdown — indented list under the header line showing
-   how each contributing metric contributed to the composite score. */
-.engagement-signal-breakdown {
-  list-style: none;
-  margin: 0 0 0.7rem 1.2rem;
-  padding: 0;
-  font-size: 0.82rem;
-  color: var(--muted);
-}
-
-.engagement-signal-breakdown-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  padding: 0.1rem 0;
-}
-
-.engagement-signal-breakdown-label {
-  font-weight: 600;
-  min-width: 5.5rem;
-  color: var(--text);
-}
-
-.engagement-signal-breakdown-desc {
-  flex: 1;
-}
-
-.engagement-signal-breakdown-contribution {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
-/* Library / Game Detail badge — full-size token. */
-.stickiness-badge {
-  display: inline-block;
-  padding: 0.18rem 0.55rem;
-  border-radius: 3px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-/* Phase 1c badge variants. Hooks players is the strong-positive label
-   (deep green); Filters early the strong-negative (amber). Marathon
-   uses a teal/blue tone — high engagement but not a "good" label, more
-   "different category." Mixed signals and Standard share muted greys
-   distinguished by saturation: Mixed slightly more chromatic to suggest
-   "interesting but split." Usually hooks / Often filters are
-   desaturated versions of Hooks/Filters — visible lean without claiming
-   the strong category. */
-.stickiness-badge--hooks_players       { background: #16321c; color: #7ecf7e; }
-.stickiness-badge--usually_hooks       { background: #1f2a23; color: #9ab89e; }
-.stickiness-badge--filters_early       { background: #2a2010; color: #e8b84b; }
-.stickiness-badge--often_filters       { background: #2a2520; color: #c4ad7a; }
-.stickiness-badge--marathon            { background: #1b2c34; color: #7ec0d2; }
-.stickiness-badge--mixed_signals       { background: #2a2533; color: #b89dd0; }
-.stickiness-badge--standard_engagement { background: #22222f; color: #9a9aaf; }
-
-/* Shortlist card variant — smaller, sits below the badges row. Same
-   color tokens but compacted padding so the card stays dense. */
-.stickiness-pill {
-  display: inline-block;
-  margin-top: 0.3rem;
-  padding: 0.12rem 0.5rem;
-  border-radius: 10px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.stickiness-pill--hooks_players       { background: #16321c; color: #7ecf7e; }
-.stickiness-pill--usually_hooks       { background: #1f2a23; color: #9ab89e; }
-.stickiness-pill--filters_early       { background: #2a2010; color: #e8b84b; }
-.stickiness-pill--often_filters       { background: #2a2520; color: #c4ad7a; }
-.stickiness-pill--marathon            { background: #1b2c34; color: #7ec0d2; }
-.stickiness-pill--mixed_signals       { background: #2a2533; color: #b89dd0; }
-.stickiness-pill--standard_engagement { background: #22222f; color: #9a9aaf; }
-
-/* Library column cell — keeps the row layout consistent when the badge
-   is missing (insufficient_data → em-dash). */
-.library-stickiness {
-  white-space: nowrap;
-}
-
-.library-stickiness-empty {
-  color: var(--muted);
 }
 
 /* ===== v4 setup wizard ===== */

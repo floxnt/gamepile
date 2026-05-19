@@ -24,28 +24,11 @@ _STATUS_SORT_ORDER = {
 }
 
 _SORT_COLUMNS = [
-    "name", "status", "game_type", "stickiness", "developer",
+    "name", "status", "game_type", "developer",
     "hltb_main", "hltb_compl",
     "playtime", "steam_pct", "steam_reviews",
     "metacritic",
 ]
-
-# Stickiness sort order (Phase 1c, expanded for the lean sub-buckets).
-# Hooks players first (proven-good engagement), then Usually hooks (weak
-# positive lean), Marathon (engaged but open-ended), Mixed signals
-# (strong-but-conflicting), Standard engagement (no lean), Often filters
-# (weak negative lean), Filters early (proven filter), Limited data sinks
-# to the bottom regardless of direction.
-_STICKINESS_SORT_ORDER = {
-    "hooks_players":       0,
-    "usually_hooks":       1,
-    "marathon":            2,
-    "mixed_signals":       3,
-    "standard_engagement": 4,
-    "often_filters":       5,
-    "filters_early":       6,
-    "limited_data":        7,
-}
 
 # Sentinel values for nulls-last regardless of sort direction.
 _NULL_HIGH = float("inf")
@@ -77,16 +60,6 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
         if sort == "game_type":
             from app.backlog import compute_game_type
             return compute_game_type(game)
-        if sort == "stickiness":
-            # Limited data sinks last regardless of direction. Other
-            # values use the explicit priority order above. Phase 4:
-            # use the override-aware helper so the user's manual badge
-            # drives sort just like it drives the badge column display.
-            from app.hook_metrics import compute_stickiness_signal_display
-            badge = compute_stickiness_signal_display(game)[0]
-            if badge == "limited_data":
-                return _NULL_LOW if reverse else _NULL_HIGH
-            return _STICKINESS_SORT_ORDER.get(badge, 99)
         if sort == "developer":
             return null_last_str(game.developer)
         if sort == "playtime":
@@ -110,7 +83,6 @@ _COLUMN_LABELS: list[tuple[str, str]] = [
     ("name",          "Title"),
     ("status",        "Status"),
     ("game_type",     "Type"),
-    ("stickiness",    "Stickiness"),
     ("developer",     "Developer"),
     ("hltb_main",     "HLTB Main"),
     ("hltb_compl",    "HLTB Compl."),
@@ -166,7 +138,6 @@ def _apply_filters_and_sort(
     all_games: list[GameWithState],
     status_filter: str,
     tag_filter: str,
-    stickiness_filter: str,
     sort: str,
     direction: str,
 ) -> list[GameWithState]:
@@ -177,15 +148,6 @@ def _apply_filters_and_sort(
         all_games = [
             g for g in all_games
             if any(t.lower() == needle for t in g.game.user_tags_list())
-        ]
-    if stickiness_filter:
-        # Match against the DISPLAYED badge (manual override wins) — same
-        # precedence the Library row uses post-Phase 4. Empty / "all" /
-        # unrecognised values fall through unfiltered.
-        from app.hook_metrics import compute_stickiness_signal_display
-        all_games = [
-            g for g in all_games
-            if compute_stickiness_signal_display(g.game)[0] == stickiness_filter
         ]
     return _sort_games(all_games, sort, direction)
 
@@ -203,7 +165,6 @@ async def library_page(
     request: Request,
     status_filter: str = "",
     tag_filter: str = "",
-    stickiness_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -214,13 +175,12 @@ async def library_page(
     tags = _collect_tags(all_games)
 
     games = _apply_filters_and_sort(
-        all_games, status_filter, tag_filter, stickiness_filter, sort, dir,
+        all_games, status_filter, tag_filter, sort, dir,
     )
 
     filter_params = {
         "status_filter": status_filter,
         "tag_filter": tag_filter,
-        "stickiness_filter": stickiness_filter,
         "show_removed": "true" if show_removed else "",
     }
     sort_headers = _build_sort_headers(sort, dir, filter_params)
@@ -231,7 +191,6 @@ async def library_page(
         "tags": tags,
         "status_filter": status_filter,
         "tag_filter": tag_filter,
-        "stickiness_filter": stickiness_filter,
         "show_removed": show_removed,
         "sort": sort,
         "dir": dir,
@@ -244,7 +203,6 @@ async def library_rows(
     request: Request,
     status_filter: str = "",
     tag_filter: str = "",
-    stickiness_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
     dir: str = "asc",
@@ -254,7 +212,7 @@ async def library_rows(
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
     games = _apply_filters_and_sort(
-        all_games, status_filter, tag_filter, stickiness_filter, sort, dir,
+        all_games, status_filter, tag_filter, sort, dir,
     )
 
     return templates.TemplateResponse(request, "partials/library_rows.html", {

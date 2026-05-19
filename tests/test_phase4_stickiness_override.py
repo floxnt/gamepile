@@ -1,18 +1,19 @@
 """Phase 4 — manual stickiness badge override.
 
+DORMANT (v0.7.0): exercises app.hook_metrics.compute_stickiness_signal_display,
+which was retained-dormant when hook-point/stickiness was removed from the
+live UI. Tests stay green as correctness guarantee — do NOT delete on a
+future cleanup pass. See SPEC_HOOK_RETIREMENT.md.
+
 Run with: uv run python tests/test_phase4_stickiness_override.py
 
 Covers:
   - compute_stickiness_signal_display — wrapper return shape, override
     vs auto resolution, ineligible-type pass-through
   - All five active BADGE_* constants honored as overrides
-  - Limited_data is intentionally NOT a valid override (route layer
-    rejects via ACTIVE_BADGES); the display helper still passes it
-    through if somehow stored, since it's the display-layer's job to
-    render whatever is in the DB
+  - Limited_data display-layer pass-through
   - Game type's normal hide rules don't suppress the override on
     software / beta_playtest / early_access / unknown
-  - Library sort key — the displayed badge (manual or auto) drives sort
 
 No pytest dependency — pure assertions.
 """
@@ -241,30 +242,11 @@ def test_empty_string_override_treated_as_no_override():
 
 
 # ---------------------------------------------------------------------------
-# Library sort — displayed badge drives sort key
+# (v0.7.0: test_library_sort_uses_displayed_badge removed — it exercised
+# app.routes.library._STICKINESS_SORT_ORDER which was deleted when the
+# Library stickiness column was removed. The display-helper coverage above
+# remains the correctness guarantee for the retained-dormant pipeline.)
 # ---------------------------------------------------------------------------
-
-def test_library_sort_uses_displayed_badge():
-    # Verify the sort path uses compute_stickiness_signal_display by
-    # constructing a game whose auto-badge would be BADGE_FILTERS_EARLY
-    # but whose manual override is BADGE_HOOKS_PLAYERS — the sort key
-    # should reflect the override, not the auto.
-    from app.routes.library import _STICKINESS_SORT_ORDER
-    g = _game(
-        completion_rate=0.02, completion_rate_confidence="high",
-        cliff_metric=30.0, cliff_position=0.1,
-        stickiness_ratio=0.20,
-        stickiness_badge_manual=BADGE_HOOKS_PLAYERS,
-    )
-    displayed_badge = compute_stickiness_signal_display(g)[0]
-    auto_badge = compute_stickiness_signal(g)[0]
-    assert displayed_badge == BADGE_HOOKS_PLAYERS
-    assert auto_badge == BADGE_FILTERS_EARLY
-    # Sort key uses the displayed badge per route impl.
-    sort_key = _STICKINESS_SORT_ORDER.get(displayed_badge, 99)
-    auto_sort_key = _STICKINESS_SORT_ORDER.get(auto_badge, 99)
-    assert sort_key != auto_sort_key
-    assert sort_key == _STICKINESS_SORT_ORDER[BADGE_HOOKS_PLAYERS]
 
 
 # ---------------------------------------------------------------------------

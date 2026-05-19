@@ -1,5 +1,10 @@
 """Test fixtures for app.hook_metrics.
 
+DORMANT (v0.7.0): exercises app.hook_metrics, which was retained-dormant
+when hook-point/stickiness was removed from the live UI. These tests stay
+green as a correctness guarantee for the preserved pipeline — do NOT
+delete on a future cleanup pass. See SPEC_HOOK_RETIREMENT.md.
+
 Run with: uv run python tests/test_hook_metrics.py
 
 No pytest dependency — pure assertions, same pattern as other tests/.

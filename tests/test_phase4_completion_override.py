@@ -1,5 +1,12 @@
 """Phase 4 — manual completion-achievement override.
 
+DORMANT (v0.7.0): exercises app.hook_metrics helpers
+(pick_completion_achievement / compute_completion_rate /
+compute_completion_rate_confidence) that were retained-dormant when
+hook-point/stickiness was removed from the live UI. Tests stay green as
+correctness guarantee — do NOT delete on a future cleanup pass.
+See SPEC_HOOK_RETIREMENT.md.
+
 Run with: uv run python tests/test_phase4_completion_override.py
 
 Covers:

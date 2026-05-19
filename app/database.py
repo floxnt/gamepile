@@ -764,52 +764,6 @@ def reset_game_type_to_inferred(conn: sqlite3.Connection, appid: int) -> Optiona
     return new_type
 
 
-def set_completion_achievement_manual(
-    conn: sqlite3.Connection,
-    appid: int,
-    achievement_name: str,
-    rate: float,
-    confidence: str = "high",
-) -> None:
-    """Persist the user's manual completion-achievement choice and the
-    derived rate / confidence in one statement. The achievement name is
-    the source of truth; rate is recomputed from the live unlock percent
-    every refresh (see app/sync.py _phase_enrich achievement step).
-    Confidence is forced 'high' — the user is asserting the choice."""
-    conn.execute(
-        """
-        UPDATE games
-        SET completion_achievement_name_manual = ?,
-            completion_rate = ?,
-            completion_rate_confidence = ?
-        WHERE appid = ?
-        """,
-        (achievement_name, rate, confidence, appid),
-    )
-
-
-def clear_completion_achievement_manual(
-    conn: sqlite3.Connection,
-    appid: int,
-    rate: Optional[float],
-    confidence: Optional[str],
-) -> None:
-    """Clear the manual override and write the freshly-recomputed
-    heuristic values. Caller is responsible for running the heuristic
-    against fresh achievement data — this helper just persists the
-    result alongside the cleared manual flag in one statement."""
-    conn.execute(
-        """
-        UPDATE games
-        SET completion_achievement_name_manual = NULL,
-            completion_rate = ?,
-            completion_rate_confidence = ?
-        WHERE appid = ?
-        """,
-        (rate, confidence, appid),
-    )
-
-
 def set_hltb_id_manual(
     conn: sqlite3.Connection,
     appid: int,
@@ -855,29 +809,6 @@ def clear_hltb_id_manual(
         WHERE appid = ?
         """,
         (main_hours, main_extra_hours, completionist_hours, appid),
-    )
-
-
-def set_stickiness_badge_manual(
-    conn: sqlite3.Connection,
-    appid: int,
-    badge: str,
-) -> None:
-    """Persist the user's manual stickiness-badge override. The route
-    layer validates that `badge` is one of the five active BADGE_*
-    constants (limited_data is excluded as a meaningless override)."""
-    conn.execute(
-        "UPDATE games SET stickiness_badge_manual = ? WHERE appid = ?",
-        (badge, appid),
-    )
-
-
-def clear_stickiness_badge_manual(conn: sqlite3.Connection, appid: int) -> None:
-    """Clear the manual override; the auto-computed badge resumes
-    surfacing on Library / Game Detail / Shortlist."""
-    conn.execute(
-        "UPDATE games SET stickiness_badge_manual = NULL WHERE appid = ?",
-        (appid,),
     )
 
 

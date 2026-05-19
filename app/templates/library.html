@@ -27,35 +27,6 @@
       </select>
     </label>
 
-    {# Stickiness badge filter (v3.5 polish). HTMX-driven swap so URL
-       updates without a full page reload — bookmarkable, shareable,
-       and pairs with the Phase 4 manual override (filter to a badge,
-       scan, override anything that feels wrong, move on). The
-       hx-include carries the rest of the form's filter values; the
-       <select> stays inside the form so a status / tag full-page
-       submit also preserves the active badge. #}
-    <label>
-      Stickiness
-      <select name="stickiness_filter"
-              hx-get="/library"
-              hx-include="closest form"
-              hx-target="#library-content"
-              hx-select="#library-content"
-              hx-swap="outerHTML"
-              hx-push-url="true"
-              hx-trigger="change">
-        <option value="">All badges</option>
-        {% for badge in stickiness_active_badges %}
-          <option value="{{ badge }}" {% if stickiness_filter == badge %}selected{% endif %}>
-            {{ stickiness_badge_labels[badge] }}
-          </option>
-        {% endfor %}
-        <option value="limited_data" {% if stickiness_filter == "limited_data" %}selected{% endif %}>
-          Limited data
-        </option>
-      </select>
-    </label>
-
     {# Preserve active sort when filters change via the filter form #}
     {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
     {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
@@ -102,7 +73,6 @@
           {{ sort_header("status") }}
           <th><span class="sort-link sort-link--unsortable">Tags</span></th>
           {{ sort_header("game_type") }}
-          {{ sort_header("stickiness") }}
           {{ sort_header("developer") }}
           {{ sort_header("hltb_main") }}
           {{ sort_header("hltb_compl") }}
@@ -121,19 +91,13 @@
   {% else %}
   {# Empty-state branches:
      - No filters set → genuine empty library, prompt for refresh
-     - Only the badge filter set → suggest switching badge / All badges
-     - Multiple filters active → generic combination message
+     - One or more filters active → generic combination message
      show_removed is intentionally NOT counted as a filter — it's an
      inclusion toggle, not a narrowing one. #}
-  {% set _has_status = status_filter %}
-  {% set _has_tag = tag_filter %}
-  {% set _has_stickiness = stickiness_filter %}
-  {% set _filter_count = (1 if _has_status else 0) + (1 if _has_tag else 0) + (1 if _has_stickiness else 0) %}
+  {% set _filter_count = (1 if status_filter else 0) + (1 if tag_filter else 0) %}
   <div class="empty-state">
     {% if _filter_count == 0 %}
       <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
-    {% elif _filter_count == 1 and _has_stickiness %}
-      <p>No games match this filter. Try a different badge or "All badges".</p>
     {% else %}
       <p>No games match these filters. Try a different combination or clear filters.</p>
     {% endif %}

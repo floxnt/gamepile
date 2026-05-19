@@ -121,35 +121,8 @@ templates.env.globals["game_type_tooltips"] = _GAME_TYPE_TOOLTIPS
 # Backwards-compat alias for templates that haven't been switched yet.
 templates.env.globals["compute_game_type"] = _resolve_type
 
-# Game Detail Engagement section — display rules per type. Used by
-# game_detail_engagement.html to gate which Phase 1a metrics show
-# for which game types (software hides everything; multiplayer hides
-# completion-rate; etc.) and to surface the type-specific caveat.
-from app.game_type import engagement_display_rules as _engagement_display_rules  # noqa: E402
-templates.env.globals["engagement_display_rules"] = _engagement_display_rules
-
-# Phase 1a engagement-signals display helper used by game_detail_engagement.html.
-from app.hook_metrics import qualitative_ratio_hint as _qualitative_ratio_hint  # noqa: E402
-templates.env.globals["qualitative_ratio_hint"] = _qualitative_ratio_hint
-
-# Phase 1b categorical stickiness signal — registered as a Jinja global so
-# the engagement section, library row, and shortlist card can each render
-# the badge without the route layer pre-attaching the result. Returns a
-# (badge_label, sticky_count, filters_hard_count) tuple.
-from app.hook_metrics import compute_stickiness_signal as _compute_stickiness_signal  # noqa: E402
-templates.env.globals["compute_stickiness_signal"] = _compute_stickiness_signal
-
-# Phase 4 — override-aware wrapper. Library row / Shortlist pill / Game
-# Detail engagement section all call this to honor the manual stickiness
-# badge override when set. Returns (badge, auto_badge, score, breakdown,
-# is_overridden). See app.hook_metrics.compute_stickiness_signal_display.
-from app.hook_metrics import compute_stickiness_signal_display as _compute_stickiness_signal_display  # noqa: E402
-from app.hook_metrics import (  # noqa: E402
-    ACTIVE_BADGES as _ACTIVE_BADGES,
-    BADGE_LABELS as _BADGE_LABELS,
-    BADGE_TOOLTIPS as _BADGE_TOOLTIPS,
-)
-templates.env.globals["compute_stickiness_signal_display"] = _compute_stickiness_signal_display
-templates.env.globals["stickiness_active_badges"] = _ACTIVE_BADGES
-templates.env.globals["stickiness_badge_labels"] = _BADGE_LABELS
-templates.env.globals["stickiness_badge_tooltips"] = _BADGE_TOOLTIPS
+# Hook-point / stickiness Jinja globals were removed in v0.7.0 along
+# with the live UI surfaces (Library column + filter, Game Detail
+# engagement section, Shortlist pill). The underlying functions and
+# constants in app.hook_metrics are preserved dormant — see
+# SPEC_HOOK_RETIREMENT.md.

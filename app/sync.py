@@ -37,19 +37,8 @@ from dataclasses import fields as dc_fields, replace as dc_replace
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
 from app.fetchers import steam as steam_fetcher
-from app.fetchers import steam_achievements as achievements_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
 from app.game_type import classify_game
-from app.hook_metrics import (
-    compute_cliff_metric,
-    compute_cliff_position,
-    compute_completion_rate,
-    compute_completion_rate_confidence,
-    compute_playtime_median_avg_ratio,
-    compute_review_playtime_median,
-    compute_stickiness_ratio,
-    pick_completion_achievement,
-)
 from app.models import Game
 
 log = logging.getLogger(__name__)
@@ -97,9 +86,6 @@ class RefreshProgress:
     hltb_skipped: int = 0            # didn't try (cache hit)
     spy_fetched: int = 0
     spy_skipped: int = 0
-    achievements_fetched: int = 0
-    achievements_skipped: int = 0
-    achievements_no_data: int = 0    # game has no achievements at all (404 / empty)
     release_date_backfilled: int = 0
     description_backfilled: int = 0
     errors: list[str] = field(default_factory=list)
@@ -388,95 +374,25 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                 ))
                 hltb_outcomes.append(False)
 
-        # --- SteamSpy data (tags + median_forever / average_forever) ---
+        # --- SteamSpy data (tags only — playtime_median_avg_ratio was a
+        # hook-point metric, removed in v0.7.0; column preserved dormant). ---
         if not force and game.user_tags and not _is_stale(effective_game):
             log.debug("SteamSpy cached: %s", game.name)
             progress.spy_skipped += 1
         else:
             progress.phase = f"SteamSpy ({i+1}/{progress.total_games})"
             spy = await steamspy_fetcher.fetch_steamspy_data(client, game.appid)
-            if spy is not None:
-                if spy.user_tags:
-                    updates["user_tags"] = ",".join(name for name, _ in spy.user_tags)
-                # Compute the SteamSpy ratio metric inline — pure-functional
-                # over the two scalar fields. None-safe.
-                ratio = compute_playtime_median_avg_ratio(spy.median_forever, spy.average_forever)
-                if ratio is not None:
-                    updates["playtime_median_avg_ratio"] = ratio
+            if spy is not None and spy.user_tags:
+                updates["user_tags"] = ",".join(name for name, _ in spy.user_tags)
             progress.spy_fetched += 1
 
-        # --- Steam reviews (always fetch) ---
-        # Returns aggregate fields + per-review playtime list. We feed the
-        # playtimes into the hook-point review-derived metrics inline.
+        # --- Steam reviews (always fetch — aggregate fields only;
+        # review-playtime-derived hook-point metrics removed in v0.7.0). ---
         progress.phase = f"Reviews ({i+1}/{progress.total_games})"
         reviews = await steam_fetcher.fetch_review_data(client, game.appid)
         if reviews:
-            playtimes = reviews.pop("playtimes", []) or []
+            reviews.pop("playtimes", None)
             updates.update(reviews)
-            review_median = compute_review_playtime_median(playtimes)
-            if review_median is not None:
-                updates["review_playtime_median"] = review_median
-            # Stickiness threshold scales with HLTB main when available
-            # (0.5 × main = "played half the story before reviewing"); flat
-            # 20-hour fallback when HLTB main is missing. Use the freshest
-            # HLTB main we have — this iteration's fetch if any, else the
-            # already-stored value.
-            hltb_for_threshold = updates.get("hltb_main_hours", game.hltb_main_hours)
-            stickiness = compute_stickiness_ratio(
-                playtimes, hltb_main_hours=hltb_for_threshold,
-            )
-            if stickiness is not None:
-                updates["stickiness_ratio"] = stickiness
-
-        # --- Achievement stats (cache via age-band TTL like HLTB) ---
-        if not force and game.completion_rate is not None and not _is_stale(effective_game):
-            log.debug("Achievements cached: %s", game.name)
-            progress.achievements_skipped += 1
-        else:
-            progress.phase = f"Achievements ({i+1}/{progress.total_games})"
-            achievements = await achievements_fetcher.fetch_achievements_with_metadata(
-                client, game.appid,
-            )
-            if achievements is None:
-                # Game has no achievements at all (or fetch failed). Don't
-                # write anything — leave existing values alone via COALESCE
-                # in upsert_game so a transient failure doesn't blow away a
-                # previously-computed metric.
-                progress.achievements_no_data += 1
-            else:
-                # Phase 4 manual-override path: when the user picked a specific
-                # achievement on Game Detail, resolve completion_rate from that
-                # achievement's CURRENT unlock percent (so the value tracks
-                # community progress over time) and force confidence='high'
-                # — the user's assertion stands regardless of name pattern.
-                # Fail-open if the named achievement isn't in this fetch
-                # (developer removed it, etc.): keep the last-stored values
-                # via the upsert COALESCE rather than nulling.
-                if game.completion_achievement_name_manual:
-                    manual_match = pick_completion_achievement(
-                        achievements, game.completion_achievement_name_manual,
-                    )
-                    if manual_match is not None:
-                        updates["completion_rate"] = manual_match["percent"] / 100.0
-                        updates["completion_rate_confidence"] = "high"
-                else:
-                    completion = compute_completion_rate(achievements)
-                    confidence = compute_completion_rate_confidence(achievements)
-                    if completion is not None:
-                        updates["completion_rate"] = completion
-                    if confidence is not None:
-                        updates["completion_rate_confidence"] = confidence
-
-                # Cliff metrics are heuristic regardless — no manual override
-                # exists for them (cliff is structural, not a labeling
-                # judgment). Always re-derive from fresh data.
-                cliff = compute_cliff_metric(achievements)
-                cliff_pos = compute_cliff_position(achievements)
-                if cliff is not None:
-                    updates["cliff_metric"] = cliff
-                if cliff_pos is not None:
-                    updates["cliff_position"] = cliff_pos
-                progress.achievements_fetched += 1
 
         # --- Game-type classification ---
         # The `coming_soon` flag from appdetails informs early_access detection

@@ -22,21 +22,6 @@
     {% set gt = resolve_type(gws.game) %}
     <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
   </td>
-  <td class="library-stickiness">
-    {% set sig = compute_stickiness_signal_display(gws.game) %}
-    {% set sig_badge = sig[0] %}
-    {% set sig_overridden = sig[4] %}
-    {% if sig_badge == "limited_data" %}
-      <span class="library-stickiness-empty">—</span>
-    {% else %}
-      {% set tip = stickiness_badge_tooltips[sig_badge] %}
-      {% if sig_overridden %}{% set tip = "Manually set: " + stickiness_badge_labels[sig_badge] %}{% endif %}
-      <span class="stickiness-badge stickiness-badge--{{ sig_badge }}{% if sig_overridden %} stickiness-badge--overridden{% endif %}"
-            title="{{ tip }}">
-        {% if sig_badge == "standard_engagement" %}Standard{% else %}{{ stickiness_badge_labels[sig_badge] }}{% endif %}
-      </span>
-    {% endif %}
-  </td>
   <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>
   <td>
     {% if gws.game.hltb_main_hours %}
