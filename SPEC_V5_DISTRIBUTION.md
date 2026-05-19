@@ -345,6 +345,28 @@ evaluated at module-load. So `OpenFolderDialog` is the last
 class-body crash site under .NET 8 — there is no "next layer"
 lurking once it's guarded.
 
+**Discipline: audit the caller-side interface, not just the patch.**
+When vendoring a third-party patch, the diff tells you what the patch
+*does*; it does not tell you what the patch *expects from its caller*.
+v0.6.0 / v0.6.1 read the smparkes diff correctly and applied it cleanly
+— and the patch still didn't fire because we never set the
+`PYTHONNET_RUNTIME` env var the patch reads to decide which branch to
+take. The code was right; the interface between our code and the patch
+was wrong. The patch's `if`/`else` gates are caller-side preconditions
+in disguise.
+
+Before declaring a vendored patch applied, enumerate and verify:
+
+- Every environment variable the patch reads (`os.environ.get(...)`)
+- Every config the patch reads from `sys`, globals, or files
+- Every callable the patch expects to find on the caller side
+- Every assumption the patch makes about import order
+
+…and confirm each is satisfied by our calling code. This rule matters
+again whenever pywebview's upstream eventually ships a fix and we
+re-vendor or drop the patch — the new code's gating model may differ
+and the same audit must repeat.
+
 ### Frozen-aware resource resolution
 
 PyInstaller flattens `app/main.py` into the bundle's top level, which
@@ -437,6 +459,46 @@ duplicates coverage between mechanism (stages 1, 2) and symptom
 (stage 3) — single-check passing while reality fails is the recurring
 failure mode of this whole arc; redundant checks at different layers
 is the cheap insurance.
+
+**Chain-walk exception gate (added v0.6.2).** Before the three-stage
+assertions run, the detector walks the load chain (`import clr`,
+`pythonnet.get_runtime_info()`, `import webview`, `import
+webview.platforms.winforms`, `import webview.platforms.edgechromium`,
+WebView2 binding resolution) and unmasks any exception swallowed at
+each step via `_dump_exc()`. A module-level `_CHAIN_EXC_COUNT` counter
+increments on every `_dump_exc()` call. After the walk, the detector
+fails the run if the counter is non-zero, regardless of whether the
+three-stage assertions would subsequently pass. This is structurally
+necessary, not belt-and-braces — see the discipline note below.
+
+**Discipline: every new chain layer needs an assertion AT that layer.**
+v0.6.1 shipped broken with all three stage assertions passing: the
+runtime was CoreCLR (stage 1), the WebView2 binding was netcoreapp3.0
+(stage 2), and the WebView2 type exposed `ContextMenuStrip` not
+`ContextMenu` (stage 3) — but `import webview.platforms.winforms` was
+raising `AttributeError` from `OpenFolderDialog`'s class body and being
+swallowed before the assertions ran. None of the three stages asserted
+that the pywebview Windows backend module actually imported, because at
+design time the chain only had three layers; the fourth (the winforms
+import) was added implicitly when the patch was vendored and silently
+inherited the prior stages' coverage.
+
+The chain-walk exception gate closes the specific gap. The general rule
+is broader:
+
+- **When you add a new layer to the load chain, add an assertion AT
+  that layer.** Do not delegate the new layer's coverage to assertions
+  further down the chain.
+- **Downstream assertions test that the chain produced the right
+  artifact; they cannot, by construction, prove the chain ran without
+  swallowing errors along the way.** Asserting the final artifact's
+  properties says nothing about whether intermediate steps swallowed
+  exceptions to get there.
+- **A "false green" — CI passing while the bundle is broken — is more
+  expensive than CI failing on a real issue.** The cost is not the
+  failed release; it is the eroded trust in green CI as a signal,
+  which makes the next debugging round start from doubt instead of
+  evidence.
 
 ### What CI can and cannot catch
 

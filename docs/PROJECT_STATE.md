@@ -486,6 +486,163 @@ Four commits:
 - `e6b625c v5-dist: GitHub Actions release workflow (Linux + Windows)`
 - (this doc commit)
 
+## v5.x — Windows-bundle launch saga (2026-05-17 → 2026-05-19)
+
+The first time the v5 Windows build met a clean consumer Windows 11
+machine (v0.5.3 on 2026-05-17), it crashed. Diagnosing and fixing it
+took seven patch releases (v0.5.4 → v0.6.2) and surfaced a layered set
+of CI-vs-consumer-environment failures, each one masking the next.
+v0.6.2 is the first release that survives the manual gate;
+v0.6.3 onward is post-saga.
+
+`SPEC_V5_DISTRIBUTION.md` is the *technical* record (what the
+architecture is now, why each layer exists, the disciplines extracted).
+This section is the *diagnostic* record — per round, the hypothesis,
+what actually broke, and the rule each failure produced. The intent is
+that a fresh Claude Code session can inherit the full arc here without
+reconstructing it from commit archaeology.
+
+**v0.5.3 — initial failure.** Bundle crashes on clean Windows 11 with
+`RuntimeError: Failed to resolve Python.Runtime.Loader.Initialize`
+despite v5 CI passing. The saga starts here.
+
+**v0.5.4** — hypothesis: PyInstaller spec missing pythonnet /
+clr_loader data files (collect_all gap). Fix: `collect_all("pythonnet")`
++ `collect_all("clr_loader")` in `gamepile.spec`; add
+`--check-windows-runtime` CLI detector for CI. What broke: bundle still
+crashed byte-for-byte the same on the consumer machine despite the spec
+fix. What it taught: bundling-completeness was not the only issue.
+
+**v0.5.5** — hypothesis: still bundling-completeness (some other
+collect_all gap). Fix: none material, mostly a re-test with refined
+detector. What broke: bundle crashed identically on the consumer
+machine; the `--check-windows-runtime` detector passed on the runner
+but the consumer machine failed at the same Loader.Initialize site.
+The bundling-completeness theory was dead. What it taught: **CI
+environment ≠ consumer environment.** windows-latest is a developer
+image — multiple .NET SDKs, Framework Developer Pack, populated GAC,
+registry hints. The pre-v0.5.6 netfx architecture (host-resolved facade
+assemblies) cannot be reliably validated by CI because that
+environmental gap is structural, not a configuration mistake.
+
+**v0.5.6** — hypothesis: bundle the .NET 8 coreclr runtime so the
+loader chain stops depending on host .NET state. Also vendor the
+WebView2 netcoreapp3.0 binding to fix the `ContextMenu` → `ContextMenuStrip`
+type rename. Fix: download + SHA-verify .NETCore.App + WindowsDesktop.App
+8.0.27 in the workflow, ship them inside the bundle, point
+`pythonnet.set_runtime()` at a custom `Python.Runtime.runtimeconfig.json`.
+What broke: the spec filter intended to drop pywebview's bundled net462
+binding was silently bypassed. pywebview's `hook-webview.py` re-runs
+during `Analysis()` and re-adds the net462 DLLs *after* the filter ran.
+What it taught: PyInstaller hook execution order matters; spec-time
+filters can be re-overridden by hooks. Fix must run *after* PyInstaller,
+not during it.
+
+**v0.5.7** — hypothesis: post-build filesystem replacement. Fix:
+workflow step copies the verified netcoreapp3.0 DLLs over the bundle's
+`_internal/webview/lib/` with double-SHA verify (source SHA before
+copy, destination SHA after copy). What broke: the same symptom further
+in the load chain — `WebViewException: You must have pythonnet installed
+in order to use pywebview`. What it taught: pywebview's catch-all
+`except ImportError` masks the real exception. The misleading error
+message is a *symptom* of an upstream class-body crash being swallowed.
+
+**v0.5.8** — hypothesis: instrument first, fix second. Fix: add
+`_dump_exc()` to `app/main.py` to walk the import chain and print the
+swallowed exception traceback to stderr. What broke: nothing — the
+diagnostic worked exactly as designed and revealed `AttributeError:
+'NoneType' object has no attribute 'GetMethod'` in
+`webview/platforms/winforms.py`'s `OpenFolderDialog` class body. What
+it taught: **make the load chain audible before trying to fix the
+symptom.** Diagnostic instrumentation stays in main permanently as
+load-bearing surface, not scaffolding — every future regression in
+this layer benefits from the same audibility.
+
+**v0.5.9 / v0.6.0** — hypothesis: vendor pywebview 6.2.1's
+`winforms.py` with the smparkes:fix/dotnet8-coreclr patch applied (all
+three sub-fixes, not just OpenFolderDialog). Fix: add
+`vendor/pywebview/winforms.py` with provenance header; workflow step
+SHA-verifies source, overwrites venv copy, SHA-verifies destination.
+What broke (v0.6.0): SHA512 mismatch between WSL-committed vendored
+file and Windows-runner-checked-out file. Root cause: Git's default
+`core.autocrlf=true` on Windows runners converted LF → CRLF on
+checkout, changing the file's bytes. What it taught: **SHA-pinned
+files require `.gitattributes` line-ending pins.** Without `text
+eol=lf`, the SHA validates against a different byte sequence than what
+was committed.
+
+**v0.6.1** — hypothesis: `.gitattributes` fixes the line-ending
+issue; the patched winforms.py now applies cleanly. Fix: add
+`.gitattributes` pinning `vendor/pywebview/winforms.py` to LF. CI
+reported all checks green: `Build linux → success`,
+`Build windows → success`, `--check-windows-runtime PASSED`. Release
+published as canonical non-prerelease. **The bundle still crashed on
+the consumer machine.** What broke: the smparkes patch gates its .NET 8
+compatibility branches on `os.environ.get('PYTHONNET_RUNTIME') ==
+'coreclr'`. Our code selected the runtime via the explicit
+`pythonnet.set_runtime()` API and never set the env var. The patch's
+coreclr branches never fired; the original `OpenFolderDialog` class
+body ran; the AttributeError raised exactly as in v0.5.9. The
+three-stage detector assertions passed because none of them covered
+the `import webview.platforms.winforms` step that was throwing. The
+chain walk did emit `[exc]` lines in CI stderr, but no stage failed on
+exception presence — CI green over a broken bundle.
+
+What it taught: two structural rules, now SPEC discipline notes:
+
+1. **Audit the caller-side interface of any vendored third-party
+   patch, not just the patch's own diff.** The patch's `if`/`else`
+   gates are caller-side preconditions in disguise.
+2. **Every new layer added to the load chain must include an
+   assertion AT that layer, not delegated to downstream stages.**
+   Downstream assertions test the chain produced the right artifact;
+   they cannot prove the chain ran without swallowing errors along
+   the way.
+
+**v0.6.2** — hypothesis: set `PYTHONNET_RUNTIME=coreclr` env var in
+addition to the explicit `set_runtime()` API call, and tighten the
+detector to fail-fast on any chain-walk exception. Fix: two lines in
+`app/main.py` — set the env var in the top-of-module frozen-Windows
+block, and a module-level `_CHAIN_EXC_COUNT` counter that
+`_dump_exc()` increments; detector fails the run if non-zero before
+the three-stage assertions execute. CI ran green; manual gate (clean
+Windows 11 double-click) **passed** (2026-05-19). v0.6.2 is the
+canonical release; v0.5.3 through v0.6.1 are flagged prerelease with
+the uniform note "superseded — Windows bundle not functional, use the
+latest release."
+
+**Cumulative rules from the arc** (also reflected in SPEC discipline
+callouts):
+
+1. CI environment ≠ consumer environment. Bundle the runtime; do not
+   resolve against the host.
+2. Make the load chain audible before fixing the symptom. The
+   diagnostic instrumentation is load-bearing surface, not scaffolding.
+3. Three-stage assertions duplicate coverage between mechanism and
+   symptom precisely because single-check passing while reality fails
+   is the recurring failure mode of this arc.
+4. CI green is necessary, never sufficient. Release acceptance is the
+   manual clean-Windows-11 double-click test.
+5. Audit the caller-side interface of any vendored third-party patch,
+   not just the patch's own diff.
+6. Every new layer added to the load chain needs an assertion AT that
+   layer, not delegated downstream.
+7. SHA-pinned files require `.gitattributes` line-ending pins to
+   survive Windows checkout's autocrlf conversion.
+
+**Post-saga deferred housekeeping** (tracked in `SPEC_V5_DISTRIBUTION.md`):
+
+- Revisit bundled .NET 8 pin before EOL 2026-11-10
+- Update pinned .NET 8 URL/SHA on security patches
+- Drop the WebView2 binding override when pywebview ships upstream fix
+  (issue #1803)
+- Drop the vendored pywebview winforms.py when pywebview ships upstream
+  fix (issue #1803). On re-vendor or drop, re-run the audit discipline
+  above — the new code's gating model may differ
+- Refactor `SPEC_V5_DISTRIBUTION.md` into v5-baseline + v5.x-maintenance-
+  log after one or two more clean release rounds without further saga
+- Node 20 action bumps, windows-2025-vs2026 pin (longstanding deferred)
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
