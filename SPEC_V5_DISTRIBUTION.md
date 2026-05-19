@@ -37,6 +37,36 @@ the Linux-only migration guard on both linux and non-linux platforms,
 and a regression-canary grep that fails if anyone reintroduces a
 hardcoded XDG pattern in production code.
 
+### Load-bearing distribution property: install-location vs data-location separation
+
+The platformdirs audit started as a portability fix — XDG patterns don't
+resolve on Windows. As of v0.8.0 (Inno Setup installer), the same
+separation became a **load-bearing distribution-layer property** that the
+installer/uninstaller scope depends on:
+
+- The Windows installer writes program files to `{userpf}\GamePile`
+  (resolves to `%LocalAppData%\Programs\GamePile`) under
+  `PrivilegesRequired=lowest`.
+- The app reads/writes its database, logs, and any future per-user state
+  to `%LocalAppData%\gamepile` via the platformdirs call. Note the
+  distinct directory — `\Programs\GamePile` vs `\gamepile`.
+- The uninstaller's scope is the installer's `{app}` directory only. The
+  data directory is never written to by the installer or referenced in
+  any `[UninstallDelete]` entry.
+
+This is what makes the upgrade-preserves-DB and uninstall-preserves-DB
+guarantees structurally true rather than convention. A regression that
+moved the data directory to live *inside* the install directory would
+silently invert both guarantees: upgrade would replace user data,
+uninstall would delete it. The `tests/test_paths.py` regression canary
+exists partly to catch that class of mistake.
+
+**Do not move the data directory under the install directory** — not for
+"convenience," not for "portable mode," not for anything short of an
+explicit decision that revisits the installer scope. If portable mode is
+ever wanted, it needs a separate code path that the installer build does
+not exercise.
+
 ## Build pipeline
 
 ### PyInstaller spec (`gamepile.spec`)
@@ -567,15 +597,24 @@ Linux only:
 
 Windows only:
   uv sync                              # PyGObject skipped via PEP 508 marker
+  Apply pywebview winforms.py patch (SHA-verify source + destination)
+  Download + SHA-verify WebView2 netcoreapp3.0 binding override
+  Download + SHA-verify bundled .NET 8 runtime
   uv run pyinstaller gamepile.spec
-  dist\gamepile\gamepile.exe --healthz-only   # expect "ok"
+  Apply WebView2 binding override to built bundle (SHA-verify in-bundle)
+  dist\gamepile\gamepile.exe --healthz-only           # expect "ok"
+  dist\gamepile\gamepile.exe --check-windows-runtime  # expect "PASSED"
   Copy-Item README.bundled.md dist\gamepile\README.md
-  Compress-Archive dist\gamepile gamepile-<tag>-windows-x64.zip
+  choco install innosetup --no-progress -y
+  iscc.exe /DAppVersion=<tag-without-v> installer\gamepile.iss
+    → gamepile-setup-<tag>.exe in repo root
+    (≥100 MB plausibility-floor check; fail-fast if smaller)
 
 Upload:
   tag push     → softprops/action-gh-release@v2 published Release
                   (draft: false — tag push lands a public release with
-                  both bundles attached, no manual promote step)
+                  the Linux .tar.gz and the Windows installer .exe
+                  attached, no manual promote step)
   dispatch run → actions/upload-artifact@v4 (14-day retention)
 ```
 
@@ -611,6 +650,282 @@ running every tag the moment it ships; the latency between tag and
 download already gives a window for "oh that one's broken, grab the
 next one instead."
 
+## Inno Setup installer (Windows, v0.8.0+)
+
+Through v0.7.0, the Windows release artifact was a raw
+`gamepile-vX.Y.Z-windows-x64.zip` — the user extracted the archive, found
+`gamepile.exe` inside, and double-clicked it. No installer, no
+Add/Remove Programs entry, no uninstaller, no upgrade path beyond
+"delete the old folder, extract the new one in its place."
+
+v0.8.0 replaces that with a proper per-user Inno Setup installer:
+`gamepile-setup-vX.Y.Z.exe`. The script lives at
+`installer/gamepile.iss`. The raw `.zip` artifact is gone — the
+installer is the only Windows release artifact attached to a Release.
+
+### Architecture decisions (locked at v0.8.0)
+
+These are inputs to this section, not open for re-litigation:
+
+1. **Inno Setup, not MSIX / WiX / auto-update-from-app.** Inno is free,
+   mature, well-documented, and has the lowest friction-to-effort ratio
+   for friend-scale distribution. It pairs cleanly with the existing
+   PyInstaller `--onedir` output.
+2. **Per-user install, NOT per-machine.** `PrivilegesRequired=lowest` in
+   the `.iss`. No admin elevation, no UAC prompt. Matters for the
+   SmartScreen-shy friend audience: the unsigned "More info → Run
+   anyway" click is already the friction gate; adding a second UAC
+   dialog on top would compound the friction without buying any
+   meaningful trust signal.
+3. **The installer REPLACES the zip.** Friends get exactly one Windows
+   download per release. No alongside-shipping, no "should I get the
+   installer or the zip" confusion. The workflow's Publish-Release step
+   attaches only the `.exe` (and the unchanged Linux `.tar.gz`).
+4. **Unsigned, code signing deferred.** SmartScreen click-through
+   ("More info → Run anyway") remains the expected first-launch
+   experience. See "No code signing" below — the deferral rationale is
+   unchanged from v0.5.0.
+
+### Stable AppId GUID
+
+Inno detects existing installations and routes them through its
+upgrade-in-place path by matching on `AppId`. The GamePile AppId GUID
+is **fixed at `{D72A3C2F-1F81-4B71-80C5-AFF7276673BD}`** and committed
+as a literal constant in `installer/gamepile.iss`. Generated once via
+`uuid.uuid4()` on 2026-05-19; it stays the same forever.
+
+Do NOT regenerate this on a future version bump, refactor, or "clean
+install" intention. Changing the AppId would orphan every existing
+installation: Inno would treat the new installer as a fresh app and
+not detect the prior install, so:
+
+- The old install's program files would stay at
+  `{userpf}\GamePile` (no upgrade-replace).
+- The new install would land at the same path (in the best case) or
+  silently elsewhere (worse).
+- The Add/Remove Programs list would acquire two GamePile entries.
+- The uninstall paths would no longer match the user's mental model.
+
+This is exactly the kind of "deliberately preserved across versions"
+identity that has to be load-bearing, not convention. If a future
+maintainer ever genuinely wants to rebrand or re-identify the install
+(e.g., a deliberate fork that should not upgrade-replace existing
+GamePile installs), that decision is explicit and documented in a
+follow-up phase; until then, the GUID does not move.
+
+### Install location and scope
+
+`DefaultDirName={userpf}\GamePile`. Under `PrivilegesRequired=lowest`
+this resolves to `%LocalAppData%\Programs\GamePile`, which is the
+standard per-user Programs directory since Inno Setup 6 and Windows 10.
+
+The installer's `[Files]` section sources the entire PyInstaller
+`--onedir` payload (`dist\gamepile\*` from the repo root) with
+`recursesubdirs createallsubdirs ignoreversion`. The bundled
+`README.md` (a copy of `README.bundled.md`) ships inside the install
+directory as it did with the zip.
+
+### User data preservation across uninstall
+
+The installer **does not touch `%LocalAppData%\gamepile`** on install,
+upgrade, or uninstall:
+
+- No `[Files]` entry references the data directory.
+- No `[UninstallDelete]` entry references the data directory.
+- No `[Code]` section deletes anything outside `{app}`.
+
+User data (the SQLite `gamepile.db`, logs, future per-user state)
+survives every installer operation by virtue of the
+install-location-vs-data-location separation documented in the
+"Path-resolution audit" section above. That separation is a
+load-bearing distribution-layer property — see the explicit
+`Do not move the data directory under the install directory`
+guidance there.
+
+**No "also remove user data" checkbox in the uninstaller.** The cost
+asymmetry is severely one-sided: misclick cost is months of
+accumulated Steam sync + manual classifications + pick history +
+affinity weights, gone irrecoverably. No-checkbox cost is ~10 KB of
+leftover folder that anyone who actually wants it gone can delete
+manually. Every well-behaved Windows app the friend audience runs
+(Discord, Steam, browsers, Zoom) leaves user data on uninstall by
+default — deviating from that mental model is surprising-in-a-bad-
+direction. The decision is documented inline in the `.iss` script.
+
+For the rare case where someone genuinely wants a fully-clean
+removal, `README.bundled.md` documents the one-line manual cleanup
+(delete `%LocalAppData%\gamepile` after uninstall). Deliberately
+unceremonious — friction comes from being a manual filesystem
+action, not from scary CAPS warnings.
+
+### Upgrade-over-prior-version
+
+The installer detects an existing install by `AppId`, prompts the
+user about replacement (default-accept), and replaces the program
+files in place. `CloseApplications=yes` handles the case where the
+user runs the new installer while the old GamePile is still
+running — Inno offers to close it cleanly rather than failing the
+file replace. `RestartApplicationsIfNeeded=no` prevents an
+auto-restart loop on a misbehaving Close.
+
+The user's data at `%LocalAppData%\gamepile` is untouched (see
+preceding section). Upgrade-preserves-DB is a structural property
+of the install-vs-data separation, not a feature of the upgrade
+code path.
+
+### Publisher string
+
+`AppPublisher=floxnt`. Matches the GitHub repo owner pseudonym
+(`github.com/floxnt/gamepile`) used throughout the project. The
+Publisher field in Add/Remove Programs identifies the maker, not
+the app — the convention is "Microsoft" publishes "Visual Studio
+Code," not "Visual Studio Code" publishes "Visual Studio Code."
+
+### Version string flow
+
+The version is **not hardcoded** in the `.iss`. The workflow strips
+the leading `v` from `github.ref_name` (e.g., `v0.8.0` → `0.8.0`)
+and passes it to ISCC via `/DAppVersion=0.8.0`. The `.iss` `#error`s
+if `AppVersion` is not defined, so a misconfigured manual invocation
+fails fast.
+
+- `AppVersion={#AppVersion}` — the bare semver, shown in Add/Remove
+  Programs per Windows convention.
+- `VersionInfoVersion={#AppVersion}` — the file-version metadata
+  embedded in the installer .exe.
+- `OutputBaseFilename=gamepile-setup-v{#AppVersion}` — the installer
+  re-adds the `v` prefix so the artifact filename matches the
+  project's `gamepile-setup-vX.Y.Z.exe` convention.
+
+### SHA-pinning discipline (formalized at v0.8.0)
+
+The workflow SHA-pins multiple binaries: the bundled .NET 8 runtime
+zips, the WebView2 netcoreapp3.0 NuGet package, the WebView2 DLLs
+inside the built bundle, the vendored pywebview `winforms.py`. The
+v0.8.0 installer phase deliberately does NOT SHA-pin the Inno Setup
+compiler installed via chocolatey. The principle making both
+choices coherent:
+
+> **SHA-pin what ships TO USERS in the bundle. Don't ceremonially
+> SHA-pin tools that only run on the CI host and never reach the
+> user.**
+
+The .NET 8 runtime, WebView2 binding DLLs, and patched pywebview
+`winforms.py` all live in the user's filesystem after install — if
+their identity is wrong, the user gets wrong code. Pinning protects
+the user-facing output. ISCC.exe runs only on the GitHub-hosted CI
+runner, compiles the installer once, and never reaches the user;
+pinning it would add maintenance burden (chase chocolatey package
+SHA on every refresh of windows-latest's runner image) without
+protecting any user-visible output. Chocolatey + the
+windows-latest base image is the trust boundary, and that boundary
+is already in place for the rest of the build (Python, uv,
+PyInstaller itself, the OS itself).
+
+This discipline applies prospectively: future workflow additions
+should ask "does this binary ship to users?" before deciding
+whether SHA-pinning is load-bearing or ceremonial. Ceremonial
+pinning compounds maintenance burden over time; load-bearing
+pinning is non-negotiable.
+
+### What CI cannot verify (v0.8.0 phase)
+
+The workflow does the most CI can do:
+
+- Compiles the `.iss` (ISCC exit code 0)
+- Asserts the produced `.exe` exists at the expected path
+- Asserts the `.exe` size is above a 100 MB plausibility floor (fails
+  fast if the `[Files]` section silently caught nothing)
+- Attaches the artifact to the Release on tag push
+
+**CI cannot run the installer.** It cannot click through the wizard,
+cannot confirm SmartScreen behavior, cannot launch the installed
+app, cannot verify a window opens, cannot verify the upgrade-over-
+prior-version flow preserves DB, cannot verify the uninstaller
+behaves correctly, cannot verify the Add/Remove Programs entry
+shows the right publisher string.
+
+CI's coverage for the installer phase is bounded to "the `.iss`
+compiled, produced a plausibly-sized `.exe`, and both jobs were
+green." Treat this bound as the explicit honest scope, not an
+implicit upper limit. See "Release acceptance is the manual test"
+below.
+
+### Release acceptance is the manual install/launch/upgrade/uninstall test
+
+The structural release-acceptance criterion for any release that
+touches the installer is the **manual hardware gate on a real
+consumer Windows 11 machine**. CI green is necessary, never
+sufficient. Same rule as the v0.6.2 saga — the same failure mode
+that made CI-only validation insufficient for the bundle load chain
+makes CI-only validation insufficient for the installer behavior.
+
+The manual gate has four sub-tests:
+
+1. **Install on a clean Windows 11 session.** Download
+   `gamepile-setup-vX.Y.Z.exe`, double-click, click through
+   SmartScreen ("More info → Run anyway"), complete the wizard,
+   confirm "Launch GamePile" closes the wizard and opens the app
+   window.
+2. **Upgrade-over-prior-version.** With a prior version (e.g.,
+   v0.7.0's unzipped folder or a prior installer-built version)
+   already present, run the new installer. Confirm the upgrade
+   completes, the app launches with the new version string, and
+   the user's library / sync state / ratings / pick history are
+   preserved at `%LocalAppData%\gamepile`.
+3. **Add/Remove Programs entry.** Open Settings → Apps → Installed
+   apps. Confirm GamePile is listed with Publisher = `floxnt` and
+   Version = the bare semver.
+4. **Uninstall.** Run the uninstaller from Add/Remove Programs.
+   Confirm the program files at `{userpf}\GamePile` are removed,
+   `%LocalAppData%\gamepile` is **untouched**, and re-running the
+   installer afterward succeeds as a fresh install.
+
+All four sub-tests pass = release validated. Any sub-test fails =
+release reverted, the tag flagged prerelease with a release-specific
+note, and the failure diagnosed before the next attempt.
+
+Until the manual gate clears, **the Release object is flagged
+prerelease with a plain note** explaining what's awaiting validation.
+Friends should not be directed at a non-validated installer release.
+
+## Distribution flow
+
+1. Author runs `git tag vX.Y.Z && git push origin main --tags`
+2. Workflow builds both bundles and publishes a Release directly (no
+   draft intermediate). On v0.8.0+ the Release is flagged prerelease
+   with an awaiting-manual-validation note until the author completes
+   the manual hardware gate (see "Release acceptance is the manual
+   install/launch/upgrade/uninstall test" above).
+3. Author runs the manual gate on their Windows 11 machine. On pass,
+   the prerelease flag is removed and the Release is promoted to
+   canonical.
+4. If the manual gate fails: delete the tag + Release, fix, re-tag
+   with a patch bump.
+5. Friends download from <https://github.com/floxnt/gamepile/releases>
+   only the latest canonical (non-prerelease) Release.
+
+### Why direct-publish instead of draft
+
+The original v5 design used `draft: true` on the gh-release action, on
+the theory that a manual "Publish release" click would keep the author
+in control of when a release went public. In practice that step was
+never taken — v0.5.0 through v0.5.3 all landed as drafts that were
+invisible to anonymous viewers of the Releases page, so to friends the
+project looked like it had no releases at all. "Author controls when
+releases go public" collapsed to "releases never go public," which is
+strictly worse for a friend-distribution project.
+
+The fix is `draft: false`: tag pushes publish immediately. The
+prerelease flag (added in v0.8.0 as the awaiting-manual-validation
+marker) achieves the "author controls when this counts as canonical"
+intent without invisibility: the Release is visible on the Releases
+page but explicitly marked not-yet-validated. Friends know to wait;
+the previous-canonical Release stays as the latest non-prerelease.
+
+The recovery path for a bad build is the same as for any other
+public release — delete the tag and the Release, patch-bump, re-tag.
+
 Versioning: semver from `v0.5.0`. Patch releases for bugfixes
 (`v0.5.1`, `v0.5.2`), minor bumps for new features (`v0.6.0`),
 `v1.0.0` when friend-validation has shaken the bugs out and the
@@ -625,8 +940,14 @@ when the distribution channel is "I trust you, send me a link". Windows
 users see SmartScreen warning on first launch; the bundled README
 documents the "More info → Run anyway" path.
 
-If GamePile ever ships beyond friends, code signing becomes the right
-next investment. EV cert + per-build signing → no SmartScreen prompt.
+v0.8.0's Inno Setup installer does not change this calculation. Both the
+installer .exe and the installed `gamepile.exe` ship unsigned. The
+SmartScreen prompt now appears on the *installer* run (not the
+post-extract `gamepile.exe` double-click as it did with the .zip flow),
+but the click-through is the same. If GamePile ever ships beyond
+friends, code signing becomes the right next investment — EV cert +
+per-build signing on both artifacts gets rid of the SmartScreen prompt.
+See the "Revisit code signing" deferred-housekeeping item below.
 
 ### Cross-platform validation pending
 
@@ -661,13 +982,24 @@ Bootstrapper** as the supported installation path; redistributing the
 runtime files in-bundle isn't allowed. GamePile detects missing runtime
 and opens the bootstrapper install page — that's the documented path.
 
-### No Linux AppImage
+### No Linux AppImage (yet)
 
-The brief originally called out AppImage as a v5 deliverable, but the
+The brief originally called out AppImage as a v5 deliverable. The
 PyInstaller --onedir path + GTK/WebKit system deps (which can't be
-bundled portably anyway) made AppImage redundant. If a friend runs into
-distro-version compatibility issues, AppImage with bundled GTK becomes
-the right escalation.
+bundled portably anyway) made AppImage redundant for the initial
+friend-distribution scope: Linux ships a `.tar.gz` with a documented
+"install the GTK/WebKit packages your distro uses, run the binary"
+flow.
+
+v0.8.0's Inno Setup installer for Windows reframes this as a
+distribution-parity gap rather than a redundancy: Windows friends now
+get a proper double-click installer with Add/Remove integration, while
+Linux friends still get a raw tar.gz to extract by hand. Closing that
+gap with an AppImage build (bundled GTK or relying on host GTK with a
+clear error message) is queued as a separate post-installer-validation
+phase — see the "Linux installation parity via AppImage" deferred-
+housekeeping item below for the full scope description. Not in scope
+for v0.8.0 itself.
 
 ## Tests
 
@@ -741,3 +1073,34 @@ PyInstaller bundle verified locally on Linux:
   separate the original v5 design into a baseline section and the
   layered Windows workarounds into a maintenance-log section. Do NOT
   refactor mid-incident; refactor from a position of stability.
+
+- **Linux installation parity via AppImage** — queued
+  post-Windows-installer-validation, separate phase. v0.8.0 closed
+  half the install-experience gap (Windows now ships a proper
+  installer); Linux still ships a raw tar.gz with manual GTK/WebKit
+  package install. An AppImage build that either bundles GTK or fails
+  with a useful "install these packages, then retry" message would
+  close the parity gap. Two design questions to answer when this
+  phase opens: (1) bundle GTK or rely on host (size vs portability
+  tradeoff — Discord's AppImage bundles GTK; some other apps don't),
+  (2) keep the tar.gz as a power-user fallback alongside AppImage, or
+  retire it entirely. Do NOT pull this work into the v0.8.0 installer
+  phase mid-scope; it gets its own phase decided from a position of
+  Windows-installer stability.
+
+- **Revisit code signing if/when friend-count grows.** The unsigned-
+  shipping decision was right for the friend-distribution scope of
+  v0.5.0–v0.8.0: SmartScreen warning on a handful of friends'
+  machines is friction, but a sub-$200/year EV-cert annual cost is
+  not justified by the trust gain at that scale. The calculus
+  changes if the project grows — SmartScreen reputation accrues
+  with signed-binary install volume; without signing, every new
+  friend pays the click-through cost forever. Re-evaluate when (a)
+  the user base is meaningfully wider than a small friend group, or
+  (b) feedback explicitly names SmartScreen as a deterrent to
+  adoption. The installer (.exe) and the installed gamepile.exe
+  both need signing; one without the other is incomplete. EV cert
+  is the right tier — OV cert produces a smaller-warning click-
+  through, not no warning. Until then: the "No code signing"
+  section above + the README's "More info → Run anyway" note are
+  the documented path.

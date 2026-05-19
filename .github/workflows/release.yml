@@ -23,10 +23,8 @@ jobs:
         include:
           - os: ubuntu-latest
             platform_label: linux
-            archive_ext: tar.gz
           - os: windows-latest
             platform_label: windows
-            archive_ext: zip
 
     steps:
       - name: Checkout
@@ -388,11 +386,66 @@ jobs:
           cd dist
           tar -czf "../gamepile-${{ github.ref_name }}-linux-x64.tar.gz" gamepile
 
-      - name: Archive bundle (Windows)
+      # Install Inno Setup compiler on the Windows runner. Chocolatey is
+      # pre-installed on windows-latest and the innosetup package is stable;
+      # two-line install, no ceremony required.
+      #
+      # We deliberately do NOT SHA-pin the Inno Setup binary. The pinning
+      # discipline in this workflow (for .NET 8 runtime, WebView2 binding,
+      # vendored pywebview winforms.py) applies to binaries that ship TO
+      # USERS inside the bundle — if the pinned bytes change, end-user
+      # machines get different code. ISCC.exe runs only on the CI host and
+      # never reaches the user; pinning it would add maintenance burden
+      # without protecting any user-visible output. See
+      # SPEC_V5_DISTRIBUTION.md "SHA-pinning discipline" for the principle.
+      - name: Install Inno Setup (Windows only)
         if: matrix.platform_label == 'windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\gamepile -DestinationPath "gamepile-${{ github.ref_name }}-windows-x64.zip"
+          choco install innosetup --no-progress -y
+          # Verify ISCC is on PATH so the compile step can find it.
+          $iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue)
+          if (-not $iscc) {
+            Write-Host "ISCC.exe not found on PATH after chocolatey install."
+            exit 1
+          }
+          Write-Host "ISCC located at: $($iscc.Source)"
+          & iscc.exe /? | Select-Object -First 3
+
+      # Compile the Inno Setup installer against the PyInstaller --onedir
+      # output. Version sourced from the git tag (github.ref_name = vX.Y.Z),
+      # stripped of the 'v' prefix so the installer's AppVersion / Add/Remove
+      # Programs entry shows the bare semver (e.g. "0.8.0", not "v0.8.0") per
+      # Windows convention. Output filename uses the v-prefix per the project
+      # release-artifact naming convention (gamepile-setup-v0.8.0.exe).
+      - name: Build Inno Setup installer (Windows only)
+        if: matrix.platform_label == 'windows'
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          Write-Host "Compiling installer for AppVersion=$version"
+          & iscc.exe "/DAppVersion=$version" installer\gamepile.iss
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "ISCC compile failed — exit $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          $expectedExe = "gamepile-setup-${{ github.ref_name }}.exe"
+          if (-not (Test-Path $expectedExe)) {
+            Write-Host "Expected installer $expectedExe not present after compile."
+            Get-ChildItem -Filter "gamepile-setup-*.exe" | Format-Table Name, Length
+            exit 1
+          }
+          $size = (Get-Item $expectedExe).Length
+          Write-Host "Built $expectedExe ($size bytes)"
+          # Plausibility floor: the --onedir payload is ~400 MB uncompressed
+          # (Python + FastAPI + .NET 8 + WebView2 + bundled webkit datas).
+          # An lzma2/ultra installer of that lands well above 100 MB. Fail
+          # fast if the artifact is suspiciously small (compile succeeded
+          # but the [Files] section silently caught nothing, etc.).
+          if ($size -lt 100000000) {
+            Write-Host "Installer size $size bytes is below the 100 MB plausibility floor — payload may have been silently dropped."
+            exit 1
+          }
 
       # Tag pushes publish a Release directly. The earlier design routed
       # tag pushes to a draft Release for manual promotion, on the theory
@@ -403,6 +456,10 @@ jobs:
       # Direct publish wins.
       # Manual workflow_dispatch runs still upload to the Actions run
       # page only — keeps the Releases list clean during iteration.
+      #
+      # Windows artifact: gamepile-setup-vX.Y.Z.exe (Inno installer). The
+      # raw .zip archive was retired in v0.8.0 — the installer is the only
+      # Windows release artifact. Linux artifact unchanged: tar.gz.
       - name: Publish Release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -410,7 +467,7 @@ jobs:
           draft: false
           files: |
             gamepile-${{ github.ref_name }}-linux-x64.tar.gz
-            gamepile-${{ github.ref_name }}-windows-x64.zip
+            gamepile-setup-${{ github.ref_name }}.exe
           fail_on_unmatched_files: false
           generate_release_notes: true
 
@@ -421,6 +478,6 @@ jobs:
           name: gamepile-${{ matrix.platform_label }}-${{ github.sha }}
           path: |
             gamepile-*-linux-x64.tar.gz
-            gamepile-*-windows-x64.zip
+            gamepile-setup-*.exe
           if-no-files-found: ignore
           retention-days: 14

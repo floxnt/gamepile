@@ -20,16 +20,31 @@ Local-only. Single-user. No cloud sync. No telemetry.
 
 ### Windows
 
-1. Download `gamepile-vX.Y.Z-windows-x64.zip` from the
+1. Download `gamepile-setup-vX.Y.Z.exe` from the
    [Releases page](https://github.com/floxnt/gamepile/releases).
-2. Extract the ZIP somewhere — `C:\Users\<you>\GamePile\` works fine.
-3. Double-click `gamepile.exe` inside the extracted folder.
+2. Double-click the installer. It's a per-user install — no admin
+   password required.
+3. Click through the wizard. The defaults are fine. Optionally tick
+   "Create desktop icon" if you want one.
+4. When install finishes, GamePile launches automatically (the
+   "Launch GamePile" checkbox on the Finish page).
+5. Subsequent launches: Start Menu → GamePile, or the desktop icon if
+   you created one.
 
 **SmartScreen warning:** Windows will show "Microsoft Defender SmartScreen
-prevented an unrecognized app from starting." Click **More info**, then
-**Run anyway**. The binary is unsigned because this is a friend-distributed
-build — not a sign of malware. Source code is at
-<https://github.com/floxnt/gamepile> if you want to verify.
+prevented an unrecognized app from starting" when you run the installer.
+Click **More info**, then **Run anyway**. The installer is unsigned because
+this is a friend-distributed build — not a sign of malware. Source code is
+at <https://github.com/floxnt/gamepile> if you want to verify.
+
+**Upgrading:** download the new installer and run it. It detects your
+existing install and replaces the program files in place. Your library,
+sync data, ratings, and pick history are preserved (they live separately
+from the installed program files — see "Where data lives" below).
+
+**Uninstalling:** Settings → Apps → Installed apps → GamePile → Uninstall.
+Or right-click GamePile in the Start Menu and choose Uninstall. The
+uninstaller removes the program files only; your data is left alone.
 
 **WebView2 Runtime:** If your Windows 11 install is the LTSC edition (or an
 older Windows 10 build), GamePile will detect a missing WebView2 Runtime
@@ -102,6 +117,9 @@ SteamID later. The keychain is the source of truth.
 The `gamepile.db` file in that directory is the entire app database —
 back it up if you want to preserve your pick history and ratings across
 machines. The directory is also where logs land if anything crashes.
+
+To fully remove GamePile including data: uninstall normally, then delete
+`%LOCALAPPDATA%\gamepile` (Windows) or `~/.local/share/gamepile` (Linux).
 
 ## Troubleshooting
 

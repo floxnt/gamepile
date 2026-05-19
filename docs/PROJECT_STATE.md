@@ -718,6 +718,70 @@ See `SPEC_HOOK_RETIREMENT.md` and the in-file commit headers for the
 design decisions and the "must not evolve into a behavioral signal
 silently" continuity note.
 
+## v0.8.0 — Inno Setup installer replaces raw .zip (Windows)
+
+Distribution-layer phase, no app behavior changes. The Windows release
+artifact changed from `gamepile-vX.Y.Z-windows-x64.zip` (extract +
+double-click `gamepile.exe`) to `gamepile-setup-vX.Y.Z.exe` (proper
+per-user Inno Setup installer with Add/Remove Programs entry +
+uninstaller + upgrade-in-place path). Linux artifact unchanged
+(`.tar.gz`).
+
+Key properties of the installer:
+
+- **Per-user install** (`PrivilegesRequired=lowest`), no admin
+  elevation, no UAC. Installs to `%LocalAppData%\Programs\GamePile`.
+- **Stable AppId GUID** (`{D72A3C2F-1F81-4B71-80C5-AFF7276673BD}`),
+  committed as a fixed constant — never regenerated across versions.
+  Inno uses this to detect existing installs for upgrade-in-place.
+- **Never touches `%LocalAppData%\gamepile`** (the user data directory)
+  on install, upgrade, or uninstall. Months of accumulated Steam sync,
+  classifications, pick history, affinity weights all survive every
+  installer operation by virtue of the platformdirs-driven separation
+  between install-location and data-location. Flagged in
+  `SPEC_V5_DISTRIBUTION.md` as a load-bearing distribution property.
+- **No "also remove user data" uninstall checkbox.** Cost-asymmetry
+  argument: misclick cost is irrecoverable months of data; no-checkbox
+  cost is ~10 KB of leftover folder. README.bundled.md documents the
+  one-line manual cleanup for the rare case someone wants it.
+- **Publisher = `floxnt`** (the GitHub repo owner pseudonym used
+  throughout the project).
+- **Ships unsigned.** SmartScreen "More info → Run anyway" remains the
+  expected first-launch experience. Signing deferred — same calculus
+  as v0.5.0; revisit if friend-count grows enough that SmartScreen
+  reputation could meaningfully accrue.
+
+Build pipeline change: the workflow installs Inno Setup via chocolatey
+on the windows-latest runner (no SHA-pin — see the formalized
+"SHA-pin user-shipped binaries; don't ceremonially SHA-pin host-only
+build tools" principle in SPEC_V5_DISTRIBUTION.md) and runs `iscc.exe`
+against `installer/gamepile.iss` with the version passed in via
+`/DAppVersion=`. The compile step asserts the produced installer
+exists and is above a 100 MB plausibility floor (fails fast if the
+`[Files]` section silently dropped the payload).
+
+Manual hardware gate APPLIES for this release. This is the first
+distribution-layer phase since the v0.5.x → v0.6.2 saga that needs
+the manual install/launch/upgrade/uninstall confirmation on a real
+Windows 11 machine — CI green is necessary but NOT sufficient. The
+gate has four sub-tests (clean install + launch, upgrade-over-prior
++ data preservation, Add/Remove Programs entry, uninstall doesn't
+touch data); all four must pass before the Release is promoted from
+prerelease to canonical. Until the gate clears, the Release is
+flagged prerelease with an awaiting-manual-validation note.
+
+Deferred housekeeping queued by this phase:
+
+- Linux installation parity via AppImage (close the install-experience
+  gap between Windows installer and Linux raw tar.gz)
+- Revisit code signing if/when friend-count grows enough for
+  SmartScreen reputation to accrue meaningfully
+
+See `SPEC_V5_DISTRIBUTION.md` "Inno Setup installer (Windows, v0.8.0+)"
+for the full architecture record, AppId GUID rationale, scope
+guarantees, SHA-pinning discipline principle, and the manual-hardware-
+gate release-acceptance criterion.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
