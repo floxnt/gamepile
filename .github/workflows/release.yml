@@ -437,13 +437,16 @@ jobs:
           }
           $size = (Get-Item $expectedExe).Length
           Write-Host "Built $expectedExe ($size bytes)"
-          # Plausibility floor: the --onedir payload is ~400 MB uncompressed
-          # (Python + FastAPI + .NET 8 + WebView2 + bundled webkit datas).
-          # An lzma2/ultra installer of that lands well above 100 MB. Fail
-          # fast if the artifact is suspiciously small (compile succeeded
-          # but the [Files] section silently caught nothing, etc.).
-          if ($size -lt 100000000) {
-            Write-Host "Installer size $size bytes is below the 100 MB plausibility floor — payload may have been silently dropped."
+          # Plausibility floor: empirically the v0.8.0 installer with the
+          # full --onedir payload (Python + FastAPI + .NET 8 + WebView2 +
+          # vendored bits) compresses under lzma2/ultra to ~66 MB. Floor
+          # at 50 MB so a build that silently drops a major sub-bundle
+          # (e.g. the bundled .NET 8 runtime — ~30 MB compressed alone)
+          # fails fast here rather than shipping a missing-dependency
+          # installer. Recalibrate this floor only with measured data,
+          # not assumed bundle sizes.
+          if ($size -lt 50000000) {
+            Write-Host "Installer size $size bytes is below the 50 MB plausibility floor — payload may have been silently dropped."
             exit 1
           }
 
