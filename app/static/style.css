@@ -103,6 +103,48 @@ body.page-library main {
   padding: 1.5rem 1rem;
 }
 
+/* Library page uses a fixed app-shell flex layout so the table-wrapper
+   fills the remaining viewport and scrolls internally. This is what
+   makes the sticky table header work: position: sticky resolves against
+   the nearest scrolling ancestor, so the wrapper must be a bounded
+   scroll container. The earlier "max-height: calc(100vh - N)" approach
+   worked in WebKitGTK but not in WebView2/Chromium under this layout
+   context — the flex-fill approach is engine-agnostic.
+
+   `min-height: 0` overrides the default `min-height: auto` on flex
+   items, which would otherwise expand the flex item to at-least-its-
+   content-size and defeat the overflow constraint. Required at every
+   flex level. `overflow: hidden` on body prevents the page itself from
+   scrolling — only the table region scrolls. The sticky page header
+   (`header { position: sticky; top: 0 }`) is unaffected because it
+   lives in its own flex slot above main. */
+body.page-library {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body.page-library header { flex-shrink: 0; }
+body.page-library main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body.page-library .library-controls { flex-shrink: 0; }
+body.page-library #library-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+body.page-library .library-count { flex-shrink: 0; }
+body.page-library .table-wrapper {
+  flex: 1;
+  min-height: 0;
+}
+
 /* ===== Buttons ===== */
 .btn {
   display: inline-flex;
@@ -645,22 +687,27 @@ select option {
   margin-bottom: 0.75rem;
 }
 
-/* Sticky thead requires the wrapper to be the vertical scroll container —
-   position: sticky resolves against the nearest scrolling ancestor. With
-   overflow-x: auto the wrapper is already a scroll container in both axes
-   (spec coerces overflow-y to auto), but without a height constraint it
-   grows to fit content and the page body does the actual scrolling, so
-   sticky never fires. max-height makes the wrapper itself scroll. */
+/* Sticky thead requires the wrapper to be the bounded vertical scroll
+   container. The Library page's app-shell flex layout (see
+   `body.page-library` rules near the top of this file) bounds the
+   wrapper to the remaining viewport height; this rule keeps the
+   horizontal scroll for the 13-column table and makes the wrapper a
+   scroll container on both axes. */
 .table-wrapper {
   overflow: auto;
-  max-height: calc(100vh - 200px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
+/* `border-collapse: separate` (instead of `collapse`) is required for
+   `position: sticky` on `<th>` to render reliably across Chromium-based
+   engines including WebView2 — collapsed borders participate in the
+   table's box layout in ways that historically broke sticky cells.
+   `border-spacing: 0` keeps the visual identical to collapse. */
 .library-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.78rem;
 }
 
@@ -669,14 +716,12 @@ select option {
 }
 
 /* position: sticky pins the header row at the top of .table-wrapper's
-   scroll region (the wrapper is the scroll container — see comment on
-   .table-wrapper above). z-index keeps the header above scrolling body
-   rows including any with their own stacking context (e.g. stickiness
-   badge children). Solid background prevents body rows bleeding through.
-   box-shadow replaces border-bottom because border-collapse: collapse on
-   the table makes a real border-bottom participate in collapsed-border
-   layout and visually scroll with the tbody; an inset box-shadow draws
-   inside the cell and stays put. */
+   scroll region. z-index keeps the header above scrolling body rows
+   including any with their own stacking context (e.g. stickiness badge
+   children). Solid background prevents body rows bleeding through.
+   With border-collapse: separate, border-bottom belongs to the th cell
+   alone — it doesn't merge with the first row's border-top, so it stays
+   pinned with the cell during scroll. */
 .library-table th {
   padding: 0;
   text-align: left;
@@ -686,11 +731,11 @@ select option {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--surface2);
-  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 .sort-link {
