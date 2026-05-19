@@ -645,8 +645,15 @@ select option {
   margin-bottom: 0.75rem;
 }
 
+/* Sticky thead requires the wrapper to be the vertical scroll container —
+   position: sticky resolves against the nearest scrolling ancestor. With
+   overflow-x: auto the wrapper is already a scroll container in both axes
+   (spec coerces overflow-y to auto), but without a height constraint it
+   grows to fit content and the page body does the actual scrolling, so
+   sticky never fires. max-height makes the wrapper itself scroll. */
 .table-wrapper {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 200px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -661,6 +668,15 @@ select option {
   background: var(--surface2);
 }
 
+/* position: sticky pins the header row at the top of .table-wrapper's
+   scroll region (the wrapper is the scroll container — see comment on
+   .table-wrapper above). z-index keeps the header above scrolling body
+   rows including any with their own stacking context (e.g. stickiness
+   badge children). Solid background prevents body rows bleeding through.
+   box-shadow replaces border-bottom because border-collapse: collapse on
+   the table makes a real border-bottom participate in collapsed-border
+   layout and visually scroll with the tbody; an inset box-shadow draws
+   inside the cell and stays put. */
 .library-table th {
   padding: 0;
   text-align: left;
@@ -670,7 +686,11 @@ select option {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface2);
+  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 .sort-link {
