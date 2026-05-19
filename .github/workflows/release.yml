@@ -460,16 +460,42 @@ jobs:
       # Windows artifact: gamepile-setup-vX.Y.Z.exe (Inno installer). The
       # raw .zip archive was retired in v0.8.0 — the installer is the only
       # Windows release artifact. Linux artifact unchanged: tar.gz.
+      #
+      # prerelease: true (v0.8.0+) — every tag-push release lands as
+      # prerelease, with an awaiting-manual-validation body note. The
+      # author promotes to canonical by editing the Release on GitHub
+      # after the manual hardware gate clears (see
+      # SPEC_V5_DISTRIBUTION.md "Release acceptance is the manual
+      # install/launch/upgrade/uninstall test" for the four-sub-test
+      # gate). This makes the manual-gate-required protocol structural
+      # rather than memory-of-process — friends looking at the Releases
+      # page see the prerelease badge and the body note; they know to
+      # wait for the canonical promotion.
       - name: Publish Release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           draft: false
+          prerelease: true
           files: |
             gamepile-${{ github.ref_name }}-linux-x64.tar.gz
             gamepile-setup-${{ github.ref_name }}.exe
           fail_on_unmatched_files: false
           generate_release_notes: true
+          body: |
+            **Prerelease — awaiting manual hardware validation.**
+
+            This release builds the Windows installer and Linux bundle in
+            CI, but the manual install / launch / upgrade-preserves-DB /
+            uninstall flow on a real Windows 11 machine has not yet been
+            confirmed. Once the author runs the four-sub-test gate on
+            real hardware and confirms it passes, this prerelease tag
+            will be promoted to canonical. Until then, please use the
+            previous canonical (non-prerelease) Release.
+
+            See `SPEC_V5_DISTRIBUTION.md` "Release acceptance is the
+            manual install/launch/upgrade/uninstall test" for the gate
+            definition.
 
       - name: Upload bundle as workflow artifact (dispatch runs)
         if: github.event_name == 'workflow_dispatch'

@@ -103,10 +103,11 @@ SolidCompression=yes
 
 ; If GamePile is running when the user double-clicks the installer (the
 ; v0.7.0 → v0.8.0 upgrade case), Inno offers to close it cleanly rather
-; than failing the file replace. The Restartable=no rule prevents an
-; auto-restart loop on a misbehaving Close.
+; than failing the file replace. RestartApplications=no prevents the
+; auto-restart of the closed instance — the [Run] section's "Launch
+; GamePile" postinstall task is the one canonical relaunch path.
 CloseApplications=yes
-RestartApplicationsIfNeeded=no
+RestartApplications=no
 CloseApplicationsFilter=*.exe,*.dll,*.pyd
 
 ; Modern visual style. No custom wizard pages; the defaults are right for
