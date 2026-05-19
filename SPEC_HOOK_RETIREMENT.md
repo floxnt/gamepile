@@ -175,13 +175,122 @@ Until that decision happens, the dormant code stays.
    design decision; it does not inherit the hook-point label or
    threshold history without being explicitly chosen.
 
-## What replaced it (v0.7.0)
+## What replaced it (v0.7.0): median achievement unlock %
 
-A single display-only stat: **median per-achievement global unlock
-percent**, computed from the same
-`GetGlobalAchievementPercentagesForApp` endpoint the hook-point pipeline
-used. Stored in a new nullable column `games.median_achievement_unlock_pct`,
-rendered as a sortable Library column and a single stat on the Game
-Detail external-data card. Display-only — not wired into the Shortlist
-recommender's pick logic. See the v0.7.0 entry in `docs/PROJECT_STATE.md`
-for the design and SPEC continuity note.
+A single display-only stat added in the same release as the
+hook-point retirement. Conceptually different from what was removed —
+not "the new hook-point," but a labeled fact the user interprets
+themselves.
+
+### What it is
+
+The **median of all per-achievement global unlock percentages for the
+game**, in percent (range 0.0–100.0). One value per game. Computed via
+`GetGlobalAchievementPercentagesForApp` (the no-key Steam endpoint, same
+data source the hook-point pipeline used) during normal library sync.
+Stored in a new nullable column `games.median_achievement_unlock_pct`
+added by additive migration.
+
+### Why median, not mean
+
+Per-game achievement-unlock-percent distributions are heavily
+right-skewed: every game has a small cluster of high-% launch
+achievements (often near 90–100% — "you started the game") and a long
+low-% tail of progression / challenge / completionist achievements
+(often 1–5%). Mean is dragged by achievement-list design: a game whose
+developer added 50 grindy challenges has its mean pulled toward 0%
+regardless of player engagement; a game whose developer kept the list
+tight reads "higher" for the same player population.
+
+Median is the robust honest summary of "what percent of players
+unlocked the typical achievement in this game" — invariant to list
+design, dominated by the body of the distribution rather than the
+right tail. The empirical probe confirmed this shape: median rarest
+across 476 games was 1.7%; median across-all-achievements was around
+20% for completable game types; ratios of high-% to low-% achievements
+varied widely per game.
+
+Calling a median value "average" in the UI would be the same class of
+mislabeling sin that retiring hook-point was about. The Library column
+header is "Median unlock %"; the Game Detail card label is
+"Median achievement unlock %". Both name the computation explicitly.
+
+### Display surfaces
+
+- **Library view**: a new sortable column at the end of the existing
+  column row, labeled "Median unlock %". Values render as integer
+  percent (`34%`); NULL renders as `—` in the existing dim style.
+- **Game Detail external-data card**: a new row in the External column,
+  after Steam reviews. Labeled "Median achievement unlock %". Values
+  render as one-decimal percent (`6.6%`); NULL renders as `—`.
+- **Nowhere else.** No Shortlist card surfacing. No badge variants. No
+  threshold-driven colour shifts. No "Sticky" / "Marathon" / interpretive
+  text. A single number with an honest label, in two places.
+
+### Scope discipline — display-only
+
+The stat **must not be wired into the Shortlist recommender's pick
+logic** without an explicit future design decision. This is the
+corrective lesson from hook-point retirement: presenting low-confidence
+inference as authoritative is the failure mode to avoid. The new stat
+is a fact the user can scan and interpret; it does not feed a
+pick-ranking algorithm in v0.7.0.
+
+A future round may explicitly decide to use it as a recommender input.
+That decision goes through its own design cycle with empirical
+validation that the input materially improves picks. Quiet wire-up
+("the column is right there, let me just use it") is exactly what
+this discipline rules out.
+
+Concretely:
+- `app/recommender.py` does NOT import or reference
+  `median_achievement_unlock_pct`. No Candidate scoring uses it.
+- No Jinja global is registered to compute or interpret the value.
+- The Library sort key references it for ordering only — that's a
+  display-layer operation, not a pick-logic one.
+
+### NULL handling — honest coverage boundary
+
+Approximately 25% of a typical library has no Steam achievements at all
+(software, betas, playtests, multiplayer-only games that don't expose
+stats, legacy titles with no schema published). For these games the
+column starts NULL, stays NULL, and renders as `—`.
+
+This is **not a defect to be papered over** by imputation, zero-fill,
+or hiding the game. It's an honest acknowledgment that the stat doesn't
+apply to those games — the same way HLTB Main shows `—` for games with
+no HLTB record and Metacritic shows `—` for games without a critic
+score. The "—" is the right answer; do not invent values.
+
+### Storage and sync
+
+- DB column: `games.median_achievement_unlock_pct REAL` (nullable).
+  Additive migration; no other schema changes. Coexists with the
+  preserved-dormant hook-point columns (`completion_rate`,
+  `cliff_metric`, etc.) without overlap.
+- Sync: integrated into `app/sync.py _phase_enrich` with the same
+  age-band TTL pattern as HLTB (`_ttl_days` against `release_date`).
+  Cached games skip the fetch; new and stale games re-fetch. 404 from
+  the Steam endpoint means the game has no achievements — handled as
+  the NULL path, not an error. Other fetch failures (5xx, network)
+  also leave the stored value alone via the upsert COALESCE rather
+  than nulling it.
+- First sync after migration: column starts NULL for every game; the
+  normal sync path populates it as it walks the library. No bootstrap
+  from any cached/probe artifact — dev-machine snapshots must not
+  enter the production data path.
+
+### Continuity rules for future work
+
+1. Do NOT relabel the stat as "average" in any surface — the
+   computation is median and the honest label states that.
+2. Do NOT add interpretive text around the value (no "this game is
+   sticky" / "players abandon early" / etc.). It is a fact, not a
+   claim about player behavior.
+3. Do NOT wire the stored value into Shortlist scoring without an
+   explicit design round that empirically validates the input.
+4. Do NOT replace `—` with a number for achievement-less games. The
+   honest coverage boundary is the design.
+5. If a future signal direction is chosen that derives from
+   achievement data, design it from scratch — do not silently evolve
+   this column's semantics.

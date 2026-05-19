@@ -25,6 +25,7 @@ import asyncio
 import collections
 import json
 import logging
+import statistics
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -37,6 +38,7 @@ from dataclasses import fields as dc_fields, replace as dc_replace
 from app import database as db
 from app.fetchers import hltb as hltb_fetcher
 from app.fetchers import steam as steam_fetcher
+from app.fetchers import steam_achievements as achievements_fetcher
 from app.fetchers import steamspy as steamspy_fetcher
 from app.game_type import classify_game
 from app.models import Game
@@ -86,6 +88,9 @@ class RefreshProgress:
     hltb_skipped: int = 0            # didn't try (cache hit)
     spy_fetched: int = 0
     spy_skipped: int = 0
+    achievements_fetched: int = 0
+    achievements_skipped: int = 0
+    achievements_no_data: int = 0
     release_date_backfilled: int = 0
     description_backfilled: int = 0
     errors: list[str] = field(default_factory=list)
@@ -394,6 +399,34 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             reviews.pop("playtimes", None)
             updates.update(reviews)
 
+        # --- Median achievement unlock % (display-only stat, v0.7.0). ---
+        # Same age-band TTL pattern as HLTB. Only the global percentages
+        # endpoint is needed (no schema fetch — we don't pattern-match
+        # names anymore). 404 from the endpoint means the game has no
+        # achievements; that's the honest-null path (column stays NULL,
+        # template renders "—"). Fetch failures (non-404) also leave the
+        # stored value intact via the COALESCE on upsert.
+        if (
+            not force
+            and game.median_achievement_unlock_pct is not None
+            and not _is_stale(effective_game)
+        ):
+            progress.achievements_skipped += 1
+        else:
+            progress.phase = f"Achievements ({i+1}/{progress.total_games})"
+            achs = await achievements_fetcher.fetch_global_achievement_percentages(
+                client, game.appid,
+            )
+            if achs is None:
+                # No achievements (404) or fetch failure. Either way,
+                # leave the stored value alone via COALESCE.
+                progress.achievements_no_data += 1
+            else:
+                percents = [a["percent"] for a in achs if a.get("percent") is not None]
+                if percents:
+                    updates["median_achievement_unlock_pct"] = float(statistics.median(percents))
+                progress.achievements_fetched += 1
+
         # --- Game-type classification ---
         # The `coming_soon` flag from appdetails informs early_access detection
         # but is NOT a Game-row column — pop it out of `updates` so the
@@ -467,6 +500,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             # Sync never reads or writes this; it's a pure display
             # override managed by the Game Detail route handlers.
             stickiness_badge_manual=game.stickiness_badge_manual,
+            # v0.7.0 median achievement unlock %. None when this iteration
+            # didn't fetch — upsert COALESCE preserves the stored value.
+            median_achievement_unlock_pct=updates.get("median_achievement_unlock_pct"),
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -520,4 +556,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         completion_achievement_name_manual=game.completion_achievement_name_manual,
         hltb_id_manual=game.hltb_id_manual,
         stickiness_badge_manual=game.stickiness_badge_manual,
+        median_achievement_unlock_pct=game.median_achievement_unlock_pct,
     )

@@ -67,6 +67,10 @@ class Game:
     # game-type display rules so the user can assert a badge even on
     # types where engagement is normally suppressed.
     stickiness_badge_manual: Optional[str] = None
+    # v0.7.0 — median per-achievement global unlock percent (0.0–100.0).
+    # Display-only stat surfaced as a Library column and a Game Detail
+    # row. NULL when the game has no achievements.
+    median_achievement_unlock_pct: Optional[float] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

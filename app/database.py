@@ -174,6 +174,17 @@ def init_db() -> None:
             # Game Detail header, and Shortlist pill regardless of game
             # type's normal display rules.
             "ALTER TABLE games ADD COLUMN stickiness_badge_manual TEXT",
+            # v0.7.0 — median of per-achievement global unlock percentages,
+            # in percent (range 0.0 to 100.0). Display-only stat (Library
+            # column + Game Detail card). NULL when the game has no
+            # achievements (~25% of typical library). Median is chosen
+            # over mean because per-game distributions are heavily right-
+            # skewed: every game has a few high-% launch achievements +
+            # a long low-% tail; mean is dragged by list design, median
+            # is the robust honest summary. Populated by sync via
+            # GetGlobalAchievementPercentagesForApp, COALESCE-on-upsert
+            # preserves the value when fetch is skipped or fails.
+            "ALTER TABLE games ADD COLUMN median_achievement_unlock_pct REAL",
         ]:
             try:
                 conn.execute(ddl)
@@ -307,6 +318,10 @@ def _row_to_game(row: sqlite3.Row) -> Game:
             row["stickiness_badge_manual"]
             if "stickiness_badge_manual" in keys else None
         ),
+        median_achievement_unlock_pct=(
+            row["median_achievement_unlock_pct"]
+            if "median_achievement_unlock_pct" in keys else None
+        ),
     )
 
 
@@ -393,7 +408,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             review_playtime_median, stickiness_ratio, playtime_median_avg_ratio,
             game_type, game_type_manual, app_type, cliff_position,
             completion_achievement_name_manual, hltb_id_manual,
-            stickiness_badge_manual
+            stickiness_badge_manual, median_achievement_unlock_pct
         ) VALUES (
             :appid, :name, :playtime_minutes, :last_played_steam, :installed,
             :hltb_main_hours, :hltb_main_extra_hours, :hltb_completionist_hours,
@@ -405,7 +420,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             :review_playtime_median, :stickiness_ratio, :playtime_median_avg_ratio,
             :game_type, :game_type_manual, :app_type, :cliff_position,
             :completion_achievement_name_manual, :hltb_id_manual,
-            :stickiness_badge_manual
+            :stickiness_badge_manual, :median_achievement_unlock_pct
         )
         ON CONFLICT(appid) DO UPDATE SET
             name                    = excluded.name,
@@ -462,6 +477,13 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
             stickiness_badge_manual = COALESCE(
                 excluded.stickiness_badge_manual,
                 games.stickiness_badge_manual
+            ),
+            -- v0.7.0 median achievement unlock %: COALESCE so cache-
+            -- skipped iterations (where sync passes None) preserve the
+            -- previously-computed value rather than nulling it.
+            median_achievement_unlock_pct = COALESCE(
+                excluded.median_achievement_unlock_pct,
+                games.median_achievement_unlock_pct
             )
     """, {
         "appid": game.appid,
@@ -498,6 +520,7 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "completion_achievement_name_manual": game.completion_achievement_name_manual,
         "hltb_id_manual": game.hltb_id_manual,
         "stickiness_badge_manual": game.stickiness_badge_manual,
+        "median_achievement_unlock_pct": game.median_achievement_unlock_pct,
     })
 
 
@@ -558,6 +581,7 @@ def get_games_with_state(
             g.game_type, g.game_type_manual, g.app_type,
             g.completion_achievement_name_manual, g.hltb_id_manual,
             g.stickiness_badge_manual,
+            g.median_achievement_unlock_pct,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,

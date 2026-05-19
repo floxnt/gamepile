@@ -59,6 +59,13 @@
     {% endif %}
   </td>
   <td>{{ gws.game.metacritic_score if gws.game.metacritic_score else "—" }}</td>
+  <td class="library-median-unlock">
+    {% if gws.game.median_achievement_unlock_pct is not none %}
+      {{ "%.0f"|format(gws.game.median_achievement_unlock_pct) }}%
+    {% else %}
+      —
+    {% endif %}
+  </td>
   <td>
     <button
       hx-get="/games/{{ gws.game.appid }}/edit"

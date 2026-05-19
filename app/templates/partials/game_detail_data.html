@@ -124,6 +124,16 @@
         </span>
       </div>
     {% endif %}
+    <div class="data-row">
+      <span class="data-label">Median achievement unlock %</span>
+      <span class="data-value">
+        {% if game.median_achievement_unlock_pct is not none %}
+          {{ "%.1f"|format(game.median_achievement_unlock_pct) }}%
+        {% else %}
+          —
+        {% endif %}
+      </span>
+    </div>
   </div>
 </section>
 
