@@ -57,7 +57,7 @@
       {% endif %}
       {% if game.steam_review_pct and game.steam_review_count %}
         <span class="stat-item" title="{{ review_label(game.steam_review_pct, game.steam_review_count) }}">
-          <span class="stat-label">Steam</span>
+          <span class="stat-label">Reviews</span>
           <span class="stat-value">{{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})</span>
         </span>
       {% endif %}

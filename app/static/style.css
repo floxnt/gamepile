@@ -699,6 +699,39 @@ select option {
   border-radius: var(--radius);
 }
 
+/* Thin scrollbar styling for the Library scroll container.
+   Drops the track entirely (transparent) and keeps only the draggable
+   thumb. Scoped to .table-wrapper specifically — does not apply to
+   other scroll containers in the app. A future global pass can
+   broaden if desired.
+
+   -webkit- pseudo-elements work in both WebView2 (Windows) and
+   WebKitGTK (WSL/Linux dev). No Firefox/scrollbar-width fallback —
+   neither shipped target engine needs it. */
+.table-wrapper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Corner where vertical + horizontal scrollbars would meet — keep it
+   transparent so the bare-thumb look stays consistent at intersections. */
+.table-wrapper::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* `border-collapse: separate` (instead of `collapse`) is required for
    `position: sticky` on `<th>` to render reliably across Chromium-based
    engines including WebView2 — collapsed borders participate in the
