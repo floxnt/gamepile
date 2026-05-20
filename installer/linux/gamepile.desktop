@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GamePile
+Comment=Local Steam backlog manager and play-next picker
+Exec=gamepile
+Icon=gamepile
+Categories=Game;
+Terminal=false
+StartupNotify=true

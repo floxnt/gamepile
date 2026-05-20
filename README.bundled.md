@@ -56,20 +56,36 @@ and won't see this prompt.
 
 ### Linux
 
-1. Download `gamepile-vX.Y.Z-linux-x64.tar.gz` from the Releases page.
-2. Extract: `tar -xzf gamepile-vX.Y.Z-linux-x64.tar.gz`
-3. Install the runtime dependencies (GTK + WebKit2):
+1. Download `gamepile-vX.Y.Z-linux-x64.AppImage` from the
+   [Releases page](https://github.com/floxnt/gamepile/releases).
+2. Mark it executable: `chmod +x gamepile-vX.Y.Z-linux-x64.AppImage`
+3. Run it: `./gamepile-vX.Y.Z-linux-x64.AppImage` (or double-click
+   from a file manager).
 
-   | Distro | Command |
-   |---|---|
-   | Arch / Manjaro / CachyOS | `sudo pacman -S webkit2gtk-4.1 python-gobject gtk3` |
-   | Ubuntu / Debian | `sudo apt install libwebkit2gtk-4.1-0 python3-gi gir1.2-webkit2-4.1` |
-   | Fedora | `sudo dnf install webkit2gtk4.1 python3-gobject gtk3` |
+The AppImage bundles GTK 3, WebKit2GTK, GObject-introspection
+typelibs, and Cairo internally — you do NOT need to install
+distro-specific system packages before running. This is the load-
+bearing difference from the pre-v0.8.2 raw `.tar.gz` builds.
 
-4. Run: `./gamepile/gamepile`
+**FUSE2 requirement.** AppImages mount themselves at runtime via
+FUSE 2. Most desktop Linux distros ship libfuse2 by default:
 
-These system libraries can't be bundled portably — GTK/WebKit are
-distribution-specific.
+| Distro | Command (only if libfuse2 missing) |
+|---|---|
+| Ubuntu / Debian (22.04+ may need this) | `sudo apt install libfuse2` |
+| Arch / Manjaro / CachyOS | `sudo pacman -S fuse2` |
+| Fedora | `sudo dnf install fuse-libs` |
+
+If you can't or don't want to install libfuse2, the AppImage will
+also run via its extract-and-run fallback:
+`./gamepile-vX.Y.Z-linux-x64.AppImage --appimage-extract-and-run`.
+
+**Upgrading:** download the new AppImage, replace the old one. Your
+library, sync data, ratings, and pick history are preserved (they
+live in `~/.local/share/gamepile/`, separate from the AppImage file).
+
+**Uninstalling:** delete the AppImage file. To remove your data too,
+also delete `~/.local/share/gamepile/`.
 
 ## First launch
 
@@ -127,8 +143,11 @@ To fully remove GamePile including data: uninstall normally, then delete
 (see the install section above). If GamePile flashed a console and disappeared,
 that's likely the runtime check exiting because the install page got opened.
 
-**"The app won't start" (Linux):** Check the GTK/WebKit packages are installed.
-Run `./gamepile/gamepile` from a terminal — any import error surfaces there.
+**"The app won't start" (Linux):** Run the AppImage from a terminal
+(`./gamepile-vX.Y.Z-linux-x64.AppImage`) — any startup error surfaces
+in stderr. If you see "fuse: failed to exec fusermount" or a similar
+FUSE error, install libfuse2 per the install section above, or run
+with `--appimage-extract-and-run`.
 
 **"Refresh Library" times out:** Steam's API can be flaky. The refresh
 resumes from where it left off — just hit the button again. HLTB lookups

@@ -782,6 +782,86 @@ for the full architecture record, AppId GUID rationale, scope
 guarantees, SHA-pinning discipline principle, and the manual-hardware-
 gate release-acceptance criterion.
 
+## v0.8.2 — Linux AppImage replaces raw .tar.gz
+
+Distribution-layer phase, no app behavior changes. The Linux release
+artifact changed from `gamepile-vX.Y.Z-linux-x64.tar.gz` (extract +
+install distro-specific GTK/WebKit packages + run `./gamepile/gamepile`)
+to `gamepile-vX.Y.Z-linux-x64.AppImage` (single self-contained file
+bundling GTK 3 + WebKit2GTK + GObject-introspection typelibs + Cairo).
+Windows artifact unchanged (still the Inno Setup installer from v0.8.0).
+
+The motivating concrete failure: v0.8.1's .tar.gz crashed on a fresh
+CachyOS install with `Namespace Gtk not available` / `No module named
+'qtpy'` because the host lacked GTK 3 system packages and introspection
+typelibs. PyInstaller bundles Python code + Python deps but not
+system-level native GTK libraries; the .tar.gz only worked on distros
+where the user had previously installed GTK 3 themselves. AppImage
+closes that gap by bundling the GTK stack INTO the artifact.
+
+Key properties of the build:
+
+- **`linuxdeploy` + `linuxdeploy-plugin-gtk`** as the tool combination.
+  The plugin walks the bundle's GTK dependencies and packages
+  libraries + introspection typelibs + GSettings schemas + GdkPixbuf
+  loaders into the AppImage. Both binaries SHA512-pinned per the
+  formalized "SHA-pin user-shipped binaries" discipline (their output
+  is the AppImage payload that ships to users, so they're load-bearing
+  pinned alongside the Windows .NET 8 / WebView2 / vendored pywebview
+  patches).
+- **Per-user run.** AppImages are always per-user — no system install,
+  no root, no package manager. End-user host needs only FUSE2 (or the
+  AppImage's `--appimage-extract-and-run` fallback).
+- **AppImage REPLACES the tar.gz.** Same "replace, don't double-ship"
+  shape as v0.8.0's installer replacing the Windows zip.
+- **Placeholder icon (stock Adwaita).** linuxdeploy requires an icon to
+  build; v0.8.2 ships the runner's stock `applications-games` theme
+  icon as a placeholder. Real GamePile icon design is deferred to a
+  separate polish round that also covers the Inno Setup `.iss` icon
+  gap.
+
+Build pipeline change: the workflow installs `librsvg2-bin` +
+`adwaita-icon-theme` (host-only, not SHA-pinned — they don't ship
+into the AppImage), SHA-verifies the pinned linuxdeploy + plugin-gtk
+binaries, stages an AppDir layout from the PyInstaller `--onedir`
+output, and invokes linuxdeploy with the GTK plugin. The build step
+asserts the produced AppImage exists and is above a 40 MB plausibility
+floor (fails fast if WebKit2GTK or another major sub-bundle silently
+dropped).
+
+Manual hardware gate APPLIES for this release on a fresh consumer
+Linux machine (CachyOS as the reference, since v0.8.1's .tar.gz failed
+there). The gate is: download the AppImage, `chmod +x`, run, confirm
+a window opens — all WITHOUT preinstalling GTK 3 / pygobject / Cairo
+system packages on the host (that's the load-bearing test of "AppImage
+is self-contained"). Until the gate clears, the Release is flagged
+prerelease with an awaiting-manual-validation note covering both the
+v0.8.0 Windows installer gate and the v0.8.2 AppImage gate.
+
+Version-bump discipline note formalized at v0.8.2 (added to SPEC):
+**minor bumps require new running-app functionality the user can
+actually use**; distribution/packaging changes (installer format,
+artifact format, build-pipeline changes) are patch bumps regardless
+of how user-visible the wrapper change is. v0.7.0 (hook removal + new
+stat) was a justified minor; v0.8.0 (Windows installer replaces zip)
+was minor in retrospect closer to a patch, but shipped and not worth
+rewriting; v0.8.2 (AppImage replaces tar.gz) is a patch by the
+tightened rule going forward. 1.0 reserved for hook-point reevaluation
+or equivalent product-readiness milestone.
+
+Deferred housekeeping queued by this phase:
+
+- Re-pin linuxdeploy + linuxdeploy-plugin-gtk URLs/SHAs when bytes
+  drift (same pattern as the .NET 8 / Node 20 deferred pins).
+- Commission/create a real GamePile icon and wire it through both
+  AppImage AppDir + Inno Setup `.iss` in one polish round.
+
+See `SPEC_V5_DISTRIBUTION.md` "AppImage (Linux, v0.8.2+)" for the full
+architecture record, AppDir layout, tool-combination rationale,
+SHA-pinning entries, and the manual-hardware-gate release-acceptance
+criterion. The "Version bump discipline" section codifies the
+forward-applying rule.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com

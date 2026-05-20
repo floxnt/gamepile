@@ -67,6 +67,36 @@ explicit decision that revisits the installer scope. If portable mode is
 ever wanted, it needs a separate code path that the installer build does
 not exercise.
 
+## Version bump discipline
+
+(Project-wide rule, codified at v0.8.2 — applies prospectively to every
+future version decision.)
+
+**Minor bumps require new running-app functionality the user can actually
+use.** Patch bumps cover distribution/packaging changes (installer
+format, artifact format, build-pipeline changes) regardless of how
+user-visible the wrapper change is. The user-visible criterion is "does
+the running app do something it didn't do before," not "does the
+download experience change."
+
+- **v0.7.0 (minor)** — hook-point removal + new median-achievement-unlock-%
+  stat: new running-app functionality, user-interactive, justified minor.
+- **v0.8.0 (minor, in retrospect closer to patch)** — Inno Setup installer
+  replaces zip: packaging change. Shipped as minor; not worth rewriting
+  history. From v0.8.2 forward, hold the line.
+- **v0.8.2 (patch)** — Linux AppImage replaces tar.gz: distribution-only,
+  no running-app change. Patch.
+
+1.0 is reserved for a meaningful product-readiness milestone (hook-point
+reevaluation landing with real data, or equivalent — see
+`SPEC_HOOK_RETIREMENT.md`'s ~v1.0 reevaluation horizon). Burning minor
+versions on packaging changes makes the version number lie about how
+close 1.0 actually is.
+
+This rule applies prospectively. Distribution/packaging work — even
+substantial work that touches the artifact users download — is a patch
+bump from v0.8.2 onward.
+
 ## Build pipeline
 
 ### PyInstaller spec (`gamepile.spec`)
@@ -799,34 +829,55 @@ fails fast.
 
 ### SHA-pinning discipline (formalized at v0.8.0)
 
-The workflow SHA-pins multiple binaries: the bundled .NET 8 runtime
-zips, the WebView2 netcoreapp3.0 NuGet package, the WebView2 DLLs
-inside the built bundle, the vendored pywebview `winforms.py`. The
-v0.8.0 installer phase deliberately does NOT SHA-pin the Inno Setup
-compiler installed via chocolatey. The principle making both
-choices coherent:
+The workflow SHA-pins multiple binaries: on Windows, the bundled .NET 8
+runtime zips, the WebView2 netcoreapp3.0 NuGet package, the WebView2
+DLLs inside the built bundle, the vendored pywebview `winforms.py`. On
+Linux (v0.8.2+), the `linuxdeploy` AppImage builder and the
+`linuxdeploy-plugin-gtk` plugin script. The v0.8.0 installer phase
+deliberately does NOT SHA-pin the Inno Setup compiler installed via
+chocolatey; v0.8.2 likewise does NOT SHA-pin `adwaita-icon-theme` /
+`librsvg2-bin` apt packages. The principle making both kinds of choice
+coherent:
 
 > **SHA-pin what ships TO USERS in the bundle. Don't ceremonially
 > SHA-pin tools that only run on the CI host and never reach the
 > user.**
 
-The .NET 8 runtime, WebView2 binding DLLs, and patched pywebview
-`winforms.py` all live in the user's filesystem after install — if
-their identity is wrong, the user gets wrong code. Pinning protects
-the user-facing output. ISCC.exe runs only on the GitHub-hosted CI
-runner, compiles the installer once, and never reaches the user;
-pinning it would add maintenance burden (chase chocolatey package
-SHA on every refresh of windows-latest's runner image) without
-protecting any user-visible output. Chocolatey + the
-windows-latest base image is the trust boundary, and that boundary
-is already in place for the rest of the build (Python, uv,
-PyInstaller itself, the OS itself).
+User-facing output that ends up in the bundle / installer / AppImage:
+the .NET 8 runtime, WebView2 binding DLLs, patched pywebview
+`winforms.py` (Windows); the GTK runtime + introspection typelibs +
+GSettings schemas + GdkPixbuf loaders that linuxdeploy + plugin-gtk
+package INTO the AppImage payload (Linux). If their identity is wrong,
+the user gets wrong code. Pinning protects the user-facing output.
+
+Host-only tools: ISCC.exe (compiles the installer once on the CI host
+and never reaches the user), apt packages used for placeholder-icon
+rendering (rsvg-convert and adwaita-icon-theme are read by the runner
+during build; their bytes never enter the user-distributed AppImage).
+Pinning them would add maintenance burden without protecting any
+user-visible output. Chocolatey / apt / the ubuntu-latest / windows-
+latest base images are the trust boundary, and that boundary is
+already in place for the rest of the build (Python, uv, PyInstaller
+itself, the OS itself).
 
 This discipline applies prospectively: future workflow additions
-should ask "does this binary ship to users?" before deciding
-whether SHA-pinning is load-bearing or ceremonial. Ceremonial
-pinning compounds maintenance burden over time; load-bearing
-pinning is non-negotiable.
+should ask "does this binary or its output ship to users?" before
+deciding whether SHA-pinning is load-bearing or ceremonial.
+Ceremonial pinning compounds maintenance burden over time;
+load-bearing pinning is non-negotiable.
+
+Pin currently active in the workflow:
+
+| Binary | Ships to user? | Pin location |
+|---|---|---|
+| .NET 8 NETCore.App 8.0.27 | Yes (Windows bundle) | release.yml "Download and verify bundled .NET 8 runtime" |
+| .NET 8 WindowsDesktop.App 8.0.27 | Yes (Windows bundle) | release.yml same step |
+| WebView2 binding 1.0.3856.49 NuGet | Yes (Windows bundle) | release.yml "Download and verify WebView2 netcoreapp3.0 binding override" + post-build bundle-layer check |
+| Vendored pywebview winforms.py | Yes (Windows bundle) | release.yml "Apply pywebview winforms.py patch" + `.gitattributes` line-ending pin |
+| linuxdeploy continuous | Yes (Linux AppImage payload) | release.yml "Download and verify linuxdeploy + linuxdeploy-plugin-gtk" |
+| linuxdeploy-plugin-gtk @ 3b67a1d1… | Yes (Linux AppImage payload) | release.yml same step |
+| ISCC.exe via chocolatey | No (host-only) | not pinned |
+| adwaita-icon-theme + librsvg2-bin apt | No (host-only — icon source path) | not pinned |
 
 ### What CI cannot verify (v0.8.0 phase)
 
@@ -889,14 +940,250 @@ Until the manual gate clears, **the Release object is flagged
 prerelease with a plain note** explaining what's awaiting validation.
 Friends should not be directed at a non-validated installer release.
 
+## AppImage (Linux, v0.8.2+)
+
+Through v0.8.1, the Linux release artifact was a raw
+`gamepile-vX.Y.Z-linux-x64.tar.gz` — the user extracted the archive,
+installed GTK 3 + WebKit2GTK + pygobject + Cairo system packages per
+their distro's package manager, and ran `./gamepile/gamepile`. v0.8.1
+surfaced the failure mode concretely: a fresh CachyOS install crashed
+at startup with `Namespace Gtk not available` / `No module named 'qtpy'`
+because the host lacked GObject-introspection typelibs and Qt Python
+bindings that PyInstaller can't bundle portably (PyInstaller packages
+Python code + Python deps, not system-level native GTK libraries +
+introspection typelibs).
+
+v0.8.2 replaces that with an AppImage: `gamepile-vX.Y.Z-linux-x64.AppImage`.
+Single self-contained file. The GTK runtime + introspection typelibs +
+WebKit2GTK + Cairo are bundled inside the AppImage. The end-user
+downloads one file, `chmod +x`, runs.
+
+### Architecture decisions (locked at v0.8.2)
+
+These are inputs to this section, not open for re-litigation:
+
+1. **AppImage, not Flatpak / Snap / .deb / .rpm.** AppImage is the
+   cross-distro single-file artifact analog of Inno Setup on Windows.
+   Flatpak's sandbox complicates pywebview's GTK integration and adds
+   ongoing maintenance for friend-distribution scale. .deb/.rpm
+   fragment per-distro. Snap is Ubuntu-centric. AppImage pairs
+   philosophically with the v0.8.0 Windows installer decision: one
+   self-contained download per platform.
+2. **The AppImage REPLACES the tar.gz.** Friends get exactly one Linux
+   download per release. No alongside-shipping, no "should I get the
+   AppImage or the tar.gz" confusion. Same "replace, don't double-ship"
+   discipline as the v0.8.0 Windows installer phase.
+3. **Per-user run.** AppImages are always per-user — no system install,
+   no root, no package manager. The AppImage runs from wherever the
+   user puts it.
+
+### Tool combination
+
+`linuxdeploy` + `linuxdeploy-plugin-gtk`. The plugin handles GTK+
+runtime bundling: libraries (libgtk-3, libgdk-3, libcairo, libgobject,
+etc.), GObject-introspection typelibs (gir1.2-Gtk-3.0,
+gir1.2-WebKit2-4.1), GSettings schemas, GdkPixbuf loaders.
+`appimagetool` (invoked internally by linuxdeploy) assembles the final
+`.AppImage`.
+
+`appimagetool` with manual library staging is held in reserve as the
+fallback if `linuxdeploy-plugin-gtk` turns out to be insufficient for a
+specific dependency we hit on the manual hardware gate. Default is
+linuxdeploy; surface a fallback decision if the gate exposes a gap.
+
+### AppDir layout
+
+```
+AppDir/
+├── AppRun                      (linuxdeploy-generated entrypoint)
+├── gamepile.desktop            (linuxdeploy-copied from share/)
+├── gamepile.png                (linuxdeploy-copied from icons/)
+└── usr/
+    ├── bin/
+    │   ├── gamepile            (PyInstaller-built bootloader)
+    │   └── _internal/          (PyInstaller bundled deps)
+    └── share/
+        ├── applications/gamepile.desktop
+        └── icons/hicolor/256x256/apps/gamepile.png
+```
+
+The PyInstaller `--onedir` output is staged directly into
+`AppDir/usr/bin/`. PyInstaller's bootloader resolves `_internal/` as a
+sibling, so placing both at the same directory level preserves the
+relative layout the binary expects. No symlinks, no shim shell scripts
+— the simple-and-tested pattern that other Python-via-PyInstaller-via-
+AppImage projects use.
+
+### .desktop file
+
+Source committed at `installer/linux/gamepile.desktop`:
+
+```
+[Desktop Entry]
+Type=Application
+Name=GamePile
+Comment=Local Steam backlog manager and play-next picker
+Exec=gamepile
+Icon=gamepile
+Categories=Game;
+Terminal=false
+StartupNotify=true
+```
+
+`Categories=Game;` (single category). Linux desktop convention groups
+Steam, Lutris, Heroic Games Launcher, ProtonUp-Qt etc. under the Games
+menu even though they're launchers/managers — the friend audience
+hunts for game-related tools under the Games menu, not Utility.
+`Game;Utility;` would create duplicate menu entries on KDE Plasma.
+
+### AppImage icon: stock fallback, real icon deferred (v0.8.2)
+
+linuxdeploy requires an icon to build — it's a hard error otherwise,
+not a warning. v0.8.2 ships without a custom GamePile-designed icon
+because icon design is real polish-round work, not distribution-
+pipeline work. Rushing one in the same round as the AppImage change
+would muddy the validation — if the AppImage works but the icon looks
+wrong, those should be separate signals not blended.
+
+The build step uses the runner's stock Adwaita `applications-games`
+icon as the placeholder: PNG if shipped at the standard hicolor path
+(`/usr/share/icons/Adwaita/256x256/legacy/applications-games.png` or
+similar), otherwise the symbolic SVG rendered to 256×256 PNG via
+`rsvg-convert`. Probe order is PNG first (no rendering surprises),
+then full-color SVG, then symbolic SVG; failure to find any candidate
+fails the build loudly with a candidate-search dump so a future Ubuntu
+version's `adwaita-icon-theme` reshuffle surfaces as a specific error
+rather than a silently-broken icon path.
+
+The user perceives this as the OS-default generic icon because it
+literally is — copied verbatim from the runner's theme. When a real
+GamePile icon is commissioned (deferred housekeeping below), the
+icon-source paths in the workflow's "Build AppImage" step swap to
+`cp assets/icons/gamepile.png "$ICON_DST"` and the rest of the
+pipeline is unchanged. Target repo path for the eventual real icon:
+`assets/icons/` (platform-agnostic, build-target-agnostic). The same
+deferred polish round also covers the Inno Setup `.iss` icon gap
+(`installer/gamepile.iss` currently has no custom installer / Add/Remove
+Programs icon either — same fix surface).
+
+### SHA-pinning of linuxdeploy + plugin-gtk
+
+Both binaries SHIP INTO the user-distributed AppImage — their output
+is the AppImage payload that lands on end-user machines. They fall
+under load-bearing pinning per the "SHA-pinning discipline" rule
+above.
+
+- **linuxdeploy** — `linuxdeploy-x86_64.AppImage` from the continuous
+  release. No semver tags upstream; pin is to the SHA512 of the bytes
+  at the time of pinning (continuous tag's `target_commitish`
+  `a9f929ff0e32d5c4bcb7b5c380adff4802f918ba`, refreshed 2026-05-12).
+  Bytes drift signals an upstream refresh; bumping the pin is a
+  deliberate housekeeping action, not silent.
+- **linuxdeploy-plugin-gtk** — pinned to commit
+  `3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea` (last touched 2023-10-01,
+  stable for >2 years). Fetched via `raw.githubusercontent.com` URL
+  with the explicit SHA path so the bytes are reproducible.
+
+The continuous-release pin shape is novel relative to the Windows
+pins (which use immutable NuGet versions or Microsoft release-metadata-
+sourced URLs). Continuous is the upstream choice — there is no
+alternative. The discipline absorbs the difference by pinning to SHA
+rather than URL semantics.
+
+### Build environment vs runtime environment
+
+The Linux build job installs GTK 3 + WebKit2GTK + libcairo +
+gobject-introspection + adwaita-icon-theme + librsvg2-bin at **BUILD
+time** so `linuxdeploy-plugin-gtk` can find and bundle the GTK stack.
+This is structurally different from the end-user **RUNTIME**
+environment: the bundled-into-AppImage GTK stack is what runs on the
+user's machine; the user's host need only provide FUSE2 (or the
+AppImage's `--appimage-extract-and-run` fallback for FUSE-less hosts).
+
+This is the load-bearing distinction that makes the AppImage
+self-contained. The build host has GTK; the end-user host doesn't
+need to. The original failure mode on the v0.8.1 .tar.gz
+(host-missing-GTK crash) is structurally closed.
+
+### What CI can and cannot verify (v0.8.2 phase)
+
+The workflow does the most CI can do:
+
+- Downloads and SHA512-verifies `linuxdeploy` + `linuxdeploy-plugin-gtk`
+- Stages the AppDir from the PyInstaller `--onedir` bundle +
+  `.desktop` + placeholder icon
+- Invokes linuxdeploy with the GTK plugin and asserts an `.AppImage`
+  is produced
+- Asserts the `.AppImage` size is above a 40 MB plausibility floor
+  (fails fast if WebKit2GTK or another major sub-bundle silently
+  dropped — calibrated from the expected ~60–100 MB compressed range
+  for the full bundle)
+- Attaches the `.AppImage` to the Release on tag push
+
+**CI cannot run the AppImage as an end user would.** CI cannot
+confirm a window opens on a fresh consumer Linux host that lacks GTK
+system packages — by definition, the CI runner has them installed
+(that's how linuxdeploy found them to bundle). The CI runner's
+pre-installed GTK state is structurally the OPPOSITE of the test
+environment that matters.
+
+CI's coverage for the AppImage phase is bounded to "the AppImage
+built, is the expected file type, and is plausibly sized." That's it.
+See "Release acceptance for AppImage" below — same shape as the
+v0.8.0 Inno installer's manual hardware gate, applied to Linux.
+
+### Release acceptance for AppImage
+
+The structural release-acceptance criterion for any release that
+touches the Linux AppImage build is the **manual hardware gate on a
+real consumer Linux machine WITHOUT GTK system packages preinstalled**.
+CI green is necessary, never sufficient. Same rule as the v0.8.0 Inno
+installer phase — the Linux equivalent test.
+
+The gate:
+
+1. **Download** `gamepile-vX.Y.Z-linux-x64.AppImage` on a fresh
+   consumer Linux host. CachyOS is the reference machine where the
+   v0.8.1 .tar.gz failed with "Namespace Gtk not available." Do NOT
+   pre-install GTK 3 / pygobject / Cairo system packages — the whole
+   point of AppImage is "works without host system deps," and the
+   only honest confirmation is running it on a host that doesn't have
+   those deps.
+2. `chmod +x gamepile-vX.Y.Z-linux-x64.AppImage`
+3. Run the AppImage (`./gamepile-vX.Y.Z-linux-x64.AppImage` or
+   double-click from a file manager). Confirm a window opens, the app
+   launches, the Library view renders, basic interaction works.
+4. Optional: file-manager double-click + `.desktop` integration
+   confirms the embedded icon, metadata, and menu placement.
+
+If the user's reference machine has GTK packages installed for other
+reasons, the test is still meaningful but less stringent. The
+**gold-standard test is "fresh distro install, nothing GTK-related
+preinstalled"**; the user should match that as closely as their
+machine allows.
+
+If the gate passes: edit the Release on GitHub to clear the prerelease
+checkbox. If it fails: do an empirical audit (which library, which
+path, what symbol is missing) BEFORE attempting a fix. The same
+empirical-audit-before-fix discipline that ended the v0.5.x Windows
+saga applies here. `linuxdeploy-plugin-gtk` missing a runtime
+dependency (a typelib, a Cairo plugin, a gobject-introspection helper)
+is a known anticipated failure mode; fix that specific dependency
+rather than guessing.
+
+Until the gate clears, the Release is flagged prerelease with the
+awaiting-manual-validation body note (now updated to cover both the
+Windows installer gate and the Linux AppImage gate).
+
 ## Distribution flow
 
 1. Author runs `git tag vX.Y.Z && git push origin main --tags`
 2. Workflow builds both bundles and publishes a Release directly (no
    draft intermediate). On v0.8.0+ the Release is flagged prerelease
    with an awaiting-manual-validation note until the author completes
-   the manual hardware gate (see "Release acceptance is the manual
-   install/launch/upgrade/uninstall test" above).
+   the manual hardware gate(s) (see "Release acceptance is the manual
+   install/launch/upgrade/uninstall test" for Windows and "Release
+   acceptance for AppImage" for Linux).
 3. Author runs the manual gate on their Windows 11 machine. On pass,
    the prerelease flag is removed and the Release is promoted to
    canonical.
@@ -982,24 +1269,14 @@ Bootstrapper** as the supported installation path; redistributing the
 runtime files in-bundle isn't allowed. GamePile detects missing runtime
 and opens the bootstrapper install page — that's the documented path.
 
-### No Linux AppImage (yet)
+### Linux AppImage shipping (v0.8.2+)
 
-The brief originally called out AppImage as a v5 deliverable. The
-PyInstaller --onedir path + GTK/WebKit system deps (which can't be
-bundled portably anyway) made AppImage redundant for the initial
-friend-distribution scope: Linux ships a `.tar.gz` with a documented
-"install the GTK/WebKit packages your distro uses, run the binary"
-flow.
-
-v0.8.0's Inno Setup installer for Windows reframes this as a
-distribution-parity gap rather than a redundancy: Windows friends now
-get a proper double-click installer with Add/Remove integration, while
-Linux friends still get a raw tar.gz to extract by hand. Closing that
-gap with an AppImage build (bundled GTK or relying on host GTK with a
-clear error message) is queued as a separate post-installer-validation
-phase — see the "Linux installation parity via AppImage" deferred-
-housekeeping item below for the full scope description. Not in scope
-for v0.8.0 itself.
+Closed at v0.8.2 — see "AppImage (Linux, v0.8.2+)" above for the full
+architecture. The Linux artifact is now a self-contained AppImage
+bundling GTK + WebKit + GObject-introspection typelibs; the user no
+longer needs to install distro-specific system packages before
+running. Same distribution-parity intent as the v0.8.0 Windows
+installer.
 
 ## Tests
 
@@ -1074,19 +1351,35 @@ PyInstaller bundle verified locally on Linux:
   layered Windows workarounds into a maintenance-log section. Do NOT
   refactor mid-incident; refactor from a position of stability.
 
-- **Linux installation parity via AppImage** — queued
-  post-Windows-installer-validation, separate phase. v0.8.0 closed
-  half the install-experience gap (Windows now ships a proper
-  installer); Linux still ships a raw tar.gz with manual GTK/WebKit
-  package install. An AppImage build that either bundles GTK or fails
-  with a useful "install these packages, then retry" message would
-  close the parity gap. Two design questions to answer when this
-  phase opens: (1) bundle GTK or rely on host (size vs portability
-  tradeoff — Discord's AppImage bundles GTK; some other apps don't),
-  (2) keep the tar.gz as a power-user fallback alongside AppImage, or
-  retire it entirely. Do NOT pull this work into the v0.8.0 installer
-  phase mid-scope; it gets its own phase decided from a position of
-  Windows-installer stability.
+- **Re-pin linuxdeploy + linuxdeploy-plugin-gtk URLs/SHAs when bytes
+  drift.** linuxdeploy is a continuous-only release — no semver tags
+  upstream — so the SHA512 pin is to the bytes at the time of pinning
+  (currently the 2026-05-12 continuous build, target_commitish
+  `a9f929ff0e32d5c4bcb7b5c380adff4802f918ba`). The CI step fails fast
+  when bytes drift, surfacing the staleness explicitly. To bump:
+  download the new continuous-release AppImage, sha512sum it, update
+  the pinned hash in `.github/workflows/release.yml` "Download and
+  verify linuxdeploy + linuxdeploy-plugin-gtk" step. Same pattern for
+  linuxdeploy-plugin-gtk (pinned to commit
+  `3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea`). Same discipline as the
+  Node 20 / windows-2025 / .NET 8 entries — pinned URLs/SHAs are
+  expected to go stale; the discipline is to track that staleness
+  explicitly rather than let it rot silently.
+
+- **Commission/create a real GamePile application icon and wire it
+  through both AppImage AppDir + Inno Setup `.iss`.** v0.8.2 ships the
+  Linux AppImage with a placeholder icon copied from the runner's
+  stock Adwaita `applications-games` theme entry; v0.8.0's Inno Setup
+  installer ships without a custom icon as well. Both surfaces should
+  be addressed in one polish round so the icon identity is consistent
+  across platforms. When commissioned, the icon source lands at
+  `assets/icons/` in the repo (platform-agnostic), preferably with
+  PNG variants at 512/256/128 plus an SVG source. Workflow wiring:
+  swap the icon-source path in `.github/workflows/release.yml`
+  "Build AppImage" step from the Adwaita probe block to
+  `cp assets/icons/gamepile.png "$ICON_DST"`; add a SetupIconFile +
+  UninstallDisplayIcon directive to `installer/gamepile.iss` pointing
+  at a `.ico` derived from the same source.
 
 - **Revisit code signing if/when friend-count grows.** The unsigned-
   shipping decision was right for the friend-distribution scope of

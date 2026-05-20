@@ -51,6 +51,14 @@ jobs:
       # build (pygobject 3.51+ switched its build namespace to the 2.0
       # girepository); libgirepository1.0-dev stays for now — they install
       # cleanly side-by-side and pruning 1.0 is deferred to housekeeping.
+      #
+      # adwaita-icon-theme + librsvg2-bin support the AppImage build's
+      # placeholder-icon pipeline (v0.8.2+): linuxdeploy requires an
+      # icon file, and the build picks the runner's stock Adwaita
+      # applications-games icon as the OS-default-generic placeholder
+      # until a real GamePile icon is commissioned. See
+      # SPEC_V5_DISTRIBUTION.md "AppImage icon: stock fallback, real
+      # icon deferred" for the rationale.
       - name: Install GTK runtime (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
@@ -62,7 +70,9 @@ jobs:
             libcairo2-dev \
             gir1.2-webkit2-4.1 \
             gir1.2-gtk-3.0 \
-            python3-gi
+            python3-gi \
+            adwaita-icon-theme \
+            librsvg2-bin
 
       - name: Install dependencies
         run: uv sync
@@ -380,11 +390,223 @@ jobs:
         shell: pwsh
         run: Copy-Item README.bundled.md dist\gamepile\README.md
 
-      - name: Archive bundle (Linux)
+      # Download + SHA512-verify linuxdeploy and linuxdeploy-plugin-gtk.
+      # Both binaries SHIP INTO the user-distributed AppImage (their
+      # output is the AppImage payload that lands on end-user machines),
+      # so they fall under the load-bearing SHA-pinning discipline
+      # established at v0.5.6 for the .NET 8 runtime / WebView2 binding
+      # / vendored pywebview winforms.py. The Inno Setup compiler (ISCC)
+      # is explicitly NOT pinned because it runs only on the CI host and
+      # never reaches the user — see SPEC_V5_DISTRIBUTION.md "SHA-pinning
+      # discipline" for the principle.
+      #
+      # Pin sources:
+      #   - linuxdeploy: github.com/linuxdeploy/linuxdeploy continuous
+      #     release. Continuous-only — there are no semver tags upstream.
+      #     We pin the SHA512 of the bytes at the time of pinning
+      #     (continuous target_commitish a9f929ff0e32d5c4bcb7b5c380adff4802f918ba,
+      #     refreshed 2026-05-12). If the upstream continuous build
+      #     refreshes and the bytes drift, this step fails fast; bumping
+      #     the pin is a deliberate housekeeping action.
+      #   - linuxdeploy-plugin-gtk: pinned to commit
+      #     3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea (last touched
+      #     2023-10-01 — the plugin has been stable for >2 years).
+      #     Fetched via raw.githubusercontent.com URL with the explicit
+      #     SHA path so the bytes are reproducible.
+      #
+      # Deferred housekeeping: re-pin linuxdeploy + plugin-gtk URLs/SHAs
+      # when upstream issues a notable update (security fix, GTK version
+      # support added). Same pattern as the .NET 8 runtime pin.
+      - name: Download and verify linuxdeploy + linuxdeploy-plugin-gtk (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
-          cd dist
-          tar -czf "../gamepile-${{ github.ref_name }}-linux-x64.tar.gz" gamepile
+          mkdir -p tools
+          cd tools
+
+          LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          LINUXDEPLOY_SHA512="000097de845868905595a58c5532387155e493ee76dd5134f143b6d028bbebb62188b99c9a5836c387f3038604167bf71ba4318bfd80d204a0c030bcc9892f8f"
+
+          PLUGIN_GTK_URL="https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea/linuxdeploy-plugin-gtk.sh"
+          PLUGIN_GTK_SHA512="dcc37806aa9449d8c7336ce42b0a6c495e968846974753ec670ceb0aa0cb1fbfdc3796d5a5e2a3d21b70da9f71fca7f7505ccd2ac87b6748cda7b154f35b2152"
+
+          echo "Downloading linuxdeploy..."
+          curl -fsSL -o linuxdeploy-x86_64.AppImage "$LINUXDEPLOY_URL"
+          actual=$(sha512sum linuxdeploy-x86_64.AppImage | cut -d' ' -f1)
+          if [[ "$actual" != "$LINUXDEPLOY_SHA512" ]]; then
+            echo "SHA512 mismatch for linuxdeploy-x86_64.AppImage"
+            echo "  expected: $LINUXDEPLOY_SHA512"
+            echo "  actual:   $actual"
+            exit 1
+          fi
+          echo "  SHA512 verified."
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          echo "Downloading linuxdeploy-plugin-gtk..."
+          curl -fsSL -o linuxdeploy-plugin-gtk.sh "$PLUGIN_GTK_URL"
+          actual=$(sha512sum linuxdeploy-plugin-gtk.sh | cut -d' ' -f1)
+          if [[ "$actual" != "$PLUGIN_GTK_SHA512" ]]; then
+            echo "SHA512 mismatch for linuxdeploy-plugin-gtk.sh"
+            echo "  expected: $PLUGIN_GTK_SHA512"
+            echo "  actual:   $actual"
+            exit 1
+          fi
+          echo "  SHA512 verified."
+          chmod +x linuxdeploy-plugin-gtk.sh
+
+          ls -la
+
+      # Build the AppImage. linuxdeploy walks the executable's dynamic
+      # dependencies, the GTK plugin bundles the GTK+ runtime
+      # (libraries + GObject-introspection typelibs + GSettings schemas
+      # + GdkPixbuf loaders), and appimagetool (invoked internally by
+      # linuxdeploy) produces the final single-file .AppImage.
+      #
+      # The key architectural property: the host-distribution-dependency
+      # gap that broke v0.8.1's raw .tar.gz on a fresh CachyOS install
+      # ("Namespace Gtk not available" because the host lacked
+      # gobject-introspection typelibs) is closed by bundling the GTK
+      # stack inside the AppImage. The end-user host needs only FUSE2
+      # (or the --appimage-extract-and-run fallback) — no GTK, no
+      # WebKit, no PyGObject system packages.
+      #
+      # AppDir layout:
+      #   AppDir/
+      #   ├── AppRun                      (linuxdeploy-generated entrypoint)
+      #   ├── gamepile.desktop            (linuxdeploy-copied from share/)
+      #   ├── gamepile.png                (linuxdeploy-copied from icons/)
+      #   └── usr/
+      #       ├── bin/
+      #       │   ├── gamepile            (PyInstaller-built bootloader)
+      #       │   └── _internal/          (PyInstaller bundled deps)
+      #       └── share/
+      #           ├── applications/gamepile.desktop
+      #           └── icons/hicolor/256x256/apps/gamepile.png
+      #
+      # Icon: v0.8.2 ships without a custom GamePile icon (deferred
+      # polish round). linuxdeploy requires an icon, so we use the
+      # runner's stock Adwaita "applications-games" icon as the
+      # placeholder. PNG preferred if shipped; otherwise the symbolic
+      # SVG is rendered via rsvg-convert. The user perceives this as
+      # the OS-default generic icon because it literally is — copied
+      # verbatim from the system theme. When the real icon arrives,
+      # the icon-source paths below swap to `cp assets/icons/gamepile.png`
+      # and the rest of this step is unchanged. See SPEC_V5_DISTRIBUTION.md
+      # "AppImage icon: stock fallback, real icon deferred" for the
+      # rationale.
+      #
+      # We invoke linuxdeploy with --appimage-extract-and-run to avoid
+      # depending on the runner's FUSE state. ubuntu-latest typically
+      # has libfuse2 but the extract-and-run path is safer and adds
+      # negligible time.
+      - name: Build AppImage (Linux only)
+        if: matrix.platform_label == 'linux'
+        run: |
+          set -euo pipefail
+
+          APPDIR="AppDir"
+          rm -rf "$APPDIR"
+          mkdir -p "$APPDIR/usr/bin"
+          mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+
+          # Stage the entire PyInstaller --onedir bundle. The bootloader
+          # at dist/gamepile/gamepile resolves _internal/ as a sibling,
+          # so placing both at AppDir/usr/bin/ preserves the relative
+          # layout the binary expects.
+          cp -r dist/gamepile/* "$APPDIR/usr/bin/"
+
+          cp installer/linux/gamepile.desktop "$APPDIR/usr/share/applications/gamepile.desktop"
+
+          # Stock placeholder icon. Probe in order of preference:
+          # raster PNG (preferred — no rendering surprises), then
+          # full-color SVG, then symbolic SVG (renders as black-on-
+          # transparent via rsvg-convert which is recognizable as a
+          # generic placeholder). If none exist, fail loudly with a
+          # candidate-search dump so a future Ubuntu version's
+          # adwaita-icon-theme reshuffle surfaces here as a specific
+          # error rather than a silently-broken icon path.
+          ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/gamepile.png"
+          PNG_CANDIDATES=(
+            /usr/share/icons/Adwaita/256x256/legacy/applications-games.png
+            /usr/share/icons/Adwaita/256x256/apps/applications-games.png
+          )
+          SVG_CANDIDATES=(
+            /usr/share/icons/Adwaita/scalable/categories/applications-games.svg
+            /usr/share/icons/Adwaita/scalable/legacy/applications-games.svg
+            /usr/share/icons/Adwaita/symbolic/categories/applications-games-symbolic.svg
+            /usr/share/icons/Adwaita/symbolic/legacy/applications-games-symbolic.svg
+          )
+
+          FOUND_ICON=""
+          for ICON in "${PNG_CANDIDATES[@]}"; do
+            if [[ -f "$ICON" ]]; then
+              cp "$ICON" "$ICON_DST"
+              FOUND_ICON="$ICON (PNG, copied as-is)"
+              break
+            fi
+          done
+          if [[ -z "$FOUND_ICON" ]]; then
+            for SVG in "${SVG_CANDIDATES[@]}"; do
+              if [[ -f "$SVG" ]]; then
+                rsvg-convert -w 256 -h 256 "$SVG" -o "$ICON_DST"
+                FOUND_ICON="$SVG (rendered to 256x256 PNG via rsvg-convert)"
+                break
+              fi
+            done
+          fi
+          if [[ -z "$FOUND_ICON" ]]; then
+            echo "No stock Adwaita applications-games icon found at any expected path."
+            echo "adwaita-icon-theme layout may have shifted on this Ubuntu runner."
+            echo "Available Adwaita icons matching applications-games:"
+            find /usr/share/icons/Adwaita -name 'applications-games*' 2>/dev/null || echo "  (none)"
+            exit 1
+          fi
+          echo "Placeholder icon source: $FOUND_ICON"
+
+          # Invoke linuxdeploy. PATH addition lets it discover the plugin
+          # script by its conventional name. --appimage-extract-and-run
+          # sidesteps any FUSE dependency on the runner.
+          export PATH="$PWD/tools:$PATH"
+          ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir "$APPDIR" \
+            --plugin gtk \
+            --output appimage \
+            --desktop-file "$APPDIR/usr/share/applications/gamepile.desktop" \
+            --icon-file "$ICON_DST" \
+            --executable "$APPDIR/usr/bin/gamepile"
+
+          # linuxdeploy names the output by the .desktop's Name= field
+          # ("GamePile-x86_64.AppImage"). Rename to the project's
+          # release-artifact convention.
+          APPIMAGE_BUILT=$(ls -1 *.AppImage 2>/dev/null | grep -v 'linuxdeploy' | head -1)
+          if [[ -z "$APPIMAGE_BUILT" ]]; then
+            echo "No AppImage produced by linuxdeploy — investigate linuxdeploy stdout above."
+            ls -la
+            exit 1
+          fi
+
+          APPIMAGE_FINAL="gamepile-${{ github.ref_name }}-linux-x64.AppImage"
+          mv "$APPIMAGE_BUILT" "$APPIMAGE_FINAL"
+          chmod +x "$APPIMAGE_FINAL"
+
+          # Plausibility floor. The Linux PyInstaller bundle is ~620 MB
+          # uncompressed (Python + FastAPI + GTK + WebKit + PyGObject
+          # bindings) per SPEC_V5_DISTRIBUTION.md "Bundle size"; the
+          # AppImage compresses with zstd (linuxdeploy default) to
+          # roughly 60-100 MB. Floor at 40 MB so a build that silently
+          # drops a major sub-bundle (e.g. WebKit2GTK bundling failed
+          # entirely — ~30 MB compressed alone) fails fast here rather
+          # than shipping a missing-dependency AppImage to the manual
+          # hardware gate. Recalibrate this floor only with measured
+          # data, not assumed sizes — same discipline as the Inno Setup
+          # installer floor at v0.8.0 (calibrated from 100 MB to 50 MB
+          # after first measurement).
+          size=$(stat -c%s "$APPIMAGE_FINAL")
+          echo "Built $APPIMAGE_FINAL ($size bytes)"
+          if [[ "$size" -lt 40000000 ]]; then
+            echo "AppImage size $size bytes is below the 40 MB plausibility floor — payload may have been silently dropped."
+            exit 1
+          fi
 
       # Install Inno Setup compiler on the Windows runner. Chocolatey is
       # pre-installed on windows-latest and the innosetup package is stable;
@@ -460,20 +682,24 @@ jobs:
       # Manual workflow_dispatch runs still upload to the Actions run
       # page only — keeps the Releases list clean during iteration.
       #
-      # Windows artifact: gamepile-setup-vX.Y.Z.exe (Inno installer). The
-      # raw .zip archive was retired in v0.8.0 — the installer is the only
-      # Windows release artifact. Linux artifact unchanged: tar.gz.
+      # Windows artifact: gamepile-setup-vX.Y.Z.exe (Inno installer,
+      # v0.8.0+). The raw .zip archive was retired in v0.8.0.
+      # Linux artifact: gamepile-vX.Y.Z-linux-x64.AppImage (v0.8.2+).
+      # The raw .tar.gz was retired in v0.8.2 — see SPEC_V5_DISTRIBUTION.md
+      # "AppImage (Linux, v0.8.2+)" for the architecture and the host-
+      # distribution-dependency-gap rationale.
       #
       # prerelease: true (v0.8.0+) — every tag-push release lands as
       # prerelease, with an awaiting-manual-validation body note. The
       # author promotes to canonical by editing the Release on GitHub
-      # after the manual hardware gate clears (see
+      # after the manual hardware gate(s) clear (see
       # SPEC_V5_DISTRIBUTION.md "Release acceptance is the manual
-      # install/launch/upgrade/uninstall test" for the four-sub-test
-      # gate). This makes the manual-gate-required protocol structural
-      # rather than memory-of-process — friends looking at the Releases
-      # page see the prerelease badge and the body note; they know to
-      # wait for the canonical promotion.
+      # install/launch/upgrade/uninstall test" for the Windows gate,
+      # and "Release acceptance for AppImage" for the Linux gate). This
+      # makes the manual-gate-required protocol structural rather than
+      # memory-of-process — friends looking at the Releases page see
+      # the prerelease badge and the body note; they know to wait for
+      # the canonical promotion.
       - name: Publish Release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -481,24 +707,33 @@ jobs:
           draft: false
           prerelease: true
           files: |
-            gamepile-${{ github.ref_name }}-linux-x64.tar.gz
+            gamepile-${{ github.ref_name }}-linux-x64.AppImage
             gamepile-setup-${{ github.ref_name }}.exe
           fail_on_unmatched_files: false
           generate_release_notes: true
           body: |
             **Prerelease — awaiting manual hardware validation.**
 
-            This release builds the Windows installer and Linux bundle in
-            CI, but the manual install / launch / upgrade-preserves-DB /
-            uninstall flow on a real Windows 11 machine has not yet been
-            confirmed. Once the author runs the four-sub-test gate on
-            real hardware and confirms it passes, this prerelease tag
-            will be promoted to canonical. Until then, please use the
-            previous canonical (non-prerelease) Release.
+            This release builds the Windows installer and the Linux
+            AppImage in CI, but the manual install / launch / upgrade /
+            uninstall flows on real consumer hardware have not yet been
+            confirmed. The validation gates are:
+
+            - **Windows**: install / launch / upgrade-preserves-DB /
+              uninstall-doesn't-touch-data on a real Windows 11 machine.
+            - **Linux**: the AppImage launches on a fresh Linux host
+              (CachyOS or equivalent) WITHOUT GTK 3 / pygobject / Cairo
+              system packages preinstalled — the load-bearing AppImage
+              property is "self-contained, no host system deps."
+
+            Once the author runs the gates and confirms they pass, this
+            prerelease tag will be promoted to canonical. Until then,
+            please use the previous canonical (non-prerelease) Release.
 
             See `SPEC_V5_DISTRIBUTION.md` "Release acceptance is the
-            manual install/launch/upgrade/uninstall test" for the gate
-            definition.
+            manual install/launch/upgrade/uninstall test" (Windows) and
+            "Release acceptance for AppImage" (Linux) for the gate
+            definitions.
 
       - name: Upload bundle as workflow artifact (dispatch runs)
         if: github.event_name == 'workflow_dispatch'
@@ -506,7 +741,7 @@ jobs:
         with:
           name: gamepile-${{ matrix.platform_label }}-${{ github.sha }}
           path: |
-            gamepile-*-linux-x64.tar.gz
+            gamepile-*-linux-x64.AppImage
             gamepile-setup-*.exe
           if-no-files-found: ignore
           retention-days: 14
