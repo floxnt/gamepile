@@ -574,17 +574,71 @@ jobs:
           fi
           echo "Placeholder icon source: $FOUND_ICON"
 
-          # Invoke linuxdeploy. PATH addition lets it discover the plugin
-          # script by its conventional name. --appimage-extract-and-run
-          # sidesteps any FUSE dependency on the runner.
+          # Invoke linuxdeploy in three phases:
+          #   1. Populate AppDir + run plugin-gtk (no --output yet).
+          #   2. Append LD_LIBRARY_PATH export to the plugin's apprun-hook
+          #      from installer/linux/apprun-libpath-hook.sh.
+          #   3. Package the modified AppDir into the .AppImage (no
+          #      --plugin so the hook isn't regenerated and phase 2's
+          #      addition survives).
+          #
+          # Why phase 2 exists: linuxdeploy-plugin-gtk's auto-generated
+          # AppRun exports GI_TYPELIB_PATH + GTK_* metadata vars but NOT
+          # LD_LIBRARY_PATH. Its design assumption is that the application
+          # binary has direct NEEDED entries for libgtk-3.so.0 — under
+          # that assumption, the dynamic linker eager-loads the bundled
+          # GTK stack at process start via the binary's
+          # RUNPATH=$ORIGIN/../lib (= $APPDIR/usr/lib), and PyGObject's
+          # later gi.require_version() dlopens find the libraries
+          # already-resident. Our PyInstaller bootloader has no GTK
+          # linkage in NEEDED (same gap as DEPLOY_GTK_VERSION above —
+          # readelf -d on AppDir/usr/bin/gamepile shows only
+          # libdl/libz/libpthread/libc). No eager GTK load happens at
+          # process start. At runtime, when libgirepository (inside
+          # _internal/) dlopens libgtk-3.so.0 on behalf of
+          # gi.require_version('Gtk', '3.0'), that dlopen does NOT
+          # consult the executable's RUNPATH (DT_RUNPATH is per-object,
+          # not inherited transitively from a library-context dlopen —
+          # well-known glibc behavior). On a clean host without system
+          # GTK packages installed, the bundled libgtk-3.so.0 at
+          # $APPDIR/usr/lib/ is invisible to that dlopen and gi reports
+          # "Namespace Gtk not available" (observed v0.8.3 manual gate
+          # on CachyOS without preinstalled GTK; fix v0.8.4). The
+          # injected LD_LIBRARY_PATH makes $APPDIR/usr/lib/ findable.
+          #
+          # Why append to the plugin hook rather than modify AppRun
+          # directly: AppRun's `source` line for the plugin hook is the
+          # only extension point linuxdeploy reliably preserves —
+          # --custom-apprun is documented broken (linuxdeploy/linuxdeploy
+          # issue #100, where the custom file is silently overwritten by
+          # the auto-generated AppRun). The two-phase + append-to-plugin-
+          # hook approach was empirically verified on WSL before being
+          # committed: phase 3 (--output appimage with no --plugin) does
+          # not regenerate the plugin hook, and the appended export
+          # survives into the packaged .AppImage.
           export PATH="$PWD/tools:$PATH"
+
+          # Phase 1: populate AppDir + run plugin-gtk to bundle GTK stack
+          # + generate AppRun + plugin hook. No --output here.
           ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir "$APPDIR" \
             --plugin gtk \
-            --output appimage \
             --desktop-file "$APPDIR/usr/share/applications/gamepile.desktop" \
             --icon-file "$ICON_DST" \
             --executable "$APPDIR/usr/bin/gamepile"
+
+          # Phase 2: extend the plugin hook with our LD_LIBRARY_PATH
+          # export. AppRun already sources this hook (the auto-generated
+          # `source` line), so appending here puts LD_LIBRARY_PATH in the
+          # same env as the GI_TYPELIB_PATH / GTK_* vars the plugin sets.
+          cat installer/linux/apprun-libpath-hook.sh \
+            >> "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh"
+
+          # Phase 3: package. No --plugin so plugin-gtk doesn't re-run
+          # and regenerate the hook (which would wipe phase 2's addition).
+          ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --appdir "$APPDIR" \
+            --output appimage
 
           # linuxdeploy names the output by the .desktop's Name= field
           # ("GamePile-x86_64.AppImage"). Rename to the project's

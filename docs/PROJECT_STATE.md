@@ -893,6 +893,69 @@ Manual hardware gate still applies on the v0.8.2 reference target
 (fresh CachyOS without preinstalled GTK packages). Until cleared, v0.8.3
 is prerelease.
 
+## v0.8.4 — LD_LIBRARY_PATH apprun-hook injection (follow-on to v0.8.3)
+
+v0.8.3's AppImage shipped a structurally-complete GTK 3 bundle
+(`libgtk-3.so.0` in `usr/lib/`, 36 typelibs in
+`usr/lib/girepository-1.0/`, full transitive closure of 99 libraries
+deployed by linuxdeploy-plugin-gtk) but failed on the manual hardware
+gate (clean CachyOS without preinstalled GTK packages) with
+`ValueError: Namespace Gtk not available` — identical to v0.8.1's
+.tar.gz failure on the same machine. Root cause from the v0.8.3
+empirical audit (inventoried the artifact's contents, read the
+plugin's actual CI log, walked the plugin's source, reproduced by
+inversion on WSL where system GTK masks the bundle's defect):
+linuxdeploy-plugin-gtk's auto-generated AppRun exports
+`GI_TYPELIB_PATH` and `GTK_*` metadata vars but NOT
+`LD_LIBRARY_PATH`. The plugin's design assumption is that the
+application binary has direct `NEEDED` entries for `libgtk-3.so.0`
+— under that assumption, the dynamic linker eager-loads the bundled
+GTK stack at process start via the binary's
+`RUNPATH=$ORIGIN/../lib` (= `$APPDIR/usr/lib/`), and PyGObject's
+later `gi.require_version()` dlopens find the libraries already-
+resident. Our PyInstaller bootloader has no GTK linkage in `NEEDED`
+(same gap that caused v0.8.2's auto-detect failure for
+`DEPLOY_GTK_VERSION`); no eager GTK load happens. At runtime, when
+libgirepository (inside `_internal/`) dlopens `libgtk-3.so.0`, that
+dlopen does NOT consult the executable's `RUNPATH` (`DT_RUNPATH`
+is per-object, not inherited transitively from a library-context
+dlopen — well-known glibc behavior). The bundled `libgtk-3.so.0`
+at `$APPDIR/usr/lib/` is invisible to that dlopen on a clean host,
+and gi reports the namespace as unavailable.
+
+Fix: extend the plugin's apprun-hook with an `LD_LIBRARY_PATH`
+export that makes `$APPDIR/usr/lib/` discoverable to dlopen calls
+from bundled libraries. Implementation is a three-phase linuxdeploy
+invocation: (1) deploy with `--plugin gtk` (no `--output`), (2)
+append `installer/linux/apprun-libpath-hook.sh` to the plugin's
+generated apprun-hook, (3) package with `--output appimage` (no
+`--plugin`, so the hook isn't regenerated). We append to the
+plugin's hook rather than modifying AppRun directly because
+AppRun's `source` line for that hook is the only extension point
+linuxdeploy reliably preserves — `--custom-apprun` is documented
+broken (linuxdeploy/linuxdeploy issue #100, where the custom file
+is silently overwritten). The two-phase + append-to-plugin-hook
+approach was empirically verified on WSL before being committed:
+phase 3 (`--output appimage` with no `--plugin`) does not
+regenerate the hook, and the appended export survives into the
+final packaged `.AppImage`.
+
+Same forward-with-history-preserved recovery pattern as v0.8.2 →
+v0.8.3: v0.8.3 stays prerelease in the Releases page with a body
+note recording the manual-gate failure mechanism; v0.8.4 ships as
+the forward-fix. Same empirical-audit-before-fix discipline as the
+v0.5.x → v0.6.2 Windows saga: read the actual stderr (and inventory
+the actual artifact, and reproduce by inversion on a host that
+masks the failure) before guessing a fix. Part B (WebKit2GTK
+bundling — `libwebkit2gtk-4.1.so.0` is absent from the bundle, only
+its typelib is present) is deferred to a v0.8.5 round IFF the
+manual gate empirically surfaces it; deliberately not pre-implemented
+because predictions about CI/build-tool behavior on this project
+have a track record of being one structural detail off.
+
+Manual hardware gate still applies on the same CachyOS reference
+target. Until cleared, v0.8.4 is prerelease.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
