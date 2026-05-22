@@ -659,7 +659,12 @@ spec issues).
    draft intermediate)
 3. Author downloads and smoke-tests both artifacts on local machines
    (or sends to a friend with the target OS)
-4. If broken: delete the tag + Release, fix, re-tag with a patch bump
+4. If broken: increment the patch component (e.g., v0.8.2 → v0.8.3),
+   commit the fix, tag the new version. The broken prerelease stays in
+   the Releases page as historical record — it carries the prerelease
+   badge and awaiting-validation body note so friends won't download it
+   by mistake. Same forward-with-history-preserved pattern as the
+   v0.5.x → v0.6.2 Windows saga; never destructive-rewrite-the-tag.
 5. Friends download from <https://github.com/floxnt/gamepile/releases>
 
 ### Why direct-publish instead of draft
@@ -1187,8 +1192,13 @@ Windows installer gate and the Linux AppImage gate).
 3. Author runs the manual gate on their Windows 11 machine. On pass,
    the prerelease flag is removed and the Release is promoted to
    canonical.
-4. If the manual gate fails: delete the tag + Release, fix, re-tag
-   with a patch bump.
+4. If the manual gate fails: increment the patch component (e.g.,
+   v0.8.2 → v0.8.3), commit the fix, tag the new version. The broken
+   prerelease stays in the Releases page as historical record — it
+   carries the prerelease badge and awaiting-validation body note so
+   friends won't download it by mistake. Same forward-with-history-
+   preserved pattern as the v0.5.x → v0.6.2 Windows saga; never
+   destructive-rewrite-the-tag.
 5. Friends download from <https://github.com/floxnt/gamepile/releases>
    only the latest canonical (non-prerelease) Release.
 
@@ -1210,8 +1220,11 @@ intent without invisibility: the Release is visible on the Releases
 page but explicitly marked not-yet-validated. Friends know to wait;
 the previous-canonical Release stays as the latest non-prerelease.
 
-The recovery path for a bad build is the same as for any other
-public release — delete the tag and the Release, patch-bump, re-tag.
+The recovery path for a bad build is forward-only — increment the
+patch component, commit the fix, tag the new version. The broken
+prerelease stays in the Releases page as historical record (the
+prerelease badge + awaiting-validation body note keep friends from
+downloading it by mistake).
 
 Versioning: semver from `v0.5.0`. Patch releases for bugfixes
 (`v0.5.1`, `v0.5.2`), minor bumps for new features (`v0.6.0`),

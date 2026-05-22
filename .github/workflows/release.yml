@@ -500,6 +500,17 @@ jobs:
       # negligible time.
       - name: Build AppImage (Linux only)
         if: matrix.platform_label == 'linux'
+        # linuxdeploy-plugin-gtk auto-detects GTK version by ldd-walking the
+        # binary's direct dynamic deps. The PyInstaller bootloader has no
+        # direct GTK linkage (its ldd output is libdl/libz/libpthread/libc —
+        # all standard system libs); GTK loads at runtime via PyGObject
+        # dlopen from inside _internal/libpython3.12.so, invisible to the
+        # plugin. Without an explicit DEPLOY_GTK_VERSION, the plugin fails:
+        # "failed to auto-detect GTK version" (observed v0.8.2; fix v0.8.3).
+        # GamePile uses GTK 3 via pywebview's gtk backend (gamepile.spec
+        # IS_LINUX branch declares webview.platforms.gtk + gi.repository.Gtk).
+        env:
+          DEPLOY_GTK_VERSION: "3"
         run: |
           set -euo pipefail
 

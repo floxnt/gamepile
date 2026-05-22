@@ -862,6 +862,37 @@ SHA-pinning entries, and the manual-hardware-gate release-acceptance
 criterion. The "Version bump discipline" section codifies the
 forward-applying rule.
 
+## v0.8.3 — DEPLOY_GTK_VERSION=3 fix for AppImage build (follow-on to v0.8.2)
+
+v0.8.2's CI failed at the `linuxdeploy-plugin-gtk` step with "failed to
+auto-detect GTK version. Please set DEPLOY_GTK_VERSION to {2, 3, 4}".
+Root cause: the plugin's auto-detection walks the application binary's
+`ldd` output for libgtk-*, but the PyInstaller bootloader at
+`AppDir/usr/bin/gamepile` has no direct GTK linkage — GTK loads at
+runtime via PyGObject dlopen from inside `_internal/libpython3.12.so`,
+invisible to the plugin's inference. Fix: explicit `DEPLOY_GTK_VERSION=3`
+env var on the "Build AppImage" workflow step, with an in-place YAML
+comment block documenting the structural blindness so the env var isn't
+removed as cruft by a future maintainer. GamePile uses GTK 3 via
+pywebview's gtk backend (see v0.8.2 entry above for the AppImage
+architecture).
+
+Same audit-then-fix discipline as the v0.5.x → v0.6.2 Windows saga (read
+the actual stderr before guessing a fix). Same forward-with-history-
+preserved recovery pattern: v0.8.2 stays in the Releases page as a
+prerelease marker with the broken-Linux history; v0.8.3 ships as the
+forward-fix. `SPEC_V5_DISTRIBUTION.md` "Distribution flow" step 4 was
+clarified alongside this fix to read "increment the patch component"
+unambiguously (the previous "re-tag with a patch bump" wording was
+ambiguous between same-number re-roll and component-increment;
+"increment the patch component" matches what the project actually does
+and matches the Windows saga's v0.5.3 → v0.6.2 prerelease-chain
+precedent).
+
+Manual hardware gate still applies on the v0.8.2 reference target
+(fresh CachyOS without preinstalled GTK packages). Until cleared, v0.8.3
+is prerelease.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
