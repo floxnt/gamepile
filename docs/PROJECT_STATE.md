@@ -956,6 +956,92 @@ have a track record of being one structural detail off.
 Manual hardware gate still applies on the same CachyOS reference
 target. Until cleared, v0.8.4 is prerelease.
 
+## v0.8.5 — meta_path importer overrides PyInstaller's GI_TYPELIB_PATH stomp (follow-on to v0.8.4)
+
+v0.8.4's `LD_LIBRARY_PATH` apprun-hook injection landed structurally
+(round-1 instrumentation on CachyOS confirmed `LD_LIBRARY_PATH` reaches
+the gamepile process env via the appended hook in
+`apprun-hooks/linuxdeploy-plugin-gtk.sh`), but the AppImage still
+failed the manual hardware gate on CachyOS with the same
+`ValueError: Namespace Gtk not available` from
+`gi.require_version('Gtk', '3.0')`. Root cause identified across three
+diagnostic rounds (LD_PRELOAD env+dlopen shim → strace on CachyOS →
+local PyInstaller rthook chain analysis):
+
+PyInstaller's auto-included `pyi_rth_gi.py` runs at bootloader startup
+and unconditionally executes
+`os.environ['GI_TYPELIB_PATH'] = os.path.join(sys._MEIPASS, 'gi_typelibs')`.
+PyInstaller's `gi` hook is supposed to populate that directory with
+typelibs collected from the build host, but in our pipeline that
+directory ends up empty because linuxdeploy-plugin-gtk bundles the
+typelibs at `$APPDIR/usr/lib/girepository-1.0/` (the AppImage
+convention). libgirepository then finds nothing at PyInstaller's
+overwritten path and falls through to its compiled-in default
+`/usr/lib/x86_64-linux-gnu/girepository-1.0/` — which exists on
+Debian/Ubuntu/WSL (where the bug was masked across the entire
+development arc) but does NOT exist on CachyOS / Arch / Fedora /
+non-Debian distros. The apprun-hook's `GI_TYPELIB_PATH` export DID
+reach the gamepile process env correctly (confirmed by round-1
+LD_PRELOAD probe); `pyi_rth_gi.py` then overwrote it after the
+apprun-hook but before libgirepository's lazy typelib-search read.
+
+Fix: PyInstaller runtime hook
+`installer/pyinstaller/pyi_rth_gi_typelib_path.py` that installs a
+`sys.meta_path` finder. The finder fires at `import gi` — which is
+AFTER all PyInstaller rthooks complete (they run synchronously at
+bootloader startup, before user imports resolve) — and sets
+`GI_TYPELIB_PATH` to the AppImage-bundled typelib directory.
+libgirepository reads the env var lazily at
+`gi.require_version()` time, well after our finder has set the
+correct value, so our override wins the last-writer race against
+`pyi_rth_gi.py`. The runtime hook is referenced from `gamepile.spec`
+under `runtime_hooks=[...]` gated on `IS_LINUX` (Windows excludes the
+gi backend entirely and doesn't need the hook).
+
+Empirical verification on WSL before commit: rebuilt locally with the
+hook, observed via the hook's own (since-removed) diagnostic prints
+that at `import gi` time `GI_TYPELIB_PATH` was indeed the stomped
+PyInstaller value (`$_MEIPASS/gi_typelibs`), and that the finder
+successfully overrode it to the bundle-correct path with
+`Gtk-3.0.typelib` confirmed present at the target. WSL itself can't
+empirically falsify the fix because system typelibs at the
+compiled-in default path mask the failure regardless; CachyOS
+verification (strace for `openat` on
+`$APPDIR/usr/lib/girepository-1.0/Gtk-3.0.typelib`) is the
+acceptance gate.
+
+Same forward-with-history-preserved recovery pattern as the v0.8.2 →
+v0.8.3 → v0.8.4 chain: each broken AppImage stays in the Releases
+page as a prerelease marker with a body note recording the diagnosed
+mechanism. Same empirical-audit-before-fix discipline as the
+v0.5.x → v0.6.2 Windows saga: three rounds of instrumentation (round
+1 LD_PRELOAD + apprun-hook env probe, round 2 LD_PRELOAD + dlopen
+shim + sitecustomize, round 3 strace on CachyOS + local PyInstaller
+chain analysis) before the fix mechanism was identified. The
+v0.8.3 audit's "linuxdeploy-plugin-gtk apprun-hook glob"
+explanation was empirically wrong (AppRun has a single explicit
+`source` of the named plugin hook, not a glob); the v0.8.4 LD_LIBRARY_PATH
+fix was structurally correct as an enabling step but did not address
+the actual failure mechanism (which was the PyInstaller rthook
+stomp). v0.8.5 is the load-bearing fix for the AppImage portability
+property.
+
+Adjacent observation deliberately NOT fixed in this round: the spec's
+Linux branch does not explicitly exclude `webview.platforms.qt`, so
+the bundle ships qt-backend Python files without bundling the
+qtpy/PySide6 runtime they would need — pywebview's GTK→Qt fallback
+path would fail with import errors if it triggered. If v0.8.5's GTK
+path works (anticipated outcome a), the half-shipped Qt is moot
+because pywebview never falls through to it. If v0.8.5 fails on the
+manual gate with a Qt-fallback-related error, that's empirical
+evidence to fix the Qt half-shipping in a subsequent round.
+
+Manual hardware gate still applies on the same CachyOS reference
+target. Until cleared, v0.8.5 is prerelease. **This is reboot #2 of
+the agreed reboot budget for AppImage testing — if v0.8.5 fails the
+manual gate, the dev environment migrates to CachyOS first before
+further AppImage iteration.**
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com

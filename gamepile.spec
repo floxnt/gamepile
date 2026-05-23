@@ -225,7 +225,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=["installer/pyinstaller/pyi_rth_gi_typelib_path.py"] if IS_LINUX else [],
     excludes=[
         *platform_excludes,
         # Test files and ad-hoc scripts never run at runtime.
