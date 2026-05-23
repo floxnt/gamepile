@@ -1173,6 +1173,100 @@ GTK the only Linux path — clean failure modes if GTK errors. Surfaced
 as a known half-shipping at v0.8.5, closed at v0.8.6 alongside the
 WebKit2 bundling fix.
 
+### Architectural ceiling: WebKit child-process executable lookup (v0.8.6, saga deferred)
+
+v0.8.6's manual gate on native CachyOS surfaced the next layer
+empirically: the bundled `libwebkit2gtk-4.1.so.0` tries to fork its
+`WebKitNetworkProcess` child via the compiled-in absolute path
+`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitNetworkProcess` — a
+path baked into the .so at Ubuntu's package compile time, with no
+runtime escape hatch on Ubuntu release builds. This is qualitatively
+different from the v0.8.3 → v0.8.6 layers and is the architectural
+ceiling of the linuxdeploy-plugin-gtk + bundled-Ubuntu-WebKit
+approach. See `docs/PROJECT_STATE.md` v0.8.6 ("Manual gate outcome —
+the saga's architectural ceiling") for the full empirical audit.
+
+#### Why this layer doesn't fit the previous rounds' shape
+
+The previous four layers were all bridgeable by bridging an inference
+gap explicitly: an env var, an apprun-hook line, a PyInstaller
+runtime hook, a `--library` flag. Each round was one session of
+empirical-then-fix work and the bundle change was a small, well-
+scoped delta.
+
+This layer requires either:
+
+- **Runtime bind-mount surgery (bubblewrap or unprivileged user
+  namespaces)** — to make `$APPDIR/usr/libexec/webkit2gtk-4.1/` (or
+  equivalent bundled location) appear at the compiled-in
+  `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/` path at exec time.
+  Introduces a runtime bubblewrap host dependency. The AppRun
+  rewrite is substantial. Even on Ubuntu-family distros where the
+  approach succeeds, the result is a half-host/half-bundled state
+  that's the exact spooky-action bug class to be paranoid about.
+- **Binary-patching `PKGLIBEXECDIR` in the bundled .so at CI build
+  time** — replace the embedded path string with a fixed `/tmp`-
+  based path that AppRun creates and populates. Fragile against
+  Ubuntu rebuild byte-layout churn; requires SHA-anchored patching;
+  pollutes user `/tmp`; needs concurrent-instance design.
+- **Building WebKitGTK from source with `ENABLE_DEVELOPER_MODE=ON`**
+  — non-starter for friend-distribution CI minutes (~2h compile,
+  GBs of source, ongoing security-patch tracking burden).
+
+Each of these costs disproportionately more than the v0.8.3 → v0.8.6
+rounds. The discipline lesson from the saga (now codified in
+`docs/PROJECT_STATE.md` "Key learnings") is that when the next
+layer's cost diverges qualitatively from the previous, the right
+move is to stop, document the ceiling honestly, and defer to a
+separate architectural track. Continuing as v0.8.7 would be
+sunk-cost reasoning.
+
+#### Documented-experimental status for v0.8.6 onward (until Qt-backed track lands)
+
+v0.8.6 is the saga's terminal release. It stays prerelease on the
+GitHub Releases page. The Linux AppImage works on Debian-multiarch
+distros (Ubuntu, Pop!_OS, Linux Mint, Debian, elementary OS) where
+the host has `libwebkit2gtk-4.1-0` installed at the
+`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/` path the bundled .so
+expects. It does NOT work on Arch / CachyOS / Manjaro / Fedora /
+openSUSE (usrmerge `/usr/lib/` flat-layout distros) regardless of
+whether webkit2gtk-4.1 is installed via the system package manager.
+
+The half-host/half-bundled state on supported distros means the
+release acceptance criterion ("AppImage is self-contained — works
+without preinstalled GTK/WebKit packages") is NOT met. The v0.8.2
+"Release acceptance for AppImage" gate in this SPEC is held over
+the saga's terminal release in honest acknowledgment: the AppImage
+ships as experimental, not as the validated AppImage the v0.8.2
+phase set out to produce.
+
+`README.bundled.md`'s Linux install section documents the
+distro-compatibility caveats up front so users on unsupported distros
+aren't blindsided.
+
+#### Deferred to v0.9.x architectural track — Qt + PySide6
+
+The architecturally cleaner answer is to ship a UI runtime that
+doesn't carry the compiled-in-absolute-path property. Qt + PySide6
+— pywebview's alternate Linux backend — has exactly that property
+by design: PySide6 wheels bundle Qt binaries, and Qt's distribution
+model is "bundle the runtime with the app." No compiled-in
+absolute path baked into a system library by an external packager;
+the runtime is shipped with the app and resolved via standard
+PyInstaller dependency walking + Python import resolution.
+
+Tracked as the v0.9.x architectural rewrite in
+`SPEC_V6_LINUX_QT.md`. The empirical motivation from this saga is
+captured there as well, so the Qt-backed work starts from a
+position of "we tried the GTK path empirically, here is exactly why
+it has a ceiling" rather than abstract preference.
+
+The Inno Setup Windows installer track is unaffected by this
+deferral — `gamepile-setup-vX.Y.Z.exe` continues to ship as the
+canonical Windows artifact per the v0.8.0 "Inno Setup installer
+(Windows, v0.8.0+)" section above. Only the Linux AppImage track
+defers; Windows distribution is settled.
+
 ### AppDir layout
 
 ```

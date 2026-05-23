@@ -1134,36 +1134,139 @@ artifact from building). Corrected via `gh release edit v0.8.2
 now agree; v0.8.0 is once again the only canonical non-prerelease
 Release until v0.8.6 clears the manual gate.
 
-### Verification: native CachyOS, no reboot
+### Manual gate outcome (2026-05-22) — the saga's architectural ceiling
 
-This is the first AppImage round since the migration to native
-CachyOS. Manual hardware gate runs directly on the dev machine: CI
-green → download `gamepile-v0.8.6-linux-x64.AppImage` → `chmod +x`
-→ run → confirm window opens, Library renders, end-to-end
-interactivity. No WSL/reboot indirection.
+The v0.8.6 manual gate on native CachyOS surfaced the next layer
+empirically — and it is NOT the kind of layer that fits the
+saga's previous "small surgical round" cadence. Exact runtime
+error:
 
-If the gate passes: `gh release edit v0.8.6 --prerelease=false`
-promotes to canonical and the AppImage saga ends — at which point
-the v5.x maintenance-log refactor in SPEC_V5_DISTRIBUTION.md's
-deferred-housekeeping section becomes due, plus the batched
-release-metadata cleanup (v0.8.1 through v0.8.5 all uniformly
-prerelease-flagged with their existing body notes).
+```
+GLib-GIRepository-WARNING: Failed to load shared library
+  'libwebkit2gtk-4.1.so.0' …  ← (resolved)
+** ERROR **: 22:14:59.819: Unable to spawn a new child process:
+  Failed to spawn child process "/usr/lib/x86_64-linux-gnu/
+  webkit2gtk-4.1/WebKitNetworkProcess" (No such file or directory)
+```
 
-If the gate fails: paste verbatim error, run the audit-before-fix
-loop on the new layer. Same forward-with-history-preserved pattern
-as v0.8.2 → v0.8.3 → v0.8.4 → v0.8.5; v0.8.6 stays as a prerelease
-marker with the diagnosed mechanism and v0.8.7 ships the next fix.
+Reading: Gtk import chain succeeds (v0.8.5's `GI_TYPELIB_PATH` fix
+holds), `libwebkit2gtk-4.1.so.0` loads successfully (v0.8.6's
+`--library` bundling holds), pywebview starts initializing the
+WebKit2 view, WebKit's main library code tries to fork its
+`WebKitNetworkProcess` child via a compiled-in absolute path
+`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/WebKitNetworkProcess` —
+that path doesn't exist on CachyOS, fork fails, process aborts
+with SIGTRAP.
 
-### Cumulative AppImage saga record (v0.8.2 → v0.8.6)
+**Empirical audit on the v0.8.6 AppImage and WebKit source:**
 
-Five rounds, four structural fixes, all reflecting the same root
-property — the PyInstaller bootloader's `NEEDED` entries are
+1. The bundled `libwebkit2gtk-4.1.so.0` has the absolute path
+   `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1` baked in as a string
+   (visible via `strings` on the .so). That's Ubuntu's
+   Debian-multiarch `PKGLIBEXECDIR`, fixed at the Ubuntu package's
+   compile time. Length: 40 chars + NUL.
+
+2. WebKit's escape-hatch env var `WEBKIT_EXEC_PATH` exists in
+   upstream WebKit source (`Source/WebKit/Shared/glib/
+   ProcessExecutablePathGLib.cpp`) but is gated by
+   `#if ENABLE(DEVELOPER_MODE)`. In non-developer-mode builds the
+   env-var lookup is COMPILED OUT and only `PKGLIBEXECDIR` is
+   consulted. Empirical verification on the bundled .so:
+   `strings | grep -c WEBKIT_EXEC_PATH` → 0. Ubuntu does not ship
+   libwebkit2gtk-4.1 with `ENABLE_DEVELOPER_MODE=ON`. The env var
+   is a no-op against Ubuntu-built binaries.
+
+3. `BubblewrapLauncher.cpp` has the same `#if ENABLE(DEVELOPER_MODE)`
+   guard around its `WEBKIT_EXEC_PATH` usage. No alternative
+   env-var redirect mechanism exists in any of WebKit's launcher
+   code paths.
+
+4. The v0.8.6 AppImage bundles the WebKit libraries (`.so` +
+   `.typelib`) but NOT the WebKit child-process executables
+   (`WebKitNetworkProcess`, `WebKitWebProcess`). `linuxdeploy
+   --library` walks `.so` NEEDED graphs but does not follow
+   runtime fork/exec targets — they are not library dependencies.
+
+5. **Distro-layout mismatch is structural, not just missing files.**
+   On CachyOS / Arch / Manjaro / Fedora / openSUSE the
+   `/usr/lib/x86_64-linux-gnu` directory does not exist at all —
+   the usrmerge model flattens everything under `/usr/lib/`. If a
+   user installs `webkit2gtk-4.1` via pacman on CachyOS, the
+   process helpers land at `/usr/lib/webkit2gtk-4.1/`, NOT at
+   the Debian multiarch path the .so was compiled to expect.
+   Installing the dep on the host does not resolve the mismatch.
+
+6. linuxdeploy-plugin-gtk has no WebKit-aware code (grep on the
+   upstream plugin returns no matches for `WebKit*Process` or
+   related terms). The plugin handles GTK 3 proper and stops.
+
+### Scope decision — stop the saga, document the ceiling, defer to Qt-backed track
+
+Continuing the saga past this point would require either:
+
+- **Bundle WebKit executables + bwrap-based bind mount in AppRun**
+  to make `$APPDIR/usr/libexec/webkit2gtk-4.1/` appear at the
+  compiled-in `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/` path at
+  exec time. Introduces a runtime bubblewrap dependency (present
+  on CachyOS by default but not universal) and a substantial AppRun
+  rewrite. Even on Ubuntu-family distros this would leave a
+  half-host/half-bundled state — exactly the spooky-action bug
+  class the project should be paranoid about.
+
+- **Binary-patch `PKGLIBEXECDIR` in the bundled .so at CI build time**
+  to a fixed `/tmp`-based path that AppRun creates and populates.
+  Fragile against Ubuntu rebuild churn; introduces a binary-patch
+  step that must be SHA-anchored; pollutes user `/tmp`.
+
+- **Build WebKitGTK from source with `ENABLE_DEVELOPER_MODE=ON`** —
+  non-starter for friend-distribution CI (~2h compile, GB of
+  source, ongoing security-patch tracking burden).
+
+Each of these costs disproportionately more than the previous saga
+layers (v0.8.3–v0.8.6 were small surgical rounds; v0.8.7-with-bwrap
+or v0.8.7-with-binary-patch would not be). The discipline lesson
+landing here: **continuing as v0.8.7-just-finish-the-saga is
+sunk-cost reasoning.** Recorded in `## Key learnings` below.
+
+The architecturally cleaner answer is to ship a UI runtime that
+doesn't have the compiled-in-absolute-path property. Qt + PySide6 —
+which pywebview supports as an alternate backend — has exactly that
+property by design (Qt's distribution model is "bundle the runtime
+with the app," PySide6 wheels include Qt binaries). Tracked as the
+v0.9.x architectural rewrite in `SPEC_V6_LINUX_QT.md`.
+
+### v0.8.6 status — documented-experimental, stays prerelease
+
+v0.8.6 is NOT promoted to canonical. The Linux AppImage stays
+prerelease with its body text updated to reflect the
+documented-experimental status: works on Debian-multiarch distros
+with `libwebkit2gtk-4.1-0` installed on the host; does not work on
+Arch/CachyOS/Fedora/openSUSE. README.bundled.md's Linux section
+carries the same caveats up-front so end users on unsupported
+distros aren't blindsided. The "supported distros" set is
+provisional until someone actually tests on each distro family —
+the Debian-multiarch property is necessary but the full set of
+runtime conditions (libwebkit2gtk-4.1-0 version compatibility,
+GTK theme integration, etc.) is empirically unverified beyond the
+build host itself.
+
+Same forward-with-history-preserved pattern as the rest of the
+v0.8.x chain — v0.8.6 remains in the Releases page as a marker
+for "this is where the GTK AppImage path met its architectural
+ceiling." The v0.8.1–v0.8.5 prereleases keep their existing body
+notes (no batched cleanup needed; the chain reads coherently as
+"each round identified the next layer empirically, then v0.8.6
+identified the ceiling").
+
+### Cumulative AppImage saga record (v0.8.2 → v0.8.6, saga closed)
+
+Five rounds, four small surgical fixes, then one architectural
+ceiling. All five rounds reflect the same root structural property
+— the PyInstaller bootloader's `NEEDED` entries are
 `libdl/libz/libpthread/libc` only, so anything inferring from the
-application binary's direct linkage (linuxdeploy-plugin-gtk's GTK-
-version auto-detect, the dynamic linker's `RUNPATH`-based eager
-load, the plugin's library-discovery dep walk) sees nothing
-GTK-related and bundles nothing accordingly. Each fix bridges that
-gap explicitly:
+application binary's direct linkage sees nothing GTK-related and
+bundles nothing accordingly. The first four layers were resolvable
+by bridging the inference gap explicitly:
 
 1. **v0.8.3** — `DEPLOY_GTK_VERSION=3` env var (plugin can't infer
    GTK version from the binary).
@@ -1172,12 +1275,96 @@ gap explicitly:
 3. **v0.8.5** — `sys.meta_path` finder for `GI_TYPELIB_PATH`
    (PyInstaller's `pyi_rth_gi.py` stomps the plugin's value).
 4. **v0.8.6** — `--library libwebkit2gtk-4.1.so.0` flag (plugin
-   doesn't bundle WebKit2 because WebKit2 isn't part of GTK 3 proper
-   and the binary doesn't reference it).
+   doesn't bundle WebKit2 because WebKit2 isn't part of GTK 3
+   proper and the binary doesn't reference it).
+
+The fifth layer is the architectural ceiling: WebKit's child-process
+spawn uses a path baked into the .so at Ubuntu's compile time, with
+the documented env-var escape gated by a build flag Ubuntu doesn't
+enable. Bridging it requires either runtime sandbox infrastructure
+(bwrap) or a different UI runtime entirely (Qt/PySide6). The latter
+is the cleaner answer and is tracked as the v0.9.x architectural
+rewrite — see `SPEC_V6_LINUX_QT.md`.
 
 Same empirical-then-fix discipline as the v0.5.x → v0.6.2 Windows
-saga: each round identifies the actual mechanism via instrumentation
-+ diagnostics before guessing the fix.
+saga held throughout: each round identified the actual mechanism
+via instrumentation + diagnostics before guessing the fix. The
+saga's exit at v0.8.6 is the scope-discipline outcome of asking
+"does the next layer of fix cost disproportionately more than the
+previous?" — when the answer flipped from "no" to "yes," the right
+move was to stop, document, and defer.
+
+## Key learnings
+
+### Compiled-in absolute paths in third-party libraries are an architectural commitment, not a packaging detail
+
+Surfaced empirically by the v0.8.2 → v0.8.6 GTK AppImage saga.
+When a system library has an absolute filesystem path baked into
+its binary at the upstream packager's compile time (Ubuntu's
+`libwebkit2gtk-4.1.so.0` carrying `/usr/lib/x86_64-linux-gnu/
+webkit2gtk-4.1` as `PKGLIBEXECDIR` for runtime executable lookup),
+that path is NOT a redirection-able runtime detail. The documented
+escape hatch (`WEBKIT_EXEC_PATH` env var) was gated by
+`#if ENABLE(DEVELOPER_MODE)` and compiled out of the release build.
+No env var, no `LD_PRELOAD` short of intercepting `execve`, and no
+patchelf-style metadata edit can redirect it.
+
+Resolving such a path mismatch for AppImage portability requires
+either:
+
+- **Bind-mount surgery** — bubblewrap or unprivileged user
+  namespaces to make the bundled location appear at the compiled-in
+  path at exec time. Introduces a runtime host dependency.
+- **Binary-patch the .so at build time** — replace the embedded
+  string with a path the AppImage can populate. Fragile against
+  upstream rebuild churn; pollutes a fixed filesystem location.
+- **Ship a UI runtime that doesn't have this property** — Qt with
+  PySide6 is one such runtime (Qt's distribution model is "bundle
+  the runtime with the app"). This is the architecturally cleanest
+  option when the library's compile-time configuration is outside
+  your control.
+
+The cost-benefit decision between these depends on how many
+compiled-in paths the library carries (libwebkit2gtk-4.1 has at
+least `PKGLIBEXECDIR` and the `injected-bundle/` subpath under it),
+how often the upstream package rebuilds, and how widely the
+bind-mount runtime tooling is available across the target audience.
+
+### Saga sunk-cost reasoning: when the next layer's cost diverges, stop and reassess scope
+
+Surfaced empirically by the same v0.8.x AppImage saga. v0.8.3
+through v0.8.6 were small surgical rounds: one env var, one
+apprun-hook line, one PyInstaller runtime hook, one `--library`
+flag. Each fix bridged a specific inference gap, took one session,
+and the next gate's failure pointed at the next layer cleanly. The
+cadence was a string of low-cost rounds.
+
+When the v0.8.6 gate surfaced the WebKit child-process-spawn layer,
+the next round's options were qualitatively different — bwrap
+runtime tooling, binary patching, or a UI-runtime swap. All
+substantially heavier than the previous layers. The right move
+was to ask "is the next layer's cost commensurate with the previous
+layers' cadence?" — and when the answer was clearly no, to step
+back, document the ceiling honestly, and defer the architectural
+rewrite to a separate track.
+
+Continuing past that point because "we're so close to canonical"
+or "v0.8.7 will finish the saga" would have been sunk-cost
+reasoning. The previous rounds' investment doesn't make the next
+round cheaper; each round is evaluated on its own forward cost
+against its own forward value. Saga-as-momentum is exactly the
+trap to watch for.
+
+The pattern in shape:
+
+- Small surgical rounds with empirical-then-fix discipline are
+  cheap iterations; do them while the cost stays small.
+- When the next round's cost is qualitatively different from the
+  previous, that is the signal to reassess scope — not a signal to
+  power through.
+- Document the ceiling honestly (what fails, where, why). Defer
+  the architectural answer to a separate track with its own
+  spec. Return to the actual product goal.
 
 ## OpenCritic — possible future re-introduction (v3.5+)
 
