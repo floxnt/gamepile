@@ -1,5 +1,9 @@
 <tr id="row-{{ gws.game.appid }}">
-  <td class="game-name" colspan="11">
+  {# colspan=10 covers the 10 data columns in the v0.8.7 Library layout
+     (Title, Type, Tags, HLTB Main, HLTB Completionist, Playtime,
+     Steam Reviews, Metacritic, Avg. Achievement %, My Achievement %).
+     The trailing empty <td> matches the edit-button header column. #}
+  <td class="game-name" colspan="10">
     <form
       hx-post="/games/{{ gws.game.appid }}/state"
       hx-target="#row-{{ gws.game.appid }}"

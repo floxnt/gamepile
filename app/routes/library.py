@@ -10,24 +10,18 @@ from app.templates_config import templates
 
 router = APIRouter()
 
+# GameStatus values are still passed to the inline edit form (the user
+# can change a game's status via the Edit button), but Status is no
+# longer a displayed Library column or filter (removed in v0.8.7 per
+# test-group feedback that the in-library badge was inaccurate and
+# double-tracked with Shortlist's status display).
 _ALL_STATUSES = [s.value for s in GameStatus]
 
-# Status sort order: active/in-flight states first, completion/terminal states last.
-# played_unclassified sits between never_played and finished — has history but uncurated.
-_STATUS_SORT_ORDER = {
-    "in_progress":         0,
-    "never_played":        1,
-    "played_unclassified": 2,
-    "finished":            3,
-    "dropped":             4,
-    "not_interested":      5,
-}
-
 _SORT_COLUMNS = [
-    "name", "status", "game_type", "developer",
+    "name", "game_type", "tags",
     "hltb_main", "hltb_compl",
-    "playtime", "steam_pct", "steam_reviews",
-    "metacritic", "median_unlock",
+    "playtime", "steam_reviews",
+    "metacritic", "median_unlock", "user_achievement",
 ]
 
 # Sentinel values for nulls-last regardless of sort direction.
@@ -52,16 +46,19 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
         return val.lower()
 
     def key(gws: GameWithState):
-        game, state = gws.game, gws.state
+        game = gws.game
         if sort == "name":
             return game.name.lower()
-        if sort == "status":
-            return _STATUS_SORT_ORDER.get(state.status.value, 99)
         if sort == "game_type":
             from app.backlog import compute_game_type
             return compute_game_type(game)
-        if sort == "developer":
-            return null_last_str(game.developer)
+        if sort == "tags":
+            # Tags column sortable as of v0.8.7. Sort by the first tag
+            # (most natural reading order — matches what the user sees
+            # in the cell when only the first few render). Games with
+            # no tags sort last via the existing nulls-last sentinel.
+            tags = game.user_tags_list()
+            return null_last_str(tags[0] if tags else None)
         if sort == "playtime":
             return null_last(game.playtime_minutes)
         if sort == "hltb_main":
@@ -70,29 +67,38 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
             return null_last(game.hltb_completionist_hours)
         if sort == "metacritic":
             return null_last(game.metacritic_score)
-        if sort == "steam_pct":
-            return null_last(game.steam_review_pct)
         if sort == "steam_reviews":
-            return null_last(game.steam_review_count)
+            # Single combined Steam Reviews column as of v0.8.7. Sort by
+            # percent (the more meaningful axis); review count appears in
+            # parentheses for context but is not the primary sort key.
+            return null_last(game.steam_review_pct)
         if sort == "median_unlock":
             return null_last(game.median_achievement_unlock_pct)
+        if sort == "user_achievement":
+            return null_last(game.user_achievement_pct)
         return game.name.lower()
 
     return sorted(games, key=key, reverse=reverse)
 
 
 _COLUMN_LABELS: list[tuple[str, str]] = [
-    ("name",          "Title"),
-    ("status",        "Status"),
-    ("game_type",     "Type"),
-    ("developer",     "Developer"),
-    ("hltb_main",     "HLTB Main"),
-    ("hltb_compl",    "HLTB Compl."),
-    ("playtime",      "Playtime"),
-    ("steam_pct",     "Steam %"),
-    ("steam_reviews", "Steam Reviews"),
-    ("metacritic",    "Metacritic"),
-    ("median_unlock", "Median unlock %"),
+    ("name",             "Title"),
+    ("game_type",        "Type"),
+    ("tags",             "Tags"),
+    ("hltb_main",        "HLTB Main"),
+    ("hltb_compl",       "HLTB Completionist"),
+    ("playtime",         "Playtime"),
+    ("steam_reviews",    "Steam Reviews"),
+    ("metacritic",       "Metacritic"),
+    # "Avg. Achievement %" is the user-facing label for the v0.7.0
+    # median-of-per-achievement-global-unlock-% column. The label was
+    # corrected from "Median unlock %" in v0.8.7 — the v0.7.0 lock was
+    # about COMPUTATION (median wins for robustness against right-skewed
+    # distributions), not terminology. The internal sort key stays
+    # "median_unlock" for URL backward-compatibility with bookmarked
+    # sort links.
+    ("median_unlock",    "Avg. Achievement %"),
+    ("user_achievement", "My Achievement %"),
 ]
 
 
@@ -139,13 +145,10 @@ def _build_sort_headers(
 
 def _apply_filters_and_sort(
     all_games: list[GameWithState],
-    status_filter: str,
     tag_filter: str,
     sort: str,
     direction: str,
 ) -> list[GameWithState]:
-    if status_filter:
-        all_games = [g for g in all_games if g.state.status.value == status_filter]
     if tag_filter:
         needle = tag_filter.lower()
         all_games = [
@@ -166,7 +169,6 @@ def _collect_tags(games: list[GameWithState]) -> list[str]:
 @router.get("/library", response_class=HTMLResponse)
 async def library_page(
     request: Request,
-    status_filter: str = "",
     tag_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
@@ -177,12 +179,9 @@ async def library_page(
 
     tags = _collect_tags(all_games)
 
-    games = _apply_filters_and_sort(
-        all_games, status_filter, tag_filter, sort, dir,
-    )
+    games = _apply_filters_and_sort(all_games, tag_filter, sort, dir)
 
     filter_params = {
-        "status_filter": status_filter,
         "tag_filter": tag_filter,
         "show_removed": "true" if show_removed else "",
     }
@@ -192,7 +191,6 @@ async def library_page(
         "games": games,
         "all_statuses": _ALL_STATUSES,
         "tags": tags,
-        "status_filter": status_filter,
         "tag_filter": tag_filter,
         "show_removed": show_removed,
         "sort": sort,
@@ -204,7 +202,6 @@ async def library_page(
 @router.get("/library/rows", response_class=HTMLResponse)
 async def library_rows(
     request: Request,
-    status_filter: str = "",
     tag_filter: str = "",
     show_removed: bool = False,
     sort: str = "",
@@ -214,9 +211,7 @@ async def library_rows(
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    games = _apply_filters_and_sort(
-        all_games, status_filter, tag_filter, sort, dir,
-    )
+    games = _apply_filters_and_sort(all_games, tag_filter, sort, dir)
 
     return templates.TemplateResponse(request, "partials/library_rows.html", {
         "games": games,

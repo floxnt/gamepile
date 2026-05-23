@@ -1,4 +1,9 @@
 {% set tag_list = gws.game.user_tags_list() %}
+{# v0.8.7 column set, locked order: Title, Type, Tags, HLTB Main,
+   HLTB Completionist, Playtime, Steam Reviews (combined),
+   Metacritic, Avg. Achievement %, My Achievement %, edit-button.
+   Status + Developer cells removed; Steam % and Steam Reviews
+   collapsed into the single "Steam Reviews" cell. #}
 <tr id="row-{{ gws.game.appid }}">
   <td class="game-name">
     <a href="/games/{{ gws.game.appid }}" class="title-link">{{ gws.game.name }}</a>
@@ -6,10 +11,9 @@
       <span class="badge badge-removed">removed</span>
     {% endif %}
   </td>
-  <td>
-    <span class="badge badge-{{ gws.state.status.value }}">
-      {{ gws.state.status.value | replace("_", " ") | title }}
-    </span>
+  <td class="library-game-type">
+    {% set gt = resolve_type(gws.game) %}
+    <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
   </td>
   <td class="library-tags">
     {% if tag_list %}
@@ -18,11 +22,6 @@
       —
     {% endif %}
   </td>
-  <td class="library-game-type">
-    {% set gt = resolve_type(gws.game) %}
-    <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
-  </td>
-  <td class="library-developer">{{ gws.game.developer if gws.game.developer else "—" }}</td>
   <td>
     {% if gws.game.hltb_main_hours %}
       {{ "%.1f"|format(gws.game.hltb_main_hours) }}h
@@ -44,24 +43,37 @@
       —
     {% endif %}
   </td>
-  <td>
+  <td class="library-steam-reviews">
+    {# Combined Steam Reviews column (v0.8.7): "93% (10k)" — percent
+       primary, review count in parentheses as context. When the count
+       is missing (rare; new releases, low-review games), fall back to
+       just the percent without parentheses. When the percent is also
+       missing, render the standard nulls-marker. Sort is by percent
+       per routes/library.py:_sort_games. #}
     {% if gws.game.steam_review_pct %}
-      {{ gws.game.steam_review_pct }}%
-    {% else %}
-      —
-    {% endif %}
-  </td>
-  <td>
-    {% if gws.game.steam_review_count %}
-      {{ gws.game.steam_review_count | fmt_count }}
+      {{ gws.game.steam_review_pct }}%{% if gws.game.steam_review_count %} ({{ gws.game.steam_review_count | fmt_count }}){% endif %}
     {% else %}
       —
     {% endif %}
   </td>
   <td>{{ gws.game.metacritic_score if gws.game.metacritic_score else "—" }}</td>
-  <td class="library-median-unlock">
+  <td class="library-avg-achievement">
+    {# "Avg. Achievement %" — internal column key median_unlock (v0.7.0
+       median-of-per-achievement-global-unlock-%). Label corrected in
+       v0.8.7; computation unchanged. #}
     {% if gws.game.median_achievement_unlock_pct is not none %}
       {{ "%.0f"|format(gws.game.median_achievement_unlock_pct) }}%
+    {% else %}
+      —
+    {% endif %}
+  </td>
+  <td class="library-my-achievement">
+    {# "My Achievement %" — user's own unlock ratio for this game,
+       populated by sync via GetPlayerAchievements (v0.8.7). Renders
+       "—" when the game has no achievements, the user's profile is
+       API-private, or the fetch hasn't yet populated this row. #}
+    {% if gws.game.user_achievement_pct is not none %}
+      {{ "%.0f"|format(gws.game.user_achievement_pct) }}%
     {% else %}
       —
     {% endif %}

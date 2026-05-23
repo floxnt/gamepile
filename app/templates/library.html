@@ -5,17 +5,10 @@
 {% block content %}
 <section class="library-controls">
   <form method="get" action="/library" class="filter-row">
-    <label>
-      Status
-      <select name="status_filter" onchange="this.form.submit()">
-        <option value="">All</option>
-        {% for s in all_statuses %}
-          <option value="{{ s }}" {% if status_filter == s %}selected{% endif %}>
-            {{ s | replace("_", " ") | title }}
-          </option>
-        {% endfor %}
-      </select>
-    </label>
+    {# Status filter dropdown removed in v0.8.7 — test-group feedback
+       found the in-library Status badge inaccurate and double-tracked
+       with Shortlist's status display. Tag is the primary filter axis
+       going forward. #}
 
     <label>
       Tag
@@ -69,18 +62,22 @@
             </th>
           {%- endmacro %}
 
+          {# v0.8.7 column set, locked order. Status + Developer columns
+             removed entirely (test-group feedback); Steam % and Steam
+             Reviews collapsed into the single "Steam Reviews" column
+             rendered as "93% (10k)"; Tags is now sortable (alphabetical
+             by first tag); "Median unlock %" relabeled to
+             "Avg. Achievement %"; "My Achievement %" added. #}
           {{ sort_header("name") }}
-          {{ sort_header("status") }}
-          <th><span class="sort-link sort-link--unsortable">Tags</span></th>
           {{ sort_header("game_type") }}
-          {{ sort_header("developer") }}
+          {{ sort_header("tags") }}
           {{ sort_header("hltb_main") }}
           {{ sort_header("hltb_compl") }}
           {{ sort_header("playtime") }}
-          {{ sort_header("steam_pct") }}
           {{ sort_header("steam_reviews") }}
           {{ sort_header("metacritic") }}
           {{ sort_header("median_unlock") }}
+          {{ sort_header("user_achievement") }}
           <th></th>
         </tr>
       </thead>
@@ -95,7 +92,7 @@
      - One or more filters active → generic combination message
      show_removed is intentionally NOT counted as a filter — it's an
      inclusion toggle, not a narrowing one. #}
-  {% set _filter_count = (1 if status_filter else 0) + (1 if tag_filter else 0) %}
+  {% set _filter_count = (1 if tag_filter else 0) %}
   <div class="empty-state">
     {% if _filter_count == 0 %}
       <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
