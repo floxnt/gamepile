@@ -399,16 +399,22 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             reviews.pop("playtimes", None)
             updates.update(reviews)
 
-        # --- Median achievement unlock % (display-only stat, v0.7.0). ---
-        # Same age-band TTL pattern as HLTB. Only the global percentages
-        # endpoint is needed (no schema fetch — we don't pattern-match
-        # names anymore). 404 from the endpoint means the game has no
-        # achievements; that's the honest-null path (column stays NULL,
-        # template renders "—"). Fetch failures (non-404) also leave the
-        # stored value intact via the COALESCE on upsert.
+        # --- Achievement stats (display-only Library columns). ---
+        # Two endpoints folded into one block since they share the
+        # "game has achievements" precondition:
+        #   - GetGlobalAchievementPercentagesForApp → Avg. Achievement %
+        #     (v0.7.0; median across achievements, robust against
+        #     right-skewed unlock distributions)
+        #   - GetPlayerAchievements → My Achievement % (v0.8.7; user's
+        #     own unlock ratio for this game)
+        # Same age-band TTL pattern as HLTB. The global endpoint also
+        # serves as the cheap gate: 404 means no achievements, so we
+        # skip the per-player fetch and leave both stored values via
+        # COALESCE on upsert.
         if (
             not force
             and game.median_achievement_unlock_pct is not None
+            and game.user_achievement_pct is not None
             and not _is_stale(effective_game)
         ):
             progress.achievements_skipped += 1
@@ -419,12 +425,22 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             )
             if achs is None:
                 # No achievements (404) or fetch failure. Either way,
-                # leave the stored value alone via COALESCE.
+                # leave both stored values alone via COALESCE.
                 progress.achievements_no_data += 1
             else:
                 percents = [a["percent"] for a in achs if a.get("percent") is not None]
                 if percents:
                     updates["median_achievement_unlock_pct"] = float(statistics.median(percents))
+                # Per-user unlock %. Only attempted when the global fetch
+                # succeeded (the game definitely has achievements). None
+                # return paths: private profile, transient fetch error,
+                # missing SteamID. All collapse to "leave stored value
+                # alone" — column stays at its prior value via COALESCE.
+                user_pct = await achievements_fetcher.fetch_player_achievement_pct(
+                    client, game.appid,
+                )
+                if user_pct is not None:
+                    updates["user_achievement_pct"] = user_pct
                 progress.achievements_fetched += 1
 
         # --- Game-type classification ---
@@ -503,6 +519,10 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             # v0.7.0 median achievement unlock %. None when this iteration
             # didn't fetch — upsert COALESCE preserves the stored value.
             median_achievement_unlock_pct=updates.get("median_achievement_unlock_pct"),
+            # v0.8.7 user achievement %. Same COALESCE-on-upsert pattern:
+            # None when this iteration's fetch returned no value (private
+            # profile, transient error, no achievements unlocked).
+            user_achievement_pct=updates.get("user_achievement_pct"),
         )
         with db.get_db() as conn:
             db.upsert_game(conn, enriched)
@@ -557,4 +577,5 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
         hltb_id_manual=game.hltb_id_manual,
         stickiness_badge_manual=game.stickiness_badge_manual,
         median_achievement_unlock_pct=game.median_achievement_unlock_pct,
+        user_achievement_pct=game.user_achievement_pct,
     )

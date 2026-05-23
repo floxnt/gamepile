@@ -32,12 +32,13 @@ from typing import Optional
 
 import httpx
 
-from app.credentials import get_steam_api_key
+from app.credentials import get_steam_api_key, get_steam_id
 
 log = logging.getLogger(__name__)
 
 _PERCENTAGES_URL = "https://api.steampowered.com/ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2/"
 _SCHEMA_URL = "https://api.steampowered.com/ISteamUserStats/GetSchemaForGame/v2/"
+_PLAYER_ACHIEVEMENTS_URL = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v0001/"
 
 # Match the existing appdetails throttling style — small constant delay
 # between requests rather than the full HLTB adaptive-window logic.
@@ -177,6 +178,83 @@ async def fetch_achievement_schema(
         return out or None
 
     log.warning("schema: gave up after retries for %d", appid)
+    return None
+
+
+async def fetch_player_achievement_pct(
+    client: httpx.AsyncClient, appid: int,
+) -> Optional[float]:
+    """Return the user's unlock percent for this game (0.0–100.0), or None.
+
+    None means: the game has no achievements, the user's profile is
+    private to the API key, the API key/SteamID are unset, or the fetch
+    failed after retries. All of these collapse to "no honest data to
+    show" — the column stays NULL and the template renders "—". Same
+    fallback discipline as `fetch_global_achievement_percentages`.
+
+    Endpoint: ISteamUserStats/GetPlayerAchievements/v0001/. Requires both
+    API key and SteamID (unlike the global endpoint, which is key-free).
+    """
+    await asyncio.sleep(_REQUEST_DELAY)
+
+    steam_id = get_steam_id()
+    if not steam_id:
+        return None
+
+    backoff = _INITIAL_BACKOFF
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = await client.get(
+                _PLAYER_ACHIEVEMENTS_URL,
+                params={
+                    "appid": appid,
+                    "key": get_steam_api_key(),
+                    "steamid": steam_id,
+                },
+                timeout=15,
+            )
+        except httpx.RequestError as exc:
+            log.warning("player_achievements: request error for %d: %s", appid, exc)
+            return None
+
+        # 400 with body `{"playerstats": {"error": "Requested app has no
+        # stats", "success": false}}` is Steam's standard "no achievements
+        # for this game" path. 403 also surfaces here for private profiles.
+        if resp.status_code in (400, 403, 404):
+            log.debug("player_achievements: HTTP %d for %d", resp.status_code, appid)
+            return None
+
+        if resp.status_code in (429, 500, 502, 503, 504):
+            log.warning(
+                "player_achievements: HTTP %d for %d (attempt %d/%d), backing off %.1fs",
+                resp.status_code, appid, attempt + 1, _MAX_RETRIES, backoff,
+            )
+            await asyncio.sleep(backoff)
+            backoff *= 2
+            continue
+
+        if not resp.is_success:
+            log.warning("player_achievements: HTTP %d for %d", resp.status_code, appid)
+            return None
+
+        try:
+            data = resp.json()
+        except Exception as exc:
+            log.warning("player_achievements: JSON parse error for %d: %s", appid, exc)
+            return None
+
+        playerstats = data.get("playerstats") or {}
+        if not playerstats.get("success"):
+            return None
+
+        achievements = playerstats.get("achievements") or []
+        if not achievements:
+            return None
+
+        unlocked = sum(1 for a in achievements if a.get("achieved") == 1)
+        return (unlocked / len(achievements)) * 100.0
+
+    log.warning("player_achievements: gave up after retries for %d", appid)
     return None
 
 

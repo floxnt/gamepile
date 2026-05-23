@@ -71,6 +71,12 @@ class Game:
     # Display-only stat surfaced as a Library column and a Game Detail
     # row. NULL when the game has no achievements.
     median_achievement_unlock_pct: Optional[float] = None
+    # v0.8.7 — user's own unlock percent for this game (0.0–100.0).
+    # Display-only Library column ("My Achievement %"). NULL when the
+    # game has no achievements, the user's profile is API-private, or
+    # the fetch hasn't run yet for this game. Populated by sync via
+    # GetPlayerAchievements alongside the global percentages fetch.
+    user_achievement_pct: Optional[float] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]
