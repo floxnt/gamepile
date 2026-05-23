@@ -996,6 +996,183 @@ fallback if `linuxdeploy-plugin-gtk` turns out to be insufficient for a
 specific dependency we hit on the manual hardware gate. Default is
 linuxdeploy; surface a fallback decision if the gate exposes a gap.
 
+### Layered fixes — PyInstaller bootloader / linuxdeploy-plugin-gtk impedance (v0.8.3 → v0.8.6)
+
+All four layered fixes below address the same root structural property:
+the PyInstaller bootloader at `AppDir/usr/bin/gamepile` has direct
+`NEEDED` entries only for `libdl/libz/libpthread/libc`. GTK and WebKit
+load at runtime via PyGObject dlopen from inside
+`_internal/libpython3.12.so`, invisible to anything that infers from
+the application binary's direct linkage:
+
+- `linuxdeploy-plugin-gtk`'s GTK-version auto-detect walks `ldd` on the
+  binary, sees no `libgtk-*` linkage, fails (v0.8.3 symptom).
+- The dynamic linker's eager-load at process start via the binary's
+  `RUNPATH=$ORIGIN/../lib` never fires for GTK because no `NEEDED`
+  entry references libgtk; later dlopens from inside libgirepository
+  don't consult that RUNPATH (DT_RUNPATH is per-object, not inherited
+  transitively from library-context dlopens — well-known glibc
+  behavior) (v0.8.4 symptom).
+- PyInstaller's `pyi_rth_gi.py` runtime hook stomps
+  `GI_TYPELIB_PATH` at bootloader startup, masking the plugin's
+  AppImage-convention value at `$APPDIR/usr/lib/girepository-1.0/`
+  (v0.8.5 symptom — bug masked on Debian/Ubuntu/WSL by libgirepository's
+  compiled-in default `/usr/lib/x86_64-linux-gnu/girepository-1.0/`).
+- linuxdeploy-plugin-gtk's library-discovery dep walk starts from the
+  binary's NEEDED entries; nothing transitively references WebKit2, so
+  the plugin doesn't bundle libwebkit2gtk-4.1 or libjavascriptcoregtk-4.1
+  (v0.8.6 symptom).
+
+Each fix bridges the gap explicitly for one inference layer. They are
+not interchangeable and they are not redundant — removing any one
+re-introduces a specific clean-Linux-host failure mode.
+
+#### DEPLOY_GTK_VERSION=3 env var (v0.8.3)
+
+`linuxdeploy-plugin-gtk` requires either an inferable GTK version
+from the binary's NEEDED entries or an explicit `DEPLOY_GTK_VERSION`
+env var declaring which version is in play. With no inferable
+linkage, set the env var explicitly on the "Build AppImage" workflow
+step. GamePile uses GTK 3 via pywebview's gtk backend (see
+`gamepile.spec` `IS_LINUX` branch declaring `webview.platforms.gtk`
++ `gi.repository.Gtk`).
+
+#### Three-phase linuxdeploy invocation + LD_LIBRARY_PATH apprun-hook append (v0.8.4)
+
+The single linuxdeploy invocation `linuxdeploy --plugin gtk --output
+appimage` is replaced by a three-phase sequence:
+
+1. **Phase 1 — deployment.** `linuxdeploy --appdir AppDir --plugin gtk
+   --library libwebkit2gtk-4.1.so.0 --desktop-file ... --icon-file ...
+   --executable ...` populates the AppDir, runs plugin-gtk to bundle
+   the GTK 3 stack, walks the named WebKit2 library's transitive deps
+   (see v0.8.6 below), generates AppRun, generates the plugin's
+   apprun-hook. No `--output` here; the AppDir is not yet packaged.
+2. **Phase 2 — apprun-hook append.** `cat
+   installer/linux/apprun-libpath-hook.sh >>
+   $APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh` appends `export
+   LD_LIBRARY_PATH="$APPDIR/usr/lib:${LD_LIBRARY_PATH:-}"` to the
+   plugin hook that AppRun already `source`s. The plugin's
+   auto-generated AppRun exports `GI_TYPELIB_PATH` and `GTK_*` metadata
+   but NOT `LD_LIBRARY_PATH` — its design assumption is that the
+   application binary has direct GTK `NEEDED` entries and the dynamic
+   linker eager-loads via RUNPATH at process start. That assumption
+   doesn't hold on our PyInstaller-bootloader model; without
+   `LD_LIBRARY_PATH`, dlopen calls from inside bundled libraries
+   (libgirepository → libgtk-3.so.0) can't find the bundled GTK stack
+   at `$APPDIR/usr/lib/`.
+3. **Phase 3 — packaging.** `linuxdeploy --appdir AppDir --output
+   appimage` (no `--plugin`) assembles the modified AppDir into the
+   `.AppImage`. Phase 3 deliberately omits `--plugin gtk` so
+   plugin-gtk doesn't re-run and regenerate the hook, which would
+   wipe phase 2's append.
+
+We append to the plugin hook rather than modify AppRun directly because
+AppRun's `source` line for the named plugin hook is the only extension
+point linuxdeploy reliably preserves. `--custom-apprun` is documented
+broken (linuxdeploy/linuxdeploy issue #100, where the custom file is
+silently overwritten). The two-phase + append-to-plugin-hook approach
+was empirically verified on WSL before being committed: phase 3 with
+no `--plugin` does not regenerate the plugin hook, and the appended
+export survives into the final packaged `.AppImage`.
+
+The hook source file `installer/linux/apprun-libpath-hook.sh` is
+committed in the repo with its own provenance comment block; the
+workflow step's only filesystem mutation of it is the phase 2 append.
+
+#### GI_TYPELIB_PATH override via PyInstaller runtime hook (v0.8.5)
+
+PyInstaller's auto-included `pyi_rth_gi.py` runtime hook runs at
+bootloader startup and unconditionally executes
+`os.environ['GI_TYPELIB_PATH'] = os.path.join(sys._MEIPASS,
+'gi_typelibs')`. PyInstaller's `gi` hook is supposed to populate that
+directory with typelibs collected from the build host, but in our
+pipeline that directory ends up empty because
+linuxdeploy-plugin-gtk bundles the typelibs at
+`$APPDIR/usr/lib/girepository-1.0/` (the AppImage convention).
+libgirepository then finds nothing at PyInstaller's overwritten path
+and falls through to its compiled-in default
+`/usr/lib/x86_64-linux-gnu/girepository-1.0/` — which exists on
+Debian/Ubuntu/WSL (where the bug was masked across the entire
+v0.8.2–v0.8.4 development arc) but does NOT exist on CachyOS / Arch
+/ Fedora / non-Debian distros.
+
+The apprun-hook's `GI_TYPELIB_PATH` export (set by plugin-gtk in phase
+1's AppRun, not by our LD_LIBRARY_PATH hook) DID reach the gamepile
+process env correctly; `pyi_rth_gi.py` then overwrote it after the
+apprun-hook but before libgirepository's lazy typelib-search read.
+
+Fix: PyInstaller runtime hook at
+`installer/pyinstaller/pyi_rth_gi_typelib_path.py`, referenced from
+`gamepile.spec` under `runtime_hooks=[...]` gated on `IS_LINUX`
+(Windows excludes the gi backend and doesn't need the hook). The
+hook installs a `sys.meta_path` finder that fires on `import gi` —
+which is AFTER all PyInstaller rthooks complete (they run
+synchronously at bootloader startup, before user imports resolve) —
+and sets `GI_TYPELIB_PATH` to the AppImage-bundled typelib directory.
+libgirepository reads the env var lazily at `gi.require_version()`
+time, well after our finder has set the correct value, so our
+override wins the last-writer race against `pyi_rth_gi.py`.
+
+The finder's `_bundled_typelib_dir()` helper prefers `$APPDIR/usr/lib/
+girepository-1.0/` (the AppImage convention) and falls back to a
+`_MEIPASS`-derived path for non-AppImage layouts (testing, future
+flatpak / .deb / .rpm packaging).
+
+Empirical falsification of this fix could not happen on WSL because
+system typelibs at the compiled-in default path mask the failure
+regardless. CachyOS verification via strace on
+`openat($APPDIR/usr/lib/girepository-1.0/Gtk-3.0.typelib)` was the
+acceptance signal.
+
+#### WebKit2GTK + transitive closure via --library (v0.8.6)
+
+`linuxdeploy-plugin-gtk`'s auto-bundle covers GTK 3 proper (libgtk-3,
+libgdk-3, libcairo, libgobject, libgdk_pixbuf) but does NOT include
+WebKit2 — WebKit2 is not part of GTK 3, it's a separate library that
+uses GTK 3 as a dependency. The plugin's library-discovery walks the
+application binary's NEEDED entries; nothing transitively references
+WebKit2 on our PyInstaller-bootloader (same gap as DEPLOY_GTK_VERSION
+auto-detect above). Without an explicit instruction, the bundled
+`Gtk-3.0.typelib` references `libwebkit2gtk-4.1.so.0` that's absent
+from the bundle, and pywebview's `from gi.repository import WebKit2`
+fails at runtime with `Failed to load shared library
+'libwebkit2gtk-4.1.so.0'` on clean Linux hosts.
+
+Fix: pass `--library /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0`
+to phase 1 of the linuxdeploy invocation chain. linuxdeploy walks the
+named library's dep tree and bundles the transitive closure
+(`libjavascriptcoregtk-4.1.so.0`, `libsoup-3.0.so.0`,
+`libnghttp2.so.14`, `libwebpdemux.so.2`, etc.) alongside what
+plugin-gtk already deployed. Bundle size grows ~25-35 MB to roughly
+~100 MB compressed (within the existing 40 MB plausibility floor; the
+floor remains a fails-fast-on-silent-payload-drop check, not a tight
+size estimate).
+
+This layer was anticipated by the v0.8.3 audit ("Part B" in the v0.8.4
+PROJECT_STATE entry) but deliberately not pre-fixed per
+empirical-then-fix discipline — predictions about build-tool behavior
+on this project have a track record of being one structural detail
+off, and pre-fixing imagined failures risks landing a structurally
+wrong fix that obscures the actual mechanism when the real failure
+arrives. v0.8.5's manual gate on clean CachyOS surfaced this layer
+empirically, and the fix went in at v0.8.6 with the same audit-then-
+fix discipline as every layer before it.
+
+#### Linux platform_excludes — Qt explicitly excluded (v0.8.6)
+
+`gamepile.spec`'s Linux `platform_excludes` lists `edgechromium`,
+`winforms`, `cocoa`, and `webview.platforms.qt`. The Qt exclude
+closes a known half-shipping: PyInstaller bundles
+`webview.platforms.qt` Python source files alongside the active GTK
+backend without the `qtpy/PySide6` runtime they would need. If the
+GTK path ever errors at runtime, pywebview's backend-fallback path
+tries Qt next and crashes with a `ModuleNotFoundError` for qtpy that
+obscures the actual GTK failure in error chains. Excluding Qt makes
+GTK the only Linux path — clean failure modes if GTK errors. Surfaced
+as a known half-shipping at v0.8.5, closed at v0.8.6 alongside the
+WebKit2 bundling fix.
+
 ### AppDir layout
 
 ```

@@ -4,8 +4,11 @@
 # Build with: pyinstaller gamepile.spec
 #
 # Output: dist/gamepile/ — a --onedir bundle containing the executable
-# plus all dependencies. Distributed as a ZIP (Windows) or tar.gz (Linux)
-# from the GitHub Releases page.
+# plus all dependencies. The release workflow then wraps this output
+# per platform: an Inno Setup installer .exe on Windows (v0.8.0+) or a
+# self-contained AppImage on Linux (v0.8.2+) bundling the GTK 3 +
+# WebKit2GTK runtime. See SPEC_V5_DISTRIBUTION.md for the full
+# distribution-layer architecture.
 #
 # --onefile is intentionally NOT used. Reasons:
 #   - Windows Defender flags --onefile bundles as suspicious far more
@@ -186,6 +189,17 @@ elif IS_LINUX:
         "webview.platforms.edgechromium",
         "webview.platforms.winforms",
         "webview.platforms.cocoa",
+        # GTK is the only declared Linux backend (see platform_hiddenimports
+        # above). Without this exclude, PyInstaller bundles
+        # webview.platforms.qt source files alongside the active GTK
+        # backend; if the GTK path ever errors at runtime, pywebview's
+        # backend-fallback path tries Qt next and crashes with a
+        # ModuleNotFoundError for qtpy/PySide6 (neither bundled), which
+        # obscures the actual GTK failure in the diagnostic output.
+        # Excluding Qt makes GTK the only Linux path — clean failure
+        # modes if GTK errors. Surfaced as a known half-shipping at
+        # v0.8.5, closed at v0.8.6.
+        "webview.platforms.qt",
     ]
 else:  # macOS (not officially supported in v5; left functional in case someone runs the spec there)
     platform_hiddenimports = [

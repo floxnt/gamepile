@@ -620,9 +620,32 @@ jobs:
 
           # Phase 1: populate AppDir + run plugin-gtk to bundle GTK stack
           # + generate AppRun + plugin hook. No --output here.
+          #
+          # --library: explicitly bundle libwebkit2gtk-4.1.so.0 and its
+          # transitive closure (libjavascriptcoregtk-4.1, libsoup-3.0,
+          # libnghttp2, libwebpdemux, etc.). linuxdeploy-plugin-gtk's
+          # auto-bundle covers GTK 3 proper but does NOT include WebKit2
+          # — WebKit2 is not part of GTK 3, and the plugin's library-
+          # discovery only walks the application binary's NEEDED entries
+          # (which on our PyInstaller bootloader are libdl/libz/libpthread/
+          # libc, none of which transitively reference WebKit). Same
+          # structural property as for DEPLOY_GTK_VERSION (above) and
+          # LD_LIBRARY_PATH (phase 2 below): the GTK/WebKit stack is
+          # invisible to inference that starts from the PyInstaller
+          # bootloader. Without this flag, the bundled Gtk-3.0.typelib
+          # at $APPDIR/usr/lib/girepository-1.0/ references
+          # libwebkit2gtk-4.1.so.0 that's absent from the bundle, and
+          # pywebview's `from gi.repository import WebKit2` fails with
+          # "Failed to load shared library 'libwebkit2gtk-4.1.so.0'" on
+          # clean Linux hosts (observed v0.8.5 manual gate on CachyOS
+          # after the v0.8.5 meta_path finder fixed GI_TYPELIB_PATH;
+          # fix v0.8.6). linuxdeploy walks the named library's dep tree
+          # and bundles the transitive closure alongside what plugin-gtk
+          # already deployed.
           ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir "$APPDIR" \
             --plugin gtk \
+            --library /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0 \
             --desktop-file "$APPDIR/usr/share/applications/gamepile.desktop" \
             --icon-file "$ICON_DST" \
             --executable "$APPDIR/usr/bin/gamepile"

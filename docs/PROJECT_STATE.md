@@ -1042,6 +1042,143 @@ the agreed reboot budget for AppImage testing — if v0.8.5 fails the
 manual gate, the dev environment migrates to CachyOS first before
 further AppImage iteration.**
 
+## v0.8.6 — WebKit2GTK + transitive deps bundling + Qt platform exclude (follow-on to v0.8.5)
+
+v0.8.5's `GI_TYPELIB_PATH` override via `sys.meta_path` finder landed
+empirically correct (Gtk import chain now succeeds on clean CachyOS —
+libgirepository finds `Gtk-3.0.typelib` at the bundled
+`$APPDIR/usr/lib/girepository-1.0/` path, last-writer-wins against
+PyInstaller's `pyi_rth_gi.py` stomp). The manual gate then surfaced
+the next structural layer empirically: the bundled `Gtk-3.0.typelib`
+references `libwebkit2gtk-4.1.so.0` and `libjavascriptcoregtk-4.1.so.0`,
+and `linuxdeploy-plugin-gtk` does NOT auto-bundle those libraries.
+Exact runtime error from the v0.8.5 gate:
+
+```
+GLib-GIRepository-WARNING: Failed to load shared library
+  'libwebkit2gtk-4.1.so.0' referenced by the typelib:
+  libwebkit2gtk-4.1.so.0: cannot open shared object file:
+  No such file or directory
+GLib-GIRepository-WARNING: Failed to load shared library
+  'libjavascriptcoregtk-4.1.so.0' referenced by the typelib: …
+gi._error.GError: gi-invoke-error-quark: Could not locate
+  webkit_get_major_version: libjavascriptcoregtk-4.1.so.0: cannot
+  open shared object file
+```
+
+Root cause: linuxdeploy-plugin-gtk's auto-bundle covers GTK 3 proper
+(libgtk-3, libgdk-3, libcairo, libgobject, libgdk_pixbuf, etc.) but
+WebKit2 is not part of GTK 3 — it's a separate library that uses GTK
+3 as a dependency. The plugin's library-discovery walks the
+application binary's `NEEDED` entries; on our PyInstaller bootloader
+those are `libdl/libz/libpthread/libc` only (same structural property
+that made v0.8.3's `DEPLOY_GTK_VERSION=3` and v0.8.4's
+`LD_LIBRARY_PATH` injection necessary), none transitively
+referencing WebKit2. The plugin therefore has no path to discover
+that WebKit2 needs bundling. The v0.8.3 audit deliberately
+anticipated this layer ("Part B" in the v0.8.4 entry) but correctly
+did not pre-fix per empirical-then-fix discipline — predictions about
+build-tool behavior on this project have a track record of being one
+structural detail off.
+
+### Fix
+
+Pass `--library /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0` to
+phase 1 of the linuxdeploy invocation chain (the `--plugin gtk`
+deployment phase). linuxdeploy walks the named library's dep tree
+and bundles the transitive closure (`libjavascriptcoregtk-4.1.so.0`,
+`libsoup-3.0.so.0`, `libnghttp2.so.14`, `libwebpdemux.so.2`, etc.)
+alongside what plugin-gtk already deployed. Phase 2 (apprun-hook
+append) and phase 3 (`--output appimage`, no `--plugin`) are
+unchanged — the LD_LIBRARY_PATH apprun-hook injection v0.8.4 added
+already covers all of `$APPDIR/usr/lib/` regardless of how
+populated that directory is, and phase 3's packaging step doesn't
+re-walk deps. Bundle size grows ~25-35 MB to roughly ~100 MB total
+(within the existing 40 MB plausibility-floor envelope; floor not
+adjusted because it remains a fails-fast-on-silent-payload-drop
+check, not a tight size estimate).
+
+### Qt platform exclude (drift fix bundled with the WebKit2 round)
+
+`gamepile.spec`'s Linux `platform_excludes` previously listed
+`edgechromium`, `winforms`, `cocoa` but not `webview.platforms.qt`.
+v0.8.5 PROJECT_STATE flagged this as a known half-shipping: PyInstaller
+bundles `webview.platforms.qt` Python source files alongside the active
+GTK backend without the `qtpy/PySide6` runtime they would need, and if
+the GTK path ever errors at runtime, pywebview's backend-fallback path
+tries Qt next and crashes with a `ModuleNotFoundError` that obscures the
+actual GTK failure in error chains. v0.8.6 adds Qt to the Linux
+excludes alongside the WebKit2 bundling fix — touching the spec for
+the platform-excludes line anyway, no reason to defer a one-line
+clean-failure-mode fix that improves diagnostics for any future Linux
+runtime error.
+
+### gamepile.spec file-header comment drift fix
+
+The spec's top-of-file comment block said "Distributed as a ZIP
+(Windows) or tar.gz (Linux)" — stale since v0.8.0 (Windows = Inno
+Setup installer) and v0.8.2 (Linux = AppImage). Updated to "Inno
+Setup installer .exe on Windows (v0.8.0+) or a self-contained
+AppImage on Linux (v0.8.2+) bundling the GTK 3 + WebKit2GTK
+runtime." Touching the file anyway for the platform_excludes line;
+no reason to leave the stale comment.
+
+### Release-metadata drift: v0.8.2 prerelease flag
+
+GitHub API was reporting `prerelease=False` on v0.8.2 even though
+the body text and the `PROJECT_STATE.md` v0.8.3 entry both treated
+it as prerelease (v0.8.2 was the round where the
+linuxdeploy-plugin-gtk auto-detect failure prevented the Linux
+artifact from building). Corrected via `gh release edit v0.8.2
+--prerelease` alongside the v0.8.6 release. The flag and body text
+now agree; v0.8.0 is once again the only canonical non-prerelease
+Release until v0.8.6 clears the manual gate.
+
+### Verification: native CachyOS, no reboot
+
+This is the first AppImage round since the migration to native
+CachyOS. Manual hardware gate runs directly on the dev machine: CI
+green → download `gamepile-v0.8.6-linux-x64.AppImage` → `chmod +x`
+→ run → confirm window opens, Library renders, end-to-end
+interactivity. No WSL/reboot indirection.
+
+If the gate passes: `gh release edit v0.8.6 --prerelease=false`
+promotes to canonical and the AppImage saga ends — at which point
+the v5.x maintenance-log refactor in SPEC_V5_DISTRIBUTION.md's
+deferred-housekeeping section becomes due, plus the batched
+release-metadata cleanup (v0.8.1 through v0.8.5 all uniformly
+prerelease-flagged with their existing body notes).
+
+If the gate fails: paste verbatim error, run the audit-before-fix
+loop on the new layer. Same forward-with-history-preserved pattern
+as v0.8.2 → v0.8.3 → v0.8.4 → v0.8.5; v0.8.6 stays as a prerelease
+marker with the diagnosed mechanism and v0.8.7 ships the next fix.
+
+### Cumulative AppImage saga record (v0.8.2 → v0.8.6)
+
+Five rounds, four structural fixes, all reflecting the same root
+property — the PyInstaller bootloader's `NEEDED` entries are
+`libdl/libz/libpthread/libc` only, so anything inferring from the
+application binary's direct linkage (linuxdeploy-plugin-gtk's GTK-
+version auto-detect, the dynamic linker's `RUNPATH`-based eager
+load, the plugin's library-discovery dep walk) sees nothing
+GTK-related and bundles nothing accordingly. Each fix bridges that
+gap explicitly:
+
+1. **v0.8.3** — `DEPLOY_GTK_VERSION=3` env var (plugin can't infer
+   GTK version from the binary).
+2. **v0.8.4** — `LD_LIBRARY_PATH=$APPDIR/usr/lib` apprun-hook append
+   (dlopen doesn't consult the binary's RUNPATH transitively).
+3. **v0.8.5** — `sys.meta_path` finder for `GI_TYPELIB_PATH`
+   (PyInstaller's `pyi_rth_gi.py` stomps the plugin's value).
+4. **v0.8.6** — `--library libwebkit2gtk-4.1.so.0` flag (plugin
+   doesn't bundle WebKit2 because WebKit2 isn't part of GTK 3 proper
+   and the binary doesn't reference it).
+
+Same empirical-then-fix discipline as the v0.5.x → v0.6.2 Windows
+saga: each round identifies the actual mechanism via instrumentation
++ diagnostics before guessing the fix.
+
 ## OpenCritic — possible future re-introduction (v3.5+)
 
 OpenCritic was integrated in v1, broke in v2.5 (legacy api.opencritic.com
