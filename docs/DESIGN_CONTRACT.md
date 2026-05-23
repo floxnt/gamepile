@@ -49,30 +49,44 @@ The labels describe user intent, not algorithm internals.
 
 ## Library view columns
 
-Default columns, in order:
+Locked column set as of v0.8.7, in order:
 
 1. Title (sortable, default sort ascending)
-2. Status (badge, color-coded by state)
-3. Tags (from SteamSpy user_tags, truncated with "+N more" overflow)
-4. Type (game-type badge: linear / multiplayer / no_endpoint — see
-   PROJECT_STATE.md "Game-type detection")
-5. Developer
-6. HLTB Main
-7. HLTB Compl.
-8. Playtime
-9. Steam % (positive percentage)
-10. Steam Reviews (total review count)
-11. Metacritic (critic score)
+2. Type (game-type badge: linear / multiplayer / no_endpoint — see
+   `app/game_type.py` for the classification logic)
+3. Tags (from SteamSpy user_tags, truncated with "+N more" overflow;
+   sortable alphabetically by first tag as of v0.8.7)
+4. HLTB Main
+5. HLTB Completionist
+6. Playtime
+7. Steam Reviews (combined "93% (10k)" format — percent followed by
+   review count in parentheses; sort is by percent. Fallback to just
+   the percent when count is missing, "—" when both are missing.)
+8. Metacritic
+9. Avg. Achievement % (median per-achievement global unlock %;
+   internal sort key `median_unlock` retained for URL backcompat with
+   pre-rename bookmarks)
+10. My Achievement % (user's own unlock % for the game, via
+    GetPlayerAchievements)
 
-(Removed in v3: OpenCritic. Column dropped after the official API moved
+Removed in v0.8.7 (test-group feedback): Status column (badge was
+inaccurate and double-tracked with Shortlist's status display) +
+Developer column (no one uses GamePile as a credits database).
+Status is still real user state and is editable via the inline
+Edit-row form; it just isn't a displayed column.
+
+Removed in v3: OpenCritic. Column dropped after the official API moved
 behind a paid RapidAPI gateway incompatible with the friend-shareable
 distribution model. See PROJECT_STATE.md "OpenCritic — possible future
-re-introduction" for context.)
+re-introduction" for context.
 
 Do NOT show AppID — internal use only.
 Do NOT show genres column when tags column is present (tags supersede genres).
 Do NOT show a separate Steam Tier column — % positive plus review count already
 conveys the same information.
+Do NOT reintroduce Status or Developer as a displayed column without
+revisiting the v0.8.7 decision; both removals were locked from
+test-group feedback, not provisional.
 
 ## Color and visual hierarchy
 
@@ -130,12 +144,22 @@ but never identical to the original.
 
 ## Scope guardrails (what NOT to add without explicit request)
 
-- No achievement tracking (i.e., per-user achievement progress dashboards)
-  — using global achievement % as a stickiness signal in v3 is different
-  and IS in scope
+- No per-user achievement tracking dashboard
+  — a single per-user unlock-% display column ("My Achievement %")
+    landed in v0.8.7 as an honest stat; a dedicated achievement-
+    tracking surface / dashboard / drill-down view is still out of
+    scope
+- No hook-point or "stickiness" inference features
+  — the v3 hook-point pipeline (Phase 1a/1b/1c categorical badges)
+    was retired in v0.7.0 (see `SPEC_HOOK_RETIREMENT.md`). The
+    compute functions and DB columns are preserved dormant for a
+    possible future revisit, but the live UI does NOT surface
+    inferred engagement signals. Reintroducing the badges requires
+    an explicit decision and a new round, not a quiet revival.
 - No LLM features in the runtime app
-  — one bounded exception: optional v3 hook-point summarization,
-    cacheable per game
+  — the v3 Phase 3 hook-point summarization exception is dead
+    alongside the rest of the hook-point work; LLM features are
+    out of scope without qualifier
 - No scheduled background jobs (refresh is manual)
 - No cross-platform game tracking beyond Steam
 - No mobile UI

@@ -211,15 +211,29 @@ across 476 games was 1.7%; median across-all-achievements was around
 varied widely per game.
 
 Calling a median value "average" in the UI would be the same class of
-mislabeling sin that retiring hook-point was about. The Library column
-header is "Median unlock %"; the Game Detail card label is
-"Median achievement unlock %". Both name the computation explicitly.
+mislabeling sin that retiring hook-point was about. At v0.7.0 ship the
+Library column header was "Median unlock %"; the Game Detail card
+label is "Median achievement unlock %". Both name the computation
+explicitly.
+
+> **v0.8.7 update — Library label only.** The Library column was
+> relabeled to "Avg. Achievement %" per a pragmatic-UX call: "Avg."
+> is the natural human-readable abbreviation for the scannable
+> column-header surface, and the v0.7.0 lock was about *computation*
+> (median wins for right-skewed distributions) not *terminology*.
+> The computation is unchanged. The Game Detail card label
+> ("Median achievement unlock %") is unchanged at the more technical
+> surface where the precise computation matters. The two labels
+> describing the same underlying stat is deliberate per-surface
+> terminology, not drift.
 
 ### Display surfaces
 
 - **Library view**: a new sortable column at the end of the existing
-  column row, labeled "Median unlock %". Values render as integer
-  percent (`34%`); NULL renders as `—` in the existing dim style.
+  column row, labeled "Median unlock %" at v0.7.0 ship,
+  **relabeled to "Avg. Achievement %" in v0.8.7** (see note above).
+  Values render as integer percent (`34%`); NULL renders as `—` in
+  the existing dim style.
 - **Game Detail external-data card**: a new row in the External column,
   after Steam reviews. Labeled "Median achievement unlock %". Values
   render as one-decimal percent (`6.6%`); NULL renders as `—`.

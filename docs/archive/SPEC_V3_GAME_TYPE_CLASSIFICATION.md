@@ -1,4 +1,9 @@
-markdown
+> **ARCHIVED — historical reference only.**
+> Phase 3 hook-point work was retired in v0.7.0 (see `SPEC_HOOK_RETIREMENT.md`).
+> OpenCritic integration is set-aside (see `docs/PROJECT_STATE.md` — search "OpenCritic — possible future re-introduction").
+> Do not implement against this spec without first checking `docs/PROJECT_STATE.md` current state.
+
+---
 
 # Game Type Classification Spec
 

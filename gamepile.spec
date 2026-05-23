@@ -15,11 +15,24 @@
 #     often than --onedir, leading to SmartScreen warnings.
 #   - --onefile startup is slower (extracts to a temp dir on every launch).
 #
-# Linux runtime deps (NOT bundled — must be installed on the target machine):
-#   - webkit2gtk-4.1   WebKit rendering engine for pywebview's GTK backend
-#   - python-gobject   GObject introspection bindings
-#   - gtk3             GTK3 libraries
-# These are documented in the bundled README.
+# Linux runtime model (v0.8.2+, bundled with documented caveats):
+#   - GTK 3 stack, GObject-introspection typelibs, Cairo, GSettings
+#     schemas, GdkPixbuf loaders are bundled by linuxdeploy-plugin-gtk
+#     into the AppImage.
+#   - libwebkit2gtk-4.1 + transitive closure are bundled via the
+#     workflow's --library flag (v0.8.6+).
+#   - WebKit child-process executables (WebKitNetworkProcess /
+#     WebKitWebProcess) are NOT bundled — they're forked at runtime
+#     via a compiled-in absolute path baked into Ubuntu's
+#     libwebkit2gtk-4.1.so.0 at package compile time. That path is
+#     unmappable on usrmerge distros (Arch/CachyOS/Manjaro/Fedora/
+#     openSUSE) without bind-mount surgery the AppImage saga deferred.
+#     The v0.8.6 release ships as "experimental, Debian-multiarch
+#     only" and the future Linux track is Qt-backed (see
+#     SPEC_V6_LINUX_QT.md).
+# See SPEC_V5_DISTRIBUTION.md "AppImage (Linux, v0.8.2+)" for the
+# full architecture record including the layered fixes (v0.8.3
+# → v0.8.6) and the architectural ceiling.
 #
 # Windows runtime deps (NOT bundled — but auto-handled at runtime):
 #   - Microsoft Edge WebView2 Runtime (preinstalled on Windows 11 standard;

@@ -107,6 +107,15 @@ Modules:
 
 ## v3 — Hook-point and stickiness signals
 
+> **HISTORICAL PLANNING SECTION — read as time-capsule, not current scope.**
+> The hook-point pipeline (Phase 1a/1b/1c + the planned Phase 2/3/4
+> work below) was retired in v0.7.0. See `SPEC_HOOK_RETIREMENT.md`
+> for the retirement record and the "Phase 1b — shipped" / "Phase 1c
+> — shipped" / "Phase 4 — manual curation overrides" / "v0.7.0 —
+> hook-point retirement" sections in this document for what actually
+> shipped and what was rolled back. The compute functions and DB
+> columns are preserved dormant for a possible future revisit.
+
 Compose multiple sources into a "Hook point" range and a "Stickiness"
 categorical signal per game. Each phase ships independently.
 
@@ -1383,37 +1392,27 @@ when site structure changes, similar lift to implement.
 The games.opencritic_score column is preserved nullable for an eventual
 re-introduction. No data migration needed if we revisit.
 
-Phase 3 hook-point work (LLM extraction from critic reviews) is a
-separate concern that may use OpenCritic as a source via scraping
-public review pages, distinct from numerical score fetching.
-
-## Deferred to v4
-
-- First-run setup wizard (replaces .env editing)
-- OS keychain credential storage (via `keyring` library)
-- Migration of existing .env users to keyring storage
-- Per-game detail page improvements (notes, pick history surfacing)
-
-## Deferred to v5
-
-- Cross-platform binary distribution via GitHub Actions
-  (windows-latest + ubuntu-latest runners)
-- Windows portable .zip via PyInstaller --onedir
-  (NOT --onefile — slower startup, AV false positives)
-- Linux AppImage
-- README for non-developer users
-- Sign in with Steam (OpenID) for SteamID lookup as wizard nicety
-  (note: OpenID provides only the SteamID, not API access — user
-  still supplies their own API key)
+(Pre-v0.7.0 this section mentioned Phase 3 hook-point work as a
+possible OpenCritic consumer. Phase 3 was retired alongside the rest
+of the hook-point pipeline in v0.7.0 — see `SPEC_HOOK_RETIREMENT.md`.
+Any future OpenCritic revival is now strictly about restoring the
+numerical critic-score column, not feeding a retired LLM-extraction
+pipeline.)
 
 ## Out of scope (probably forever)
 
-- Per-user achievement tracking dashboards
-  (using global achievement % as a stickiness signal in v3 is different
-  and IS in scope)
+- Per-user achievement tracking dashboard / drill-down view
+  (a single "My Achievement %" display column landed in v0.8.7 as an
+  honest stat; a dedicated achievement-tracking surface is still
+  out of scope)
+- Hook-point / "stickiness" inference features
+  (the v3 hook-point pipeline was retired in v0.7.0 — see
+  `SPEC_HOOK_RETIREMENT.md`. Compute functions and DB columns are
+  preserved dormant for a possible future revisit. Reintroducing
+  requires an explicit decision, not a quiet revival.)
 - LLM-powered features in the runtime app
-  (one exception: optional v3 Phase 3 hook-point summarization, which
-  is bounded and cacheable)
+  (the v3 Phase 3 hook-point-summarization exception is dead
+  alongside the rest of the hook-point retirement)
 - Multi-user / multi-account support
 - Cross-platform library sources (GOG, Epic, emulators)
 - Mobile UI
@@ -1443,39 +1442,55 @@ Rationale:
 The "scary API key" UX is solved with a friendly wizard, not by
 hiding the key behind a server.
 
-## Rough phase plan (provisional, will be derailed by bugs)
+## Current queue (forward-looking, post-v0.8.7)
 
-**v2.5 (this week):**
-- Rename to GamePile / Shortlist throughout
-- played_unclassified status + inference fix
-- Five user-intent modes with Comfort pick
-- Library view column refinement
-- Bug rundown from testing
-- Codex category-stacking design ports
+The per-version "v0.X.Y — shipped" sections above are the canonical
+record of what's actually landed. This section captures what's
+queued / deferred next, in rough priority order, so a fresh session
+can pick up the right next thing without archaeology.
 
-**v3 (next 1-2 weeks of focused sessions):**
-- Backlog view as top-level nav item
-- Dashboard view with aggregate stats
-- Per-game detail page
-- v3 hook-point Phase 1: stickiness signals
-- HLTB game type column added to Library
-- OpenCritic removal (done — see "OpenCritic — possible future re-introduction" below)
-- Possibly: data table refactor
+**Next up (small):**
 
-**v4:**
-- v3 hook-point Phase 2: hour-mapped curves from progression achievements
-- v3 hook-point Phase 3: community signal aggregation
-- First-run setup wizard
-- OS keychain credential storage
-- Migration from .env to keyring
+- SPEC consolidation cleanup — THIS ROUND. Doc-only, no version bump.
+  Archives v3 specs, fixes accumulated drift across DESIGN_CONTRACT,
+  PROJECT_STATE, gamepile.spec comment blocks. When this round is
+  committed, this bullet retires.
 
-**v5:**
-- Cross-platform binary distribution via GitHub Actions
-- Windows portable .zip via PyInstaller --onedir
-- Linux AppImage
-- Sign in with Steam (OpenID) as wizard nicety
-- README for non-developer users
+**Deferred — feasibility spikes (architectural):**
 
-**v6+ (only if v5 ships and gets used):**
-- Manual curation overrides for hook-point progression mappings
-- Whatever comes up in real use
+- Linux AppImage path forward — two capped 60-minute spikes on
+  throwaway branches: `spike/bwrap-gtk` (does bubblewrap bind-mount
+  the bundled WebKit executables at the compiled-in path?) and
+  `spike/qt-pivot` (does pywebview's Qt backend via PySide6 actually
+  produce a portable Linux artifact?). Strict no-release no-docs-
+  churn scope; each spike's output is "window opened: yes/no + what
+  hacks were required + rough size + rough rendering state." The
+  path that clears its hardware gate becomes the v0.9.0 architectural
+  rewrite. See `SPEC_V6_LINUX_QT.md` for the Qt-backed track's
+  architectural anchor; the bwrap path doesn't yet have a SPEC
+  because it's a smaller architectural delta if it works.
+
+**Deferred — engagement signal work:**
+
+- Hook point revisit with second opinion — final attempt at the
+  engagement-signal problem using the probe data on disk. May or
+  may not produce a workable signal. If it produces one: ship as a
+  v0.9.x or v1.0 feature. If not: retire permanently and clean up
+  the dormant DB columns documented in `SPEC_HOOK_RETIREMENT.md`.
+
+**Reserved:**
+
+- **v0.9.0** — reserved for whichever Linux AppImage path clears
+  its hardware gate (bwrap-based or Qt-based, TBD via the feasibility
+  spikes). Architectural milestone bump per the version-bump
+  discipline rule.
+- **v1.0** — reserved for "friend-validation has shaken bugs out and
+  the app feels stable" plus a meaningful product-readiness milestone
+  (hook-point reevaluation landing with real data, or equivalent
+  — see `SPEC_HOOK_RETIREMENT.md`'s ~v1.0 reevaluation horizon).
+
+**Patches keep flowing:** 0.8.8 onward is the patch-level number for
+non-architectural product work (UI refinement, schema additions,
+bug fixes). The minor and 1.0 numbers are explicitly reserved for
+architectural / product-readiness milestones — saving them for what
+they're meant to signal, not burning them on routine iteration.

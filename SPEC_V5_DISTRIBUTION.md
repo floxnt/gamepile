@@ -1623,17 +1623,20 @@ PyInstaller bundle verified locally on Linux:
   then, the vendored file is pinned to smparkes commit
   `a2bf0df4a4728b170cb02f1f1f698387fbaf0379`.
 - **Refactor SPEC_V5_DISTRIBUTION.md into v5-baseline + v5.x-maintenance-log
-  sections** once the Windows-bundle saga is closed and validated. The
-  v0.5.x → v0.6.0 arc grew this SPEC substantially with three layered
-  workarounds (bundled .NET 8 runtime, WebView2 binding override,
-  pywebview winforms.py patch), each tied to a specific failure mode
-  the project hit. The current append-in-place layout served the
-  incident well — every fix is documented next to its rationale — but
-  reads as one long "what we tried" log rather than a clean spec. After
-  v0.6.0 is hardware-validated and a few patch releases settle the dust,
-  separate the original v5 design into a baseline section and the
-  layered Windows workarounds into a maintenance-log section. Do NOT
-  refactor mid-incident; refactor from a position of stability.
+  sections** — **evaluated during the v0.8.7 consolidation round
+  (2026-05-23), no refactor needed at this scale.** The doc grew
+  substantially across the v0.5.x Windows saga and the v0.8.x Linux
+  AppImage saga (now both closed), but the section-header structure
+  reads coherently: "Inno Setup installer (Windows, v0.8.0+)" and
+  "AppImage (Linux, v0.8.2+)" each have their own clearly-demarcated
+  blocks with sub-sections that read as architecture-record (not
+  diary-entry). A new contributor wanting to understand "how does X
+  work today" can find the relevant section via the headers; the
+  Windows saga's per-version detail lives in `docs/PROJECT_STATE.md`
+  rather than here. Reconsider this refactor if/when the v0.9.x Linux
+  architectural rewrite (per `SPEC_V6_LINUX_QT.md`) lands and adds
+  another full architecture block — at that point the doc may
+  genuinely benefit from the split, but the current shape is fine.
 
 - **Re-pin linuxdeploy + linuxdeploy-plugin-gtk URLs/SHAs when bytes
   drift.** linuxdeploy is a continuous-only release — no semver tags

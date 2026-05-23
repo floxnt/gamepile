@@ -1,3 +1,10 @@
+> **ARCHIVED — historical reference only.**
+> Phase 3 hook-point work was retired in v0.7.0 (see `SPEC_HOOK_RETIREMENT.md`).
+> OpenCritic integration is set-aside (see `docs/PROJECT_STATE.md` — search "OpenCritic — possible future re-introduction").
+> Do not implement against this spec without first checking `docs/PROJECT_STATE.md` current state.
+
+---
+
 Backlog View Spec
 Purpose
 A top-level page in GamePile dedicated to actively managing the unfinished portion of your Steam library. Distinct from Library (inventory) and Shortlist (recommendations). The Backlog answers: "what am I currently considering, what's nearly done, and what's worth committing to?"

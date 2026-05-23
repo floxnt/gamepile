@@ -1,3 +1,10 @@
+> **ARCHIVED — partial historical reference.**
+> The manual completion-achievement override and manual stickiness-badge override surfaces described here were retired in v0.7.0 (see `SPEC_HOOK_RETIREMENT.md`).
+> The manual HLTB ID override surface remains LIVE; see `app/routes/game_detail.py` for the current implementation.
+> Do not implement the retired surfaces against this spec; check `docs/PROJECT_STATE.md` current state for the live HLTB-ID override behavior.
+
+---
+
 # v3 Phase 4 — Manual Curation Overrides
 
 ## Purpose

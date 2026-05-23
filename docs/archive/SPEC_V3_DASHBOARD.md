@@ -1,3 +1,10 @@
+> **ARCHIVED — historical reference only.**
+> Phase 3 hook-point work was retired in v0.7.0 (see `SPEC_HOOK_RETIREMENT.md`).
+> OpenCritic integration is set-aside (see `docs/PROJECT_STATE.md` — search "OpenCritic — possible future re-introduction").
+> Do not implement against this spec without first checking `docs/PROJECT_STATE.md` current state.
+
+---
+
 Locked. Option B with negatives section confirmed.
 Time-since-last-pick callout — small and unobtrusive:
 A single line under the top-line stats band, only when it's been ≥ 7 days since the last pick. Hidden when fresh.
