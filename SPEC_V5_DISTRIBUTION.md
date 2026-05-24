@@ -1221,51 +1221,32 @@ move is to stop, document the ceiling honestly, and defer to a
 separate architectural track. Continuing as v0.8.7 would be
 sunk-cost reasoning.
 
-#### Documented-experimental status for v0.8.6 onward (until Qt-backed track lands)
+#### Documented-experimental status for v0.8.6 (resolved at v0.9.0)
 
-v0.8.6 is the saga's terminal release. It stays prerelease on the
-GitHub Releases page. The Linux AppImage works on Debian-multiarch
-distros (Ubuntu, Pop!_OS, Linux Mint, Debian, elementary OS) where
-the host has `libwebkit2gtk-4.1-0` installed at the
-`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/` path the bundled .so
-expects. It does NOT work on Arch / CachyOS / Manjaro / Fedora /
-openSUSE (usrmerge `/usr/lib/` flat-layout distros) regardless of
-whether webkit2gtk-4.1 is installed via the system package manager.
+v0.8.6 was the GTK saga's terminal release. It stayed prerelease
+on the GitHub Releases page. The half-host/half-bundled state meant
+the release acceptance criterion ("AppImage is self-contained") was
+NOT met.
 
-The half-host/half-bundled state on supported distros means the
-release acceptance criterion ("AppImage is self-contained — works
-without preinstalled GTK/WebKit packages") is NOT met. The v0.8.2
-"Release acceptance for AppImage" gate in this SPEC is held over
-the saga's terminal release in honest acknowledgment: the AppImage
-ships as experimental, not as the validated AppImage the v0.8.2
-phase set out to produce.
+**Resolved at v0.9.0:** the Qt-backed Linux AppImage replaces the
+GTK + WebKit2GTK path entirely. PySide6's self-contained Qt model
+eliminates the compiled-in PKGLIBEXECDIR ceiling. The v0.9.0
+AppImage is fully self-contained — works on Debian, Arch, CachyOS,
+Fedora, openSUSE without preinstalled system packages beyond
+standard desktop libs (libGL, libEGL). See `SPEC_V6_LINUX_QT.md`
+for the architectural decision record.
 
-`README.bundled.md`'s Linux install section documents the
-distro-compatibility caveats up front so users on unsupported distros
-aren't blindsided.
+#### Shipped at v0.9.0 — Qt + PySide6 replaces GTK + WebKit2GTK
 
-#### Deferred to v0.9.x architectural track — Qt + PySide6
+The Qt-backed Linux AppImage shipped at v0.9.0, replacing the
+entire GTK + WebKit2GTK distribution path. PySide6's self-contained
+Qt model eliminates the compiled-in-absolute-path ceiling by
+design: Qt's distribution model is "bundle the runtime with the
+app." See `SPEC_V6_LINUX_QT.md` for the full architectural
+decision record including the spike comparison.
 
-The architecturally cleaner answer is to ship a UI runtime that
-doesn't carry the compiled-in-absolute-path property. Qt + PySide6
-— pywebview's alternate Linux backend — has exactly that property
-by design: PySide6 wheels bundle Qt binaries, and Qt's distribution
-model is "bundle the runtime with the app." No compiled-in
-absolute path baked into a system library by an external packager;
-the runtime is shipped with the app and resolved via standard
-PyInstaller dependency walking + Python import resolution.
-
-Tracked as the v0.9.x architectural rewrite in
-`SPEC_V6_LINUX_QT.md`. The empirical motivation from this saga is
-captured there as well, so the Qt-backed work starts from a
-position of "we tried the GTK path empirically, here is exactly why
-it has a ceiling" rather than abstract preference.
-
-The Inno Setup Windows installer track is unaffected by this
-deferral — `gamepile-setup-vX.Y.Z.exe` continues to ship as the
-canonical Windows artifact per the v0.8.0 "Inno Setup installer
-(Windows, v0.8.0+)" section above. Only the Linux AppImage track
-defers; Windows distribution is settled.
+The Inno Setup Windows installer track is unaffected — Windows
+distribution was and remains settled independently.
 
 ### AppDir layout
 

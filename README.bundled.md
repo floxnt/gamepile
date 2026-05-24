@@ -56,52 +56,17 @@ and won't see this prompt.
 
 ### Linux
 
-**Experimental — Ubuntu-family only.** The Linux AppImage build hit
-an architectural barrier at v0.8.6 that limits where it currently
-works. Honest status:
-
-- **Supported:** Ubuntu, Debian, Pop!_OS, Linux Mint, elementary OS
-  — any distro that uses Debian's `/usr/lib/x86_64-linux-gnu/`
-  multiarch layout AND has `libwebkit2gtk-4.1-0` installed via the
-  system package manager.
-- **Not currently supported by the AppImage:** Arch, CachyOS,
-  Manjaro, Fedora, openSUSE — any distro using the usrmerge
-  `/usr/lib/` flat layout, regardless of whether `webkit2gtk-4.1`
-  is installed. The AppImage will start, the web server will come
-  up, but the app window will fail to open with a "Failed to spawn
-  child process WebKitNetworkProcess" error.
-
-The structural reason: the bundled `libwebkit2gtk-4.1.so.0` (built
-by Ubuntu) has the absolute path `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/`
-baked into the binary at compile time, and WebKitGTK's escape-hatch
-env var (`WEBKIT_EXEC_PATH`) is gated by `#if ENABLE(DEVELOPER_MODE)`
-which Ubuntu's release build does not enable. Resolving this requires
-either bind-mount surgery (bubblewrap) or shipping a different UI
-runtime (Qt + PySide6), both of which are deferred to a future
-architectural round. See `SPEC_V5_DISTRIBUTION.md` ("Architectural
-ceiling") and `SPEC_V6_LINUX_QT.md` (deferred Qt-backed track) for
-the full audit and the planned Linux path forward.
-
-**On Arch/CachyOS/Fedora and want to try GamePile in the meantime:**
-the dev README at <https://github.com/floxnt/gamepile> walks through
-running from source via `uv` — that is the supported path on
-non-Debian-multiarch distros until the Qt-backed Linux build ships.
-
-#### Installing (supported distros)
-
 1. Download `gamepile-vX.Y.Z-linux-x64.AppImage` from the
    [Releases page](https://github.com/floxnt/gamepile/releases).
 2. Mark it executable: `chmod +x gamepile-vX.Y.Z-linux-x64.AppImage`
 3. Run it: `./gamepile-vX.Y.Z-linux-x64.AppImage` (or double-click
    from a file manager).
 
-The AppImage bundles GTK 3, GObject-introspection typelibs, Cairo,
-and `libwebkit2gtk-4.1.so.0` itself — but the WebKit child-process
-executables (`WebKitNetworkProcess`, `WebKitWebProcess`) are NOT
-bundled (architectural reason above), so the bundled .so will look
-for them at the host's `/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/`
-path. If your distro is Debian-multiarch and has `libwebkit2gtk-4.1-0`
-installed there, the AppImage works.
+The AppImage is self-contained — it bundles PySide6 (Qt 6) +
+QtWebEngine as the rendering backend. No system GTK, WebKit, or Qt
+packages are required. Works on any x86_64 Linux desktop distro
+(Ubuntu, Debian, Arch, CachyOS, Manjaro, Fedora, openSUSE, etc.)
+as long as standard desktop libs (libGL, libEGL) are present.
 
 **FUSE2 requirement.** AppImages mount themselves at runtime via
 FUSE 2. Most desktop Linux distros ship libfuse2 by default:
@@ -185,11 +150,6 @@ in stderr.
 - If you see "fuse: failed to exec fusermount" or a similar FUSE
   error, install libfuse2 per the install section above, or run
   with `--appimage-extract-and-run`.
-- If you see "Failed to spawn child process WebKitNetworkProcess"
-  with "No such file or directory" — your distro is not currently
-  supported by the AppImage (see the Linux install section above).
-  Run from source via `uv` for now; the future Qt-backed Linux build
-  will fix this.
 
 **"Refresh Library" times out:** Steam's API can be flaky. The refresh
 resumes from where it left off — just hit the button again. HLTB lookups

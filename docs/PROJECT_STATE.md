@@ -1442,33 +1442,46 @@ Rationale:
 The "scary API key" UX is solved with a friendly wizard, not by
 hiding the key behind a server.
 
-## Current queue (forward-looking, post-v0.8.7)
+## v0.9.0 — Qt-backed Linux distribution (2026-05-24)
 
-The per-version "v0.X.Y — shipped" sections above are the canonical
-record of what's actually landed. This section captures what's
-queued / deferred next, in rough priority order, so a fresh session
-can pick up the right next thing without archaeology.
+Architectural milestone: the Linux AppImage distribution pivots from
+GTK 3 + WebKit2GTK to PySide6 + Qt + QtWebEngine. The v0.8.x GTK
+saga (v0.8.2 → v0.8.6) hit an architectural ceiling at WebKit's
+compiled-in PKGLIBEXECDIR child-process spawn path; two 60-minute
+feasibility spikes (2026-05-23) drove the decision:
 
-**Next up (small):**
+| Dimension | Spike A (bwrap-based GTK) | Spike B (Qt pivot) |
+|---|---|---|
+| Architectural ceiling cleared | Yes (overlayfs bind mount) | Yes (no workaround needed) |
+| Library renders with data | Unknown (pywebview opacity bug) | **648 games, full columns** |
+| AppImage size | 116 MB | 234 MB (180 MB after stripping) |
+| Iterations to working build | 3 | **1** |
+| External runtime dependency | bwrap | None |
+| Known blocking bug | pywebview gtk.py:428 opacity | None |
 
-- SPEC consolidation cleanup — THIS ROUND. Doc-only, no version bump.
-  Archives v3 specs, fixes accumulated drift across DESIGN_CONTRACT,
-  PROJECT_STATE, gamepile.spec comment blocks. When this round is
-  committed, this bullet retires.
+### Changes
 
-**Deferred — feasibility spikes (architectural):**
+- `pyproject.toml`: PyGObject removed, PySide6>=6.5 + qtpy added,
+  pywebview pinned at ==6.2.1
+- `gamepile.spec`: Linux section swapped to Qt hiddenimports, GTK/gi
+  excluded, conservative PySide6 module stripping (Qt3D, QtBluetooth,
+  QtMultimedia, QtNfc, QtSensors, QtSerialPort/Bus, QtRemoteObjects,
+  QtTextToSpeech, QtCharts, QtDataVisualization, QtQuick3D),
+  runtime hook → `pyi_rth_qt_backend.py`
+- `release.yml`: GTK apt-get removed, EGL/GL added, linuxdeploy-plugin-gtk
+  removed, Build AppImage simplified to single-phase with custom AppRun,
+  plausibility floor raised to 100 MB
+- `installer/linux/AppRun`: custom entrypoint with `PYWEBVIEW_GUI=qt` +
+  `QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu`
+- Removed: `pyi_rth_gi_typelib_path.py`, `apprun-libpath-hook.sh`
 
-- Linux AppImage path forward — two capped 60-minute spikes on
-  throwaway branches: `spike/bwrap-gtk` (does bubblewrap bind-mount
-  the bundled WebKit executables at the compiled-in path?) and
-  `spike/qt-pivot` (does pywebview's Qt backend via PySide6 actually
-  produce a portable Linux artifact?). Strict no-release no-docs-
-  churn scope; each spike's output is "window opened: yes/no + what
-  hacks were required + rough size + rough rendering state." The
-  path that clears its hardware gate becomes the v0.9.0 architectural
-  rewrite. See `SPEC_V6_LINUX_QT.md` for the Qt-backed track's
-  architectural anchor; the bwrap path doesn't yet have a SPEC
-  because it's a smaller architectural delta if it works.
+### Dev-mode impact
+
+`uv run gamepile` on Linux now uses the Qt backend. PyGObject is no
+longer a dependency. The GTK dev path that was masking the gtk.py:428
+opacity bug is permanently eliminated — dev matches prod.
+
+## Current queue (forward-looking, post-v0.9.0)
 
 **Deferred — engagement signal work:**
 
@@ -1478,19 +1491,26 @@ can pick up the right next thing without archaeology.
   v0.9.x or v1.0 feature. If not: retire permanently and clean up
   the dormant DB columns documented in `SPEC_HOOK_RETIREMENT.md`.
 
+**Deferred — maintenance:**
+
+- pywebview gtk.py:428 opacity vendor-patch — affects only the GTK
+  backend which is no longer in use. Deferred indefinitely unless
+  needed for other reasons.
+- Cross-distro testing matrix for v0.9.0 AppImage: Ubuntu 22.04/24.04,
+  Fedora, openSUSE. PySide6 is self-contained; expect uniform
+  behavior. Tested on CachyOS (Arch) only so far.
+- Spike branch cleanup: delete `spike/bwrap-gtk` and `spike/qt-pivot`
+  after v0.9.0 evidence is durably captured in docs.
+
 **Reserved:**
 
-- **v0.9.0** — reserved for whichever Linux AppImage path clears
-  its hardware gate (bwrap-based or Qt-based, TBD via the feasibility
-  spikes). Architectural milestone bump per the version-bump
-  discipline rule.
 - **v1.0** — reserved for "friend-validation has shaken bugs out and
   the app feels stable" plus a meaningful product-readiness milestone
   (hook-point reevaluation landing with real data, or equivalent
   — see `SPEC_HOOK_RETIREMENT.md`'s ~v1.0 reevaluation horizon).
 
-**Patches keep flowing:** 0.8.8 onward is the patch-level number for
+**Patches keep flowing:** 0.9.1 onward is the patch-level number for
 non-architectural product work (UI refinement, schema additions,
-bug fixes). The minor and 1.0 numbers are explicitly reserved for
+bug fixes). The 1.0 number is explicitly reserved for
 architectural / product-readiness milestones — saving them for what
 they're meant to signal, not burning them on routine iteration.
