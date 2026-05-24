@@ -6,33 +6,28 @@
 # Output: dist/gamepile/ — a --onedir bundle containing the executable
 # plus all dependencies. The release workflow then wraps this output
 # per platform: an Inno Setup installer .exe on Windows (v0.8.0+) or a
-# self-contained AppImage on Linux (v0.8.2+) bundling the GTK 3 +
-# WebKit2GTK runtime. See SPEC_V5_DISTRIBUTION.md for the full
-# distribution-layer architecture.
+# self-contained AppImage on Linux (v0.8.2+).
+# See SPEC_V5_DISTRIBUTION.md for the full distribution-layer architecture.
 #
 # --onefile is intentionally NOT used. Reasons:
 #   - Windows Defender flags --onefile bundles as suspicious far more
 #     often than --onedir, leading to SmartScreen warnings.
 #   - --onefile startup is slower (extracts to a temp dir on every launch).
 #
-# Linux runtime model (v0.8.2+, bundled with documented caveats):
-#   - GTK 3 stack, GObject-introspection typelibs, Cairo, GSettings
-#     schemas, GdkPixbuf loaders are bundled by linuxdeploy-plugin-gtk
-#     into the AppImage.
-#   - libwebkit2gtk-4.1 + transitive closure are bundled via the
-#     workflow's --library flag (v0.8.6+).
-#   - WebKit child-process executables (WebKitNetworkProcess /
-#     WebKitWebProcess) are NOT bundled — they're forked at runtime
-#     via a compiled-in absolute path baked into Ubuntu's
-#     libwebkit2gtk-4.1.so.0 at package compile time. That path is
-#     unmappable on usrmerge distros (Arch/CachyOS/Manjaro/Fedora/
-#     openSUSE) without bind-mount surgery the AppImage saga deferred.
-#     The v0.8.6 release ships as "experimental, Debian-multiarch
-#     only" and the future Linux track is Qt-backed (see
-#     SPEC_V6_LINUX_QT.md).
-# See SPEC_V5_DISTRIBUTION.md "AppImage (Linux, v0.8.2+)" for the
-# full architecture record including the layered fixes (v0.8.3
-# → v0.8.6) and the architectural ceiling.
+# Linux runtime model (v0.9.0+, Qt-backed):
+#   PySide6 ships self-contained Qt + QtWebEngine binaries in the wheel.
+#   PyInstaller's PySide6 hook bundles them into _internal/. No system
+#   WebKit, no system GTK, no compiled-in PKGLIBEXECDIR child-process
+#   paths, no bwrap bind-mount surgery. linuxdeploy packages the
+#   PyInstaller output into an AppImage in a single phase (no plugins).
+#   See SPEC_V6_LINUX_QT.md for the architectural decision record
+#   (spike A bwrap vs spike B Qt comparison).
+#
+# Historical: v0.8.2–v0.8.6 used GTK 3 + WebKit2GTK via PyGObject +
+#   linuxdeploy-plugin-gtk. That path hit an architectural ceiling at
+#   v0.8.6 (WebKit child-process executables required bwrap bind-mount
+#   overlay to resolve compiled-in absolute paths on non-Debian hosts).
+#   See SPEC_V5_DISTRIBUTION.md for the full GTK saga record.
 #
 # Windows runtime deps (NOT bundled — but auto-handled at runtime):
 #   - Microsoft Edge WebView2 Runtime (preinstalled on Windows 11 standard;
@@ -76,7 +71,7 @@ webview_datas, webview_binaries, webview_hiddenimports = collect_all("webview")
 # be sufficient. The sanity-raise below catches "filter matched
 # nothing" as a layout-change warning.
 #
-# Only filter on Windows. On Linux pywebview's gtk backend doesn't use
+# Only filter on Windows. On Linux pywebview's Qt backend doesn't use
 # any of this; the binding files are absent from the install and the
 # filter would be a no-op anyway, but the explicit IS_WINDOWS guard
 # documents the intent.
@@ -118,7 +113,7 @@ if IS_WINDOWS:
 # DLL being physically present — the netfx loader could load the
 # assembly but couldn't resolve its entry point because the .config
 # binding redirects to netstandard 2.0 were absent. collect_all closes
-# that gap. Not needed on Linux (GTK backend does not import clr) or
+# that gap. Not needed on Linux (Qt backend does not import clr) or
 # macOS (unsupported in v5).
 if IS_WINDOWS:
     pythonnet_datas, pythonnet_binaries, pythonnet_hiddenimports = collect_all("pythonnet")
@@ -192,27 +187,26 @@ if IS_WINDOWS:
     ]
 elif IS_LINUX:
     platform_hiddenimports = [
-        "webview.platforms.gtk",
-        "gi",
-        "gi.repository.WebKit2",
-        "gi.repository.Gtk",
-        "gi.repository.GLib",
+        "webview.platforms.qt",
+        "qtpy",
+        "PySide6",
+        "PySide6.QtCore",
+        "PySide6.QtGui",
+        "PySide6.QtWidgets",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebChannel",
+        "PySide6.QtNetwork",
     ]
     platform_excludes = [
         "webview.platforms.edgechromium",
         "webview.platforms.winforms",
         "webview.platforms.cocoa",
-        # GTK is the only declared Linux backend (see platform_hiddenimports
-        # above). Without this exclude, PyInstaller bundles
-        # webview.platforms.qt source files alongside the active GTK
-        # backend; if the GTK path ever errors at runtime, pywebview's
-        # backend-fallback path tries Qt next and crashes with a
-        # ModuleNotFoundError for qtpy/PySide6 (neither bundled), which
-        # obscures the actual GTK failure in the diagnostic output.
-        # Excluding Qt makes GTK the only Linux path — clean failure
-        # modes if GTK errors. Surfaced as a known half-shipping at
-        # v0.8.5, closed at v0.8.6.
-        "webview.platforms.qt",
+        "webview.platforms.gtk",
+        "gi",
+        "gi.repository.WebKit2",
+        "gi.repository.Gtk",
+        "gi.repository.GLib",
     ]
 else:  # macOS (not officially supported in v5; left functional in case someone runs the spec there)
     platform_hiddenimports = [
@@ -252,7 +246,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["installer/pyinstaller/pyi_rth_gi_typelib_path.py"] if IS_LINUX else [],
+    runtime_hooks=["installer/pyinstaller/pyi_rth_qt_backend.py"] if IS_LINUX else [],
     excludes=[
         *platform_excludes,
         # Test files and ad-hoc scripts never run at runtime.

@@ -40,37 +40,19 @@ jobs:
         with:
           enable-cache: true
 
-      # Linux runner needs the GTK + WebKit system libraries before
-      # PyGObject can import; without them, pyinstaller produces a
-      # bundle that crashes at runtime trying to load gi.repository.
-      # webkit2gtk-4.1 is the rendering engine pywebview's gtk backend uses.
-      # libcairo2-dev is required for the pycairo source build that uv
-      # falls back to when no matching wheel is available; libcairo2
-      # itself (runtime) is already pulled in transitively by webkit2gtk.
-      # libgirepository-2.0-dev is required for the pygobject 3.56 source
-      # build (pygobject 3.51+ switched its build namespace to the 2.0
-      # girepository); libgirepository1.0-dev stays for now — they install
-      # cleanly side-by-side and pruning 1.0 is deferred to housekeeping.
-      #
-      # adwaita-icon-theme + librsvg2-bin support the AppImage build's
-      # placeholder-icon pipeline (v0.8.2+): linuxdeploy requires an
-      # icon file, and the build picks the runner's stock Adwaita
-      # applications-games icon as the OS-default-generic placeholder
-      # until a real GamePile icon is commissioned. See
-      # SPEC_V5_DISTRIBUTION.md "AppImage icon: stock fallback, real
-      # icon deferred" for the rationale.
-      - name: Install GTK runtime (Linux only)
+      # Linux runner system deps for the Qt-backed build (v0.9.0+).
+      # PySide6 installs from a manylinux wheel, but PyInstaller's
+      # analysis-time import of PySide6.QtCore needs libGL/libEGL on the
+      # runner. adwaita-icon-theme + librsvg2-bin support the AppImage
+      # placeholder-icon pipeline (unchanged from v0.8.x).
+      - name: Install system deps (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-0 \
-            libgirepository1.0-dev \
-            libgirepository-2.0-dev \
-            libcairo2-dev \
-            gir1.2-webkit2-4.1 \
-            gir1.2-gtk-3.0 \
-            python3-gi \
+            libegl1 \
+            libgl1 \
+            libopengl0 \
             adwaita-icon-theme \
             librsvg2-bin
 
@@ -390,34 +372,23 @@ jobs:
         shell: pwsh
         run: Copy-Item README.bundled.md dist\gamepile\README.md
 
-      # Download + SHA512-verify linuxdeploy and linuxdeploy-plugin-gtk.
-      # Both binaries SHIP INTO the user-distributed AppImage (their
-      # output is the AppImage payload that lands on end-user machines),
-      # so they fall under the load-bearing SHA-pinning discipline
-      # established at v0.5.6 for the .NET 8 runtime / WebView2 binding
-      # / vendored pywebview winforms.py. The Inno Setup compiler (ISCC)
-      # is explicitly NOT pinned because it runs only on the CI host and
-      # never reaches the user — see SPEC_V5_DISTRIBUTION.md "SHA-pinning
-      # discipline" for the principle.
+      # Download + SHA512-verify linuxdeploy. linuxdeploy's output is the
+      # AppImage payload that lands on end-user machines, so it falls
+      # under the load-bearing SHA-pinning discipline established at
+      # v0.5.6. See SPEC_V5_DISTRIBUTION.md "SHA-pinning discipline".
       #
-      # Pin sources:
-      #   - linuxdeploy: github.com/linuxdeploy/linuxdeploy continuous
-      #     release. Continuous-only — there are no semver tags upstream.
-      #     We pin the SHA512 of the bytes at the time of pinning
-      #     (continuous target_commitish a9f929ff0e32d5c4bcb7b5c380adff4802f918ba,
-      #     refreshed 2026-05-12). If the upstream continuous build
-      #     refreshes and the bytes drift, this step fails fast; bumping
-      #     the pin is a deliberate housekeeping action.
-      #   - linuxdeploy-plugin-gtk: pinned to commit
-      #     3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea (last touched
-      #     2023-10-01 — the plugin has been stable for >2 years).
-      #     Fetched via raw.githubusercontent.com URL with the explicit
-      #     SHA path so the bytes are reproducible.
+      # v0.9.0+: linuxdeploy-plugin-gtk is no longer needed — the Qt
+      # backend's PySide6 ships self-contained Qt binaries bundled by
+      # PyInstaller, not by linuxdeploy plugins. linuxdeploy is still
+      # needed for AppDir → AppImage packaging (AppRun generation +
+      # squashfs compression).
       #
-      # Deferred housekeeping: re-pin linuxdeploy + plugin-gtk URLs/SHAs
-      # when upstream issues a notable update (security fix, GTK version
-      # support added). Same pattern as the .NET 8 runtime pin.
-      - name: Download and verify linuxdeploy + linuxdeploy-plugin-gtk (Linux only)
+      # Pin source: github.com/linuxdeploy/linuxdeploy continuous release.
+      # Continuous-only — no semver tags upstream. SHA512 pinned at
+      # target_commitish a9f929ff0e32d5c4bcb7b5c380adff4802f918ba
+      # (refreshed 2026-05-12). Deferred housekeeping: re-pin when
+      # upstream issues a notable update.
+      - name: Download and verify linuxdeploy (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
           mkdir -p tools
@@ -425,9 +396,6 @@ jobs:
 
           LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
           LINUXDEPLOY_SHA512="000097de845868905595a58c5532387155e493ee76dd5134f143b6d028bbebb62188b99c9a5836c387f3038604167bf71ba4318bfd80d204a0c030bcc9892f8f"
-
-          PLUGIN_GTK_URL="https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/3b67a1d1c1b0c8268f57f2bce40fe2d33d409cea/linuxdeploy-plugin-gtk.sh"
-          PLUGIN_GTK_SHA512="dcc37806aa9449d8c7336ce42b0a6c495e968846974753ec670ceb0aa0cb1fbfdc3796d5a5e2a3d21b70da9f71fca7f7505ccd2ac87b6748cda7b154f35b2152"
 
           echo "Downloading linuxdeploy..."
           curl -fsSL -o linuxdeploy-x86_64.AppImage "$LINUXDEPLOY_URL"
@@ -441,76 +409,21 @@ jobs:
           echo "  SHA512 verified."
           chmod +x linuxdeploy-x86_64.AppImage
 
-          echo "Downloading linuxdeploy-plugin-gtk..."
-          curl -fsSL -o linuxdeploy-plugin-gtk.sh "$PLUGIN_GTK_URL"
-          actual=$(sha512sum linuxdeploy-plugin-gtk.sh | cut -d' ' -f1)
-          if [[ "$actual" != "$PLUGIN_GTK_SHA512" ]]; then
-            echo "SHA512 mismatch for linuxdeploy-plugin-gtk.sh"
-            echo "  expected: $PLUGIN_GTK_SHA512"
-            echo "  actual:   $actual"
-            exit 1
-          fi
-          echo "  SHA512 verified."
-          chmod +x linuxdeploy-plugin-gtk.sh
-
           ls -la
 
-      # Build the AppImage. linuxdeploy walks the executable's dynamic
-      # dependencies, the GTK plugin bundles the GTK+ runtime
-      # (libraries + GObject-introspection typelibs + GSettings schemas
-      # + GdkPixbuf loaders), and appimagetool (invoked internally by
-      # linuxdeploy) produces the final single-file .AppImage.
+      # Build the AppImage (v0.9.0+, Qt-backed). PySide6 ships
+      # self-contained Qt + QtWebEngine binaries inside the wheel;
+      # PyInstaller's PySide6 hook bundles them into _internal/.
+      # linuxdeploy packages the PyInstaller output into an AppImage
+      # in a single phase (no plugins, no hooks, no --library).
       #
-      # The key architectural property: the host-distribution-dependency
-      # gap that broke v0.8.1's raw .tar.gz on a fresh CachyOS install
-      # ("Namespace Gtk not available" because the host lacked
-      # gobject-introspection typelibs) is closed by bundling the GTK
-      # stack inside the AppImage. The end-user host needs only FUSE2
-      # (or the --appimage-extract-and-run fallback) — no GTK, no
-      # WebKit, no PyGObject system packages.
-      #
-      # AppDir layout:
-      #   AppDir/
-      #   ├── AppRun                      (linuxdeploy-generated entrypoint)
-      #   ├── gamepile.desktop            (linuxdeploy-copied from share/)
-      #   ├── gamepile.png                (linuxdeploy-copied from icons/)
-      #   └── usr/
-      #       ├── bin/
-      #       │   ├── gamepile            (PyInstaller-built bootloader)
-      #       │   └── _internal/          (PyInstaller bundled deps)
-      #       └── share/
-      #           ├── applications/gamepile.desktop
-      #           └── icons/hicolor/256x256/apps/gamepile.png
-      #
-      # Icon: v0.8.2 ships without a custom GamePile icon (deferred
-      # polish round). linuxdeploy requires an icon, so we use the
-      # runner's stock Adwaita "applications-games" icon as the
-      # placeholder. PNG preferred if shipped; otherwise the symbolic
-      # SVG is rendered via rsvg-convert. The user perceives this as
-      # the OS-default generic icon because it literally is — copied
-      # verbatim from the system theme. When the real icon arrives,
-      # the icon-source paths below swap to `cp assets/icons/gamepile.png`
-      # and the rest of this step is unchanged. See SPEC_V5_DISTRIBUTION.md
-      # "AppImage icon: stock fallback, real icon deferred" for the
-      # rationale.
-      #
-      # We invoke linuxdeploy with --appimage-extract-and-run to avoid
-      # depending on the runner's FUSE state. ubuntu-latest typically
-      # has libfuse2 but the extract-and-run path is safer and adds
-      # negligible time.
+      # v0.8.x used a 3-phase linuxdeploy invocation with plugin-gtk,
+      # apprun-hooks for LD_LIBRARY_PATH/GI_TYPELIB_PATH, and --library
+      # for WebKit2GTK transitive deps. All of that is gone — the Qt
+      # model is structurally self-contained. See SPEC_V6_LINUX_QT.md
+      # for the architectural decision record.
       - name: Build AppImage (Linux only)
         if: matrix.platform_label == 'linux'
-        # linuxdeploy-plugin-gtk auto-detects GTK version by ldd-walking the
-        # binary's direct dynamic deps. The PyInstaller bootloader has no
-        # direct GTK linkage (its ldd output is libdl/libz/libpthread/libc —
-        # all standard system libs); GTK loads at runtime via PyGObject
-        # dlopen from inside _internal/libpython3.12.so, invisible to the
-        # plugin. Without an explicit DEPLOY_GTK_VERSION, the plugin fails:
-        # "failed to auto-detect GTK version" (observed v0.8.2; fix v0.8.3).
-        # GamePile uses GTK 3 via pywebview's gtk backend (gamepile.spec
-        # IS_LINUX branch declares webview.platforms.gtk + gi.repository.Gtk).
-        env:
-          DEPLOY_GTK_VERSION: "3"
         run: |
           set -euo pipefail
 
@@ -520,22 +433,10 @@ jobs:
           mkdir -p "$APPDIR/usr/share/applications"
           mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-          # Stage the entire PyInstaller --onedir bundle. The bootloader
-          # at dist/gamepile/gamepile resolves _internal/ as a sibling,
-          # so placing both at AppDir/usr/bin/ preserves the relative
-          # layout the binary expects.
           cp -r dist/gamepile/* "$APPDIR/usr/bin/"
-
           cp installer/linux/gamepile.desktop "$APPDIR/usr/share/applications/gamepile.desktop"
 
-          # Stock placeholder icon. Probe in order of preference:
-          # raster PNG (preferred — no rendering surprises), then
-          # full-color SVG, then symbolic SVG (renders as black-on-
-          # transparent via rsvg-convert which is recognizable as a
-          # generic placeholder). If none exist, fail loudly with a
-          # candidate-search dump so a future Ubuntu version's
-          # adwaita-icon-theme reshuffle surfaces here as a specific
-          # error rather than a silently-broken icon path.
+          # Stock placeholder icon (same probe as v0.8.x — unchanged).
           ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/gamepile.png"
           PNG_CANDIDATES=(
             /usr/share/icons/Adwaita/256x256/legacy/applications-games.png
@@ -574,98 +475,18 @@ jobs:
           fi
           echo "Placeholder icon source: $FOUND_ICON"
 
-          # Invoke linuxdeploy in three phases:
-          #   1. Populate AppDir + run plugin-gtk (no --output yet).
-          #   2. Append LD_LIBRARY_PATH export to the plugin's apprun-hook
-          #      from installer/linux/apprun-libpath-hook.sh.
-          #   3. Package the modified AppDir into the .AppImage (no
-          #      --plugin so the hook isn't regenerated and phase 2's
-          #      addition survives).
-          #
-          # Why phase 2 exists: linuxdeploy-plugin-gtk's auto-generated
-          # AppRun exports GI_TYPELIB_PATH + GTK_* metadata vars but NOT
-          # LD_LIBRARY_PATH. Its design assumption is that the application
-          # binary has direct NEEDED entries for libgtk-3.so.0 — under
-          # that assumption, the dynamic linker eager-loads the bundled
-          # GTK stack at process start via the binary's
-          # RUNPATH=$ORIGIN/../lib (= $APPDIR/usr/lib), and PyGObject's
-          # later gi.require_version() dlopens find the libraries
-          # already-resident. Our PyInstaller bootloader has no GTK
-          # linkage in NEEDED (same gap as DEPLOY_GTK_VERSION above —
-          # readelf -d on AppDir/usr/bin/gamepile shows only
-          # libdl/libz/libpthread/libc). No eager GTK load happens at
-          # process start. At runtime, when libgirepository (inside
-          # _internal/) dlopens libgtk-3.so.0 on behalf of
-          # gi.require_version('Gtk', '3.0'), that dlopen does NOT
-          # consult the executable's RUNPATH (DT_RUNPATH is per-object,
-          # not inherited transitively from a library-context dlopen —
-          # well-known glibc behavior). On a clean host without system
-          # GTK packages installed, the bundled libgtk-3.so.0 at
-          # $APPDIR/usr/lib/ is invisible to that dlopen and gi reports
-          # "Namespace Gtk not available" (observed v0.8.3 manual gate
-          # on CachyOS without preinstalled GTK; fix v0.8.4). The
-          # injected LD_LIBRARY_PATH makes $APPDIR/usr/lib/ findable.
-          #
-          # Why append to the plugin hook rather than modify AppRun
-          # directly: AppRun's `source` line for the plugin hook is the
-          # only extension point linuxdeploy reliably preserves —
-          # --custom-apprun is documented broken (linuxdeploy/linuxdeploy
-          # issue #100, where the custom file is silently overwritten by
-          # the auto-generated AppRun). The two-phase + append-to-plugin-
-          # hook approach was empirically verified on WSL before being
-          # committed: phase 3 (--output appimage with no --plugin) does
-          # not regenerate the plugin hook, and the appended export
-          # survives into the packaged .AppImage.
+          # Single-phase linuxdeploy: no plugins, no hooks. PySide6's Qt
+          # is fully self-contained inside _internal/ (PyInstaller handles
+          # the bundling via its PySide6 hook). linuxdeploy generates
+          # AppRun + squashfs packaging.
           export PATH="$PWD/tools:$PATH"
-
-          # Phase 1: populate AppDir + run plugin-gtk to bundle GTK stack
-          # + generate AppRun + plugin hook. No --output here.
-          #
-          # --library: explicitly bundle libwebkit2gtk-4.1.so.0 and its
-          # transitive closure (libjavascriptcoregtk-4.1, libsoup-3.0,
-          # libnghttp2, libwebpdemux, etc.). linuxdeploy-plugin-gtk's
-          # auto-bundle covers GTK 3 proper but does NOT include WebKit2
-          # — WebKit2 is not part of GTK 3, and the plugin's library-
-          # discovery only walks the application binary's NEEDED entries
-          # (which on our PyInstaller bootloader are libdl/libz/libpthread/
-          # libc, none of which transitively reference WebKit). Same
-          # structural property as for DEPLOY_GTK_VERSION (above) and
-          # LD_LIBRARY_PATH (phase 2 below): the GTK/WebKit stack is
-          # invisible to inference that starts from the PyInstaller
-          # bootloader. Without this flag, the bundled Gtk-3.0.typelib
-          # at $APPDIR/usr/lib/girepository-1.0/ references
-          # libwebkit2gtk-4.1.so.0 that's absent from the bundle, and
-          # pywebview's `from gi.repository import WebKit2` fails with
-          # "Failed to load shared library 'libwebkit2gtk-4.1.so.0'" on
-          # clean Linux hosts (observed v0.8.5 manual gate on CachyOS
-          # after the v0.8.5 meta_path finder fixed GI_TYPELIB_PATH;
-          # fix v0.8.6). linuxdeploy walks the named library's dep tree
-          # and bundles the transitive closure alongside what plugin-gtk
-          # already deployed.
           ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir "$APPDIR" \
-            --plugin gtk \
-            --library /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0 \
             --desktop-file "$APPDIR/usr/share/applications/gamepile.desktop" \
             --icon-file "$ICON_DST" \
-            --executable "$APPDIR/usr/bin/gamepile"
-
-          # Phase 2: extend the plugin hook with our LD_LIBRARY_PATH
-          # export. AppRun already sources this hook (the auto-generated
-          # `source` line), so appending here puts LD_LIBRARY_PATH in the
-          # same env as the GI_TYPELIB_PATH / GTK_* vars the plugin sets.
-          cat installer/linux/apprun-libpath-hook.sh \
-            >> "$APPDIR/apprun-hooks/linuxdeploy-plugin-gtk.sh"
-
-          # Phase 3: package. No --plugin so plugin-gtk doesn't re-run
-          # and regenerate the hook (which would wipe phase 2's addition).
-          ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
-            --appdir "$APPDIR" \
+            --executable "$APPDIR/usr/bin/gamepile" \
             --output appimage
 
-          # linuxdeploy names the output by the .desktop's Name= field
-          # ("GamePile-x86_64.AppImage"). Rename to the project's
-          # release-artifact convention.
           APPIMAGE_BUILT=$(ls -1 *.AppImage 2>/dev/null | grep -v 'linuxdeploy' | head -1)
           if [[ -z "$APPIMAGE_BUILT" ]]; then
             echo "No AppImage produced by linuxdeploy — investigate linuxdeploy stdout above."
@@ -677,22 +498,14 @@ jobs:
           mv "$APPIMAGE_BUILT" "$APPIMAGE_FINAL"
           chmod +x "$APPIMAGE_FINAL"
 
-          # Plausibility floor. The Linux PyInstaller bundle is ~620 MB
-          # uncompressed (Python + FastAPI + GTK + WebKit + PyGObject
-          # bindings) per SPEC_V5_DISTRIBUTION.md "Bundle size"; the
-          # AppImage compresses with zstd (linuxdeploy default) to
-          # roughly 60-100 MB. Floor at 40 MB so a build that silently
-          # drops a major sub-bundle (e.g. WebKit2GTK bundling failed
-          # entirely — ~30 MB compressed alone) fails fast here rather
-          # than shipping a missing-dependency AppImage to the manual
-          # hardware gate. Recalibrate this floor only with measured
-          # data, not assumed sizes — same discipline as the Inno Setup
-          # installer floor at v0.8.0 (calibrated from 100 MB to 50 MB
-          # after first measurement).
+          # Plausibility floor. PySide6 + QtWebEngine bundle is ~234 MB
+          # compressed (spike B measurement). Floor at 100 MB so a build
+          # that silently drops PySide6/QtWebEngine fails fast. Calibrated
+          # from spike B's first successful build.
           size=$(stat -c%s "$APPIMAGE_FINAL")
           echo "Built $APPIMAGE_FINAL ($size bytes)"
-          if [[ "$size" -lt 40000000 ]]; then
-            echo "AppImage size $size bytes is below the 40 MB plausibility floor — payload may have been silently dropped."
+          if [[ "$size" -lt 100000000 ]]; then
+            echo "AppImage size $size bytes is below the 100 MB plausibility floor — PySide6/QtWebEngine payload may have been silently dropped."
             exit 1
           fi
 

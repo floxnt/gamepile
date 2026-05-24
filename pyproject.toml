@@ -10,8 +10,9 @@ dependencies = [
     "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "howlongtobeatpy>=1.0.21",
-    "pywebview>=4.0",
-    "PyGObject>=3.42; sys_platform == 'linux'",
+    "pywebview==6.2.1",
+    "PySide6>=6.5; sys_platform == 'linux'",
+    "qtpy; sys_platform == 'linux'",
     "keyring>=25.7.0",
     "platformdirs>=4.9.6",
 ]
