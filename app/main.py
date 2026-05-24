@@ -561,11 +561,7 @@ def run() -> None:
         background_color="#0f0f13",  # matches --bg in style.css
     )
 
-    # gui="gtk" is correct on Linux; on Windows pass None so pywebview
-    # auto-selects edgechromium (and only edgechromium — we've already
-    # verified the WebView2 runtime above). macOS isn't shipped in v5
-    # but the auto-detect path would pick cocoa.
-    gui = "gtk" if sys.platform == "linux" else None
+    gui = "qt" if sys.platform == "linux" else None
     webview.start(gui=gui)
     sys.exit(0)
 
