@@ -207,6 +207,30 @@ elif IS_LINUX:
         "gi.repository.WebKit2",
         "gi.repository.Gtk",
         "gi.repository.GLib",
+        # Conservative PySide6 module stripping: exclude obviously-
+        # irrelevant heavy modules that GamePile never imports. Saves
+        # ~50 MB from the AppImage (234 MB → ~180 MB target). Leave
+        # ambiguous smaller modules in the bundle — aggressive stripping
+        # risks "did I miss a transitive dep" failures caught only at
+        # the hardware gate.
+        "PySide6.Qt3DAnimation",
+        "PySide6.Qt3DCore",
+        "PySide6.Qt3DExtras",
+        "PySide6.Qt3DInput",
+        "PySide6.Qt3DLogic",
+        "PySide6.Qt3DRender",
+        "PySide6.QtBluetooth",
+        "PySide6.QtMultimedia",
+        "PySide6.QtMultimediaWidgets",
+        "PySide6.QtNfc",
+        "PySide6.QtSensors",
+        "PySide6.QtSerialPort",
+        "PySide6.QtSerialBus",
+        "PySide6.QtRemoteObjects",
+        "PySide6.QtTextToSpeech",
+        "PySide6.QtCharts",
+        "PySide6.QtDataVisualization",
+        "PySide6.QtQuick3D",
     ]
 else:  # macOS (not officially supported in v5; left functional in case someone runs the spec there)
     platform_hiddenimports = [

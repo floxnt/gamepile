@@ -1,0 +1,18 @@
+#!/bin/bash
+SELF="$(readlink -f "$0")"
+HERE="$(dirname "$SELF")"
+export APPDIR="$HERE"
+
+# Force pywebview to use Qt backend. Without this, pywebview's
+# auto-detect tries GTK first and logs two noisy ERROR tracebacks
+# (gi module not found) before falling through to Qt.
+export PYWEBVIEW_GUI="qt"
+
+# Skip QtWebEngine's failed GPU probe on Wayland compositors that
+# don't expose GBM/EGL in the way Chromium expects. Avoids ~2s of
+# warning spam and GPU-init latency on first launch. QtWebEngine
+# falls back to software compositing which is visually identical
+# for a single-page HTMX app.
+export QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu"
+
+exec "$APPDIR/usr/bin/gamepile" "$@"

@@ -475,13 +475,17 @@ jobs:
           fi
           echo "Placeholder icon source: $FOUND_ICON"
 
-          # Single-phase linuxdeploy: no plugins, no hooks. PySide6's Qt
-          # is fully self-contained inside _internal/ (PyInstaller handles
-          # the bundling via its PySide6 hook). linuxdeploy generates
-          # AppRun + squashfs packaging.
+          # Single-phase linuxdeploy with custom AppRun. The custom
+          # AppRun sets PYWEBVIEW_GUI=qt (suppresses GTK auto-detect
+          # fallback noise) and QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu
+          # (suppresses EGL/GBM warnings on Wayland). Without plugins,
+          # --custom-apprun is not overwritten (the documented breakage
+          # in linuxdeploy#100 only applies when plugins regenerate
+          # AppRun — no plugins here).
           export PATH="$PWD/tools:$PATH"
           ./tools/linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir "$APPDIR" \
+            --custom-apprun installer/linux/AppRun \
             --desktop-file "$APPDIR/usr/share/applications/gamepile.desktop" \
             --icon-file "$ICON_DST" \
             --executable "$APPDIR/usr/bin/gamepile" \
