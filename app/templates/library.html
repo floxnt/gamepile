@@ -5,44 +5,105 @@
 
 {% block content %}
 <section class="library-controls">
-  <form method="get" action="/library" class="filter-row">
-    {# Status filter dropdown removed in v0.8.7 — test-group feedback
-       found the in-library Status badge inaccurate and double-tracked
-       with Shortlist's status display. Tag is the primary filter axis
-       going forward. #}
+  <div class="filter-bar">
+    <button type="button" class="btn btn-secondary btn-sm" id="filter-toggle">
+      Filters{% if filter_count %} <span class="filter-badge">{{ filter_count }}</span>{% endif %}
+    </button>
 
-    <label>
-      Tag
-      <select name="tag_filter" onchange="this.form.submit()">
-        <option value="">All</option>
-        {% for t in tags %}
-          <option value="{{ t }}" {% if tag_filter == t %}selected{% endif %}>{{ t }}</option>
+    {% if active_tags %}
+      <div class="active-chips" id="active-chips">
+        {% for t in active_tags %}
+          <span class="filter-chip">{{ t }} <button type="button" class="chip-remove" data-tag="{{ t }}">×</button></span>
         {% endfor %}
-      </select>
-    </label>
+      </div>
+    {% endif %}
 
-    {# Preserve active sort when filters change via the filter form #}
-    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-    {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+    <span class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</span>
+  </div>
 
-    <label>
-      <input type="checkbox" name="show_removed" value="true"
-        {% if show_removed %}checked{% endif %}
-        onchange="this.form.submit()">
-      Show removed
-    </label>
+  <div class="filter-panel" id="filter-panel" hidden>
+    <form id="filter-form"
+          hx-get="/library"
+          hx-select="#library-content"
+          hx-target="#library-content"
+          hx-swap="outerHTML"
+          hx-push-url="true">
 
-    <button type="submit" class="btn btn-secondary">Filter</button>
-  </form>
+      {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+      <input type="hidden" name="tags" id="tags-hidden" value="{{ tags_csv }}">
+
+      <div class="filter-grid">
+        <div class="filter-section filter-section--tags">
+          <label class="filter-label">Tags</label>
+          <div class="tag-picker" id="tag-picker">
+            <div class="tag-chips" id="tag-chips">
+              {% for t in active_tags %}
+                <span class="filter-chip">{{ t }} <button type="button" class="chip-remove" data-tag="{{ t }}">×</button></span>
+              {% endfor %}
+            </div>
+            <input type="text" class="tag-search" id="tag-search" placeholder="Search tags…" autocomplete="off">
+            <div class="tag-dropdown" id="tag-dropdown" hidden>
+              {% for t in all_tags %}
+                <label class="tag-option">
+                  <input type="checkbox" value="{{ t }}" {% if t in active_tags %}checked{% endif %}>
+                  {{ t }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <div class="filter-section">
+          <label class="filter-label" for="hltb-main-select">HLTB Main</label>
+          <select name="hltb_main" id="hltb-main-select" class="filter-select">
+            <option value="">Any</option>
+            {% for key, label, lo, hi in hltb_main_buckets %}
+              <option value="{{ key }}" {% if hltb_main == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <label class="filter-label" for="hltb-compl-select">HLTB Completionist</label>
+          <select name="hltb_compl" id="hltb-compl-select" class="filter-select">
+            <option value="">Any</option>
+            {% for key, label, lo, hi in hltb_compl_buckets %}
+              <option value="{{ key }}" {% if hltb_compl == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <label class="filter-label" for="type-select">Type</label>
+          <select name="game_type" id="type-select" class="filter-select">
+            <option value="">Any</option>
+            {% for value, label in game_type_options %}
+              <option value="{{ value }}" {% if game_type_filter == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <label class="filter-label filter-label--inline">
+            <input type="checkbox" name="show_removed" value="true"
+              {% if show_removed %}checked{% endif %}>
+            Show removed
+          </label>
+        </div>
+      </div>
+
+      <div class="filter-actions">
+        <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+        {% if filter_count %}
+          <a href="/library{% if sort %}?sort={{ sort }}{% if dir and dir != 'asc' %}&dir={{ dir }}{% endif %}{% endif %}" class="filter-clear">Clear all filters</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
 </section>
 
-{# Wrap count + table in a single target div. Header sort links use
-   hx-select="#library-content" so the entire block (thead + tbody) is
-   replaced on each click — this keeps the header link URLs fresh and
-   the sort indicator in sync with the actual current sort state. #}
 <div id="library-content">
-  <div class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</div>
-
   {% if games %}
   <div class="table-wrapper">
     <table class="library-table">
@@ -93,20 +154,16 @@
     </table>
   </div>
   {% else %}
-  {# Empty-state branches:
-     - No filters set → genuine empty library, prompt for refresh
-     - One or more filters active → generic combination message
-     show_removed is intentionally NOT counted as a filter — it's an
-     inclusion toggle, not a narrowing one. #}
-  {% set _filter_count = (1 if tag_filter else 0) %}
+  {% set _has_filters = filter_count > 0 %}
   <div class="empty-state">
-    {% if _filter_count == 0 %}
-      <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
-    {% else %}
+    {% if _has_filters %}
       <p>No games match these filters. Try a different combination or clear filters.</p>
+    {% else %}
+      <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
     {% endif %}
   </div>
   {% endif %}
 </div>
 <script src="/static/library-resize.js"></script>
+<script src="/static/library-filters.js"></script>
 {% endblock %}

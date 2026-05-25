@@ -4,6 +4,11 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
+from app.game_type import (
+    ALL_GAME_TYPES,
+    GAME_TYPE_LABELS,
+    resolve_type,
+)
 from app.models import GameWithState
 from app.templates_config import templates
 
@@ -16,9 +21,30 @@ _SORT_COLUMNS = [
     "metacritic", "median_unlock", "user_achievement",
 ]
 
-# Sentinel values for nulls-last regardless of sort direction.
 _NULL_HIGH = float("inf")
 _NULL_LOW = float("-inf")
+
+_HLTB_MAIN_BUCKETS: list[tuple[str, str, float, float]] = [
+    ("lt5",    "<5h",     0,   5),
+    ("5-10",   "5–10h",   5,  10),
+    ("10-20",  "10–20h", 10,  20),
+    ("20-30",  "20–30h", 20,  30),
+    ("30-40",  "30–40h", 30,  40),
+    ("40-60",  "40–60h", 40,  60),
+    ("60-100", "60–100h", 60, 100),
+    ("100p",   "100h+",  100, _NULL_HIGH),
+]
+
+_HLTB_COMPL_BUCKETS: list[tuple[str, str, float, float]] = [
+    ("lt15",    "<15h",     0,  15),
+    ("15-30",   "15–30h",  15,  30),
+    ("30-60",   "30–60h",  30,  60),
+    ("60-100",  "60–100h", 60, 100),
+    ("100-150", "100–150h", 100, 150),
+    ("150p",    "150h+",   150, _NULL_HIGH),
+]
+
+_GAME_TYPE_OPTIONS = [(t, GAME_TYPE_LABELS[t]) for t in ALL_GAME_TYPES]
 
 
 def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[GameWithState]:
@@ -42,13 +68,8 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
         if sort == "name":
             return game.name.lower()
         if sort == "game_type":
-            from app.backlog import compute_game_type
-            return compute_game_type(game)
+            return resolve_type(game)
         if sort == "tags":
-            # Tags column sortable as of v0.8.7. Sort by the first tag
-            # (most natural reading order — matches what the user sees
-            # in the cell when only the first few render). Games with
-            # no tags sort last via the existing nulls-last sentinel.
             tags = game.user_tags_list()
             return null_last_str(tags[0] if tags else None)
         if sort == "playtime":
@@ -60,9 +81,6 @@ def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[G
         if sort == "metacritic":
             return null_last(game.metacritic_score)
         if sort == "steam_reviews":
-            # Single combined Steam Reviews column as of v0.8.7. Sort by
-            # percent (the more meaningful axis); review count appears in
-            # parentheses for context but is not the primary sort key.
             return null_last(game.steam_review_pct)
         if sort == "median_unlock":
             return null_last(game.median_achievement_unlock_pct)
@@ -82,13 +100,6 @@ _COLUMN_LABELS: list[tuple[str, str]] = [
     ("playtime",         "Playtime"),
     ("steam_reviews",    "Steam Reviews"),
     ("metacritic",       "Metacritic"),
-    # "Avg. Achievement %" is the user-facing label for the v0.7.0
-    # median-of-per-achievement-global-unlock-% column. The label was
-    # corrected from "Median unlock %" in v0.8.7 — the v0.7.0 lock was
-    # about COMPUTATION (median wins for robustness against right-skewed
-    # distributions), not terminology. The internal sort key stays
-    # "median_unlock" for URL backward-compatibility with bookmarked
-    # sort links.
     ("median_unlock",    "Avg. Achievement %"),
     ("user_achievement", "My Achievement %"),
 ]
@@ -99,14 +110,6 @@ def _build_sort_headers(
     current_dir: str,
     filter_params: dict,
 ) -> dict:
-    """
-    Returns a dict keyed by column ID. Each value has the info the template
-    needs to render a sortable column header.
-
-    Empty sort param renders as the default sort (Title asc) so the arrow
-    is always visible somewhere. Cycle for the default column is asc ↔ desc;
-    cycle for every other column is asc → desc → default (Title asc).
-    """
     effective_sort = current_sort or "name"
     effective_dir = current_dir if current_sort else "asc"
 
@@ -116,7 +119,6 @@ def _build_sort_headers(
             if effective_dir == "asc":
                 next_sort, next_dir, arrow = col_key, "desc", "↑"
             else:
-                # Reset back to the default sort (Title asc).
                 next_sort, next_dir, arrow = "", "asc", "↓"
         else:
             next_sort, next_dir, arrow = col_key, "asc", None
@@ -135,19 +137,52 @@ def _build_sort_headers(
     return headers
 
 
-def _apply_filters_and_sort(
-    all_games: list[GameWithState],
-    tag_filter: str,
-    sort: str,
-    direction: str,
+def _bucket_range(bucket_key: str, buckets: list) -> tuple[float, float] | None:
+    for key, _label, lo, hi in buckets:
+        if key == bucket_key:
+            return (lo, hi)
+    return None
+
+
+def _apply_filters(
+    games: list[GameWithState],
+    tags: list[str],
+    hltb_main: str,
+    hltb_compl: str,
+    game_type_filter: str,
 ) -> list[GameWithState]:
-    if tag_filter:
-        needle = tag_filter.lower()
-        all_games = [
-            g for g in all_games
-            if any(t.lower() == needle for t in g.game.user_tags_list())
+    if tags:
+        tag_set = {t.lower() for t in tags}
+        games = [
+            g for g in games
+            if any(t.lower() in tag_set for t in g.game.user_tags_list())
         ]
-    return _sort_games(all_games, sort, direction)
+
+    rng = _bucket_range(hltb_main, _HLTB_MAIN_BUCKETS)
+    if rng:
+        lo, hi = rng
+        games = [
+            g for g in games
+            if g.game.hltb_main_hours is not None
+            and lo <= g.game.hltb_main_hours < hi
+        ]
+
+    rng = _bucket_range(hltb_compl, _HLTB_COMPL_BUCKETS)
+    if rng:
+        lo, hi = rng
+        games = [
+            g for g in games
+            if g.game.hltb_completionist_hours is not None
+            and lo <= g.game.hltb_completionist_hours < hi
+        ]
+
+    if game_type_filter:
+        games = [
+            g for g in games
+            if resolve_type(g.game) == game_type_filter
+        ]
+
+    return games
 
 
 def _collect_tags(games: list[GameWithState]) -> list[str]:
@@ -158,54 +193,88 @@ def _collect_tags(games: list[GameWithState]) -> list[str]:
     return sorted(tags, key=str.lower)
 
 
+def _parse_tags(raw: str) -> list[str]:
+    if not raw:
+        return []
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+def _filter_params_dict(
+    tags: str,
+    show_removed: bool,
+    hltb_main: str,
+    hltb_compl: str,
+    game_type_filter: str,
+) -> dict:
+    return {
+        "tags": tags,
+        "show_removed": "true" if show_removed else "",
+        "hltb_main": hltb_main,
+        "hltb_compl": hltb_compl,
+        "game_type": game_type_filter,
+    }
+
+
+def _active_filter_count(
+    tags: list[str],
+    show_removed: bool,
+    hltb_main: str,
+    hltb_compl: str,
+    game_type_filter: str,
+) -> int:
+    c = 0
+    if tags:
+        c += 1
+    if show_removed:
+        c += 1
+    if hltb_main:
+        c += 1
+    if hltb_compl:
+        c += 1
+    if game_type_filter:
+        c += 1
+    return c
+
+
 @router.get("/library", response_class=HTMLResponse)
 async def library_page(
     request: Request,
-    tag_filter: str = "",
+    tags: str = "",
     show_removed: bool = False,
+    hltb_main: str = "",
+    hltb_compl: str = "",
+    game_type: str = "",
     sort: str = "",
     dir: str = "asc",
 ):
     with db.get_db() as conn:
         all_games = db.get_games_with_state(conn, active_only=not show_removed)
 
-    tags = _collect_tags(all_games)
+    all_tags = _collect_tags(all_games)
+    tag_list = _parse_tags(tags)
 
-    games = _apply_filters_and_sort(all_games, tag_filter, sort, dir)
+    games = _apply_filters(all_games, tag_list, hltb_main, hltb_compl, game_type)
+    games = _sort_games(games, sort, dir)
 
-    filter_params = {
-        "tag_filter": tag_filter,
-        "show_removed": "true" if show_removed else "",
-    }
-    sort_headers = _build_sort_headers(sort, dir, filter_params)
+    fp = _filter_params_dict(tags, show_removed, hltb_main, hltb_compl, game_type)
+    sort_headers = _build_sort_headers(sort, dir, fp)
 
     return templates.TemplateResponse(request, "library.html", {
         "games": games,
-        "tags": tags,
-        "tag_filter": tag_filter,
+        "all_tags": all_tags,
+        "active_tags": tag_list,
+        "tags_csv": tags,
         "show_removed": show_removed,
+        "hltb_main": hltb_main,
+        "hltb_compl": hltb_compl,
+        "game_type_filter": game_type,
         "sort": sort,
         "dir": dir,
         "sort_headers": sort_headers,
+        "hltb_main_buckets": _HLTB_MAIN_BUCKETS,
+        "hltb_compl_buckets": _HLTB_COMPL_BUCKETS,
+        "game_type_options": _GAME_TYPE_OPTIONS,
+        "filter_count": _active_filter_count(
+            tag_list, show_removed, hltb_main, hltb_compl, game_type,
+        ),
     })
-
-
-@router.get("/library/rows", response_class=HTMLResponse)
-async def library_rows(
-    request: Request,
-    tag_filter: str = "",
-    show_removed: bool = False,
-    sort: str = "",
-    dir: str = "asc",
-):
-    """Partial used by HTMX header-click sort — returns only the <tr> rows."""
-    with db.get_db() as conn:
-        all_games = db.get_games_with_state(conn, active_only=not show_removed)
-
-    games = _apply_filters_and_sort(all_games, tag_filter, sort, dir)
-
-    return templates.TemplateResponse(request, "partials/library_rows.html", {
-        "games": games,
-    })
-
-
