@@ -198,6 +198,14 @@ def init_db() -> None:
             except Exception:
                 pass  # column already exists
 
+        # v0.9.9: scale personal_rating from 1-5 to 0-10 for half-star support.
+        # Existing rows with values 1-5 become 2-10. Idempotent: values >5
+        # are already in the new scale, so we only double values <=5.
+        conn.execute(
+            "UPDATE game_state SET personal_rating = personal_rating * 2 "
+            "WHERE personal_rating IS NOT NULL AND personal_rating <= 5"
+        )
+
         # Convert any legacy 'played' rows to 'played_unclassified'. The old enum
         # used 'played' as a catch-all for "Steam shows hours, user hasn't
         # categorised" — same meaning as the new played_unclassified state.
@@ -729,9 +737,9 @@ def set_notes(conn: sqlite3.Connection, appid: int, notes: Optional[str]) -> Non
 
 
 def set_personal_rating(conn: sqlite3.Connection, appid: int, rating: Optional[int]) -> None:
-    """Save 1-5 personal rating. None clears the field. Out-of-range values
-    are rejected silently — caller validates beforehand."""
-    if rating is not None and not (1 <= rating <= 5):
+    """Save 0-10 personal rating (half-star scale: 1=0.5★, 10=5★).
+    None clears the field. Out-of-range values rejected silently."""
+    if rating is not None and not (1 <= rating <= 10):
         return
     _ensure_state_row(conn, appid)
     conn.execute(

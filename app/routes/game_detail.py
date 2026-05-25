@@ -191,12 +191,12 @@ async def update_rating(
     rating: Optional[int] = Form(None),
     clear: Optional[str] = Form(None),
 ):
-    """Set or clear personal rating. Pass clear=1 to unset; otherwise rating must be 1-5."""
+    """Set or clear personal rating (0-10 half-star scale)."""
     if clear:
         new_value: Optional[int] = None
     else:
-        if rating is None or not (1 <= rating <= 5):
-            raise HTTPException(status_code=400, detail="Rating must be 1–5 or clear=1")
+        if rating is None or not (1 <= rating <= 10):
+            raise HTTPException(status_code=400, detail="Rating must be 1–10 or clear=1")
         new_value = rating
 
     with db.get_db() as conn:
@@ -205,6 +205,7 @@ async def update_rating(
     if gws is None:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "partials/game_detail_rating.html", {
+        "game": gws.game,
         "state": gws.state,
     })
 

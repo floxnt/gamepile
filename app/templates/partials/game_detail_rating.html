@@ -1,36 +1,58 @@
-{# Personal rating. Single-click stars set; explicit Clear button unsets.
-   No JS — each star is its own form-submitting button (Q2 option b). #}
+{# Half-star rating (0-10 integer scale, displayed as 0.5-5.0).
+   JS handles click position detection for half vs full star. #}
 <div id="game-detail-rating" class="personal-field">
   <span class="personal-field-label">Your rating</span>
-  <div class="rating-stars">
-    {% set current = state.personal_rating or 0 %}
+  {% set raw = state.personal_rating or 0 %}
+  <div class="rating-stars" id="rating-widget" data-appid="{{ game.appid }}" data-value="{{ raw }}">
     {% for n in range(1, 6) %}
-      <form
-        hx-post="/games/{{ game.appid }}/rating"
-        hx-target="#game-detail-rating"
-        hx-swap="outerHTML"
-        class="rating-star-form"
-      >
-        <input type="hidden" name="rating" value="{{ n }}">
-        <button type="submit"
-                class="rating-star{% if n <= current %} rating-star--active{% endif %}"
-                title="Set rating to {{ n }}/5"
-                aria-label="{{ n }} stars">★</button>
-      </form>
+      {% set full_val = n * 2 %}
+      {% set half_val = n * 2 - 1 %}
+      <span class="rating-star-wrap"
+            data-half="{{ half_val }}" data-full="{{ full_val }}">
+        <span class="rating-star-half rating-star-half--left{% if raw >= half_val %} rating-star-half--active{% endif %}">★</span>
+        <span class="rating-star-half rating-star-half--right{% if raw >= full_val %} rating-star-half--active{% endif %}">★</span>
+      </span>
     {% endfor %}
     <span class="rating-current">
-      {% if state.personal_rating %}{{ state.personal_rating }}/5{% else %}—{% endif %}
+      {% if raw %}{{ "%.1f"|format(raw / 2) }}/5{% else %}—{% endif %}
     </span>
-    {% if state.personal_rating %}
-      <form
-        hx-post="/games/{{ game.appid }}/rating"
-        hx-target="#game-detail-rating"
-        hx-swap="outerHTML"
-        class="rating-clear-form"
-      >
-        <input type="hidden" name="clear" value="1">
-        <button type="submit" class="btn btn-ghost btn-sm rating-clear">Clear</button>
-      </form>
+    {% if raw %}
+      <button type="button" class="btn btn-ghost btn-sm rating-clear" id="rating-clear">Clear</button>
     {% endif %}
   </div>
 </div>
+<script>
+(function(){
+  var w = document.getElementById("rating-widget");
+  if (!w) return;
+  var appid = w.getAttribute("data-appid");
+
+  w.addEventListener("click", function(e) {
+    var half = e.target.closest(".rating-star-half");
+    if (!half) {
+      if (e.target.id === "rating-clear") {
+        post(appid, null);
+      }
+      return;
+    }
+    var wrap = half.closest(".rating-star-wrap");
+    var isLeft = half.classList.contains("rating-star-half--left");
+    var val = parseInt(isLeft ? wrap.getAttribute("data-half") : wrap.getAttribute("data-full"));
+    var current = parseInt(w.getAttribute("data-value")) || 0;
+    if (val === current) { post(appid, null); return; }
+    post(appid, val);
+  });
+
+  function post(appid, val) {
+    var body = val !== null ? "rating=" + val : "clear=1";
+    fetch("/games/" + appid + "/rating", {
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: body
+    }).then(function(r){ return r.text(); }).then(function(html){
+      var container = document.getElementById("game-detail-rating");
+      if (container) { container.outerHTML = html; }
+    });
+  }
+})();
+</script>
