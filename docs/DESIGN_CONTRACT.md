@@ -72,8 +72,9 @@ Locked column set as of v0.8.7, in order:
 Removed in v0.8.7 (test-group feedback): Status column (badge was
 inaccurate and double-tracked with Shortlist's status display) +
 Developer column (no one uses GamePile as a credits database).
-Status is still real user state and is editable via the inline
-Edit-row form; it just isn't a displayed column.
+
+Removed in v0.9.5: Edit column and inline edit form. All editing
+(status, manual hours, notes) consolidated to Game Detail page.
 
 Removed in v3: OpenCritic. Column dropped after the official API moved
 behind a paid RapidAPI gateway incompatible with the friend-shareable

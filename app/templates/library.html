@@ -45,6 +45,18 @@
   {% if games %}
   <div class="table-wrapper">
     <table class="library-table">
+      <colgroup>
+        <col style="width:18%">{# Title #}
+        <col style="width:6%">{# Type #}
+        <col style="width:14%">{# Tags #}
+        <col style="width:7%">{# HLTB Main #}
+        <col style="width:9%">{# HLTB Compl #}
+        <col style="width:7%">{# Playtime #}
+        <col style="width:11%">{# Steam Reviews #}
+        <col style="width:7%">{# Metacritic #}
+        <col style="width:11%">{# Avg. Achievement % #}
+        <col style="width:10%">{# My Achievement % #}
+      </colgroup>
       <thead>
         <tr>
           {% macro sort_header(col) -%}
@@ -62,12 +74,6 @@
             </th>
           {%- endmacro %}
 
-          {# v0.8.7 column set, locked order. Status + Developer columns
-             removed entirely (test-group feedback); Steam % and Steam
-             Reviews collapsed into the single "Steam Reviews" column
-             rendered as "93% (10k)"; Tags is now sortable (alphabetical
-             by first tag); "Median unlock %" relabeled to
-             "Avg. Achievement %"; "My Achievement %" added. #}
           {{ sort_header("name") }}
           {{ sort_header("game_type") }}
           {{ sort_header("tags") }}
@@ -78,7 +84,6 @@
           {{ sort_header("metacritic") }}
           {{ sort_header("median_unlock") }}
           {{ sort_header("user_achievement") }}
-          <th></th>
         </tr>
       </thead>
       <tbody>

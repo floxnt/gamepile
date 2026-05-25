@@ -65,10 +65,6 @@ as of v0.8.7):
 **Filters:** Tag dropdown (SteamSpy user_tags), "Show removed" toggle
 (includes is_active=0 games).
 
-**Inline edit:** Click a row to expand an edit form with Status dropdown,
-manual hours override, and notes field. Saves via HTMX without page
-reload.
-
 **Sticky header:** Column headers persist on scroll for sort access.
 
 ### Backlog (`/backlog`)
@@ -413,15 +409,14 @@ inline, not a separate page.
 
 ### "I want to clean up my library"
 
-1. Library → scroll/sort by any column
-2. Click a row → inline edit form expands
-3. Set status (finished/dropped/not_interested), add notes, set hours
-4. Or: Backlog → section-by-section triage with quick-action buttons
-   (Finished / Bounced / Not my thing)
+1. Library → scroll/sort by any column → click game → Game Detail
+2. Set status, add notes, set hours via Game Detail controls
+3. Or: Backlog → section-by-section triage with quick-action buttons
+   (Finished / Bounced / Not my thing) or Decision Sessions
 
-**Multi-step:** Library edit is per-game (click, edit, save). Backlog
+**Multi-step:** Library cleanup is per-game via Game Detail. Backlog
 is more efficient for batch triage — actions are one-click per game
-within each section.
+within each section, or sequential via Decision Sessions.
 
 ### "I want to mark a game as never playing again"
 
@@ -461,9 +456,9 @@ breakdown.
 
 | Input | Location | Effect |
 |---|---|---|
-| Status | Game Detail, Library inline edit | Sets game state, manually_set=True |
+| Status | Game Detail | Sets game state, manually_set=True |
 | Game type | Game Detail dropdown | Overrides auto-classification |
-| Manual hours | Game Detail, Library inline edit | Overrides Steam playtime for display |
+| Manual hours | Game Detail | Overrides Steam playtime for display |
 | Notes | Game Detail | Free text, persisted per-game |
 | Personal rating | Game Detail | 1–5 stars, clearable |
 | HLTB ID | Game Detail | Overrides name-based HLTB search |

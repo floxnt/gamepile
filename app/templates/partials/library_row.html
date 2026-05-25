@@ -1,9 +1,9 @@
 {% set tag_list = gws.game.user_tags_list() %}
-{# v0.8.7 column set, locked order: Title, Type, Tags, HLTB Main,
+{# v0.9.5 column set, locked order: Title, Type, Tags, HLTB Main,
    HLTB Completionist, Playtime, Steam Reviews (combined),
-   Metacritic, Avg. Achievement %, My Achievement %, edit-button.
-   Status + Developer cells removed; Steam % and Steam Reviews
-   collapsed into the single "Steam Reviews" cell. #}
+   Metacritic, Avg. Achievement %, My Achievement %.
+   Status + Developer columns removed v0.8.7; Edit column removed
+   v0.9.5 (editing consolidated to Game Detail). #}
 <tr id="row-{{ gws.game.appid }}">
   <td class="game-name">
     <a href="/games/{{ gws.game.appid }}" class="title-link">{{ gws.game.name }}</a>
@@ -77,13 +77,5 @@
     {% else %}
       —
     {% endif %}
-  </td>
-  <td>
-    <button
-      hx-get="/games/{{ gws.game.appid }}/edit"
-      hx-target="#row-{{ gws.game.appid }}"
-      hx-swap="outerHTML"
-      class="btn btn-ghost btn-sm"
-    >Edit</button>
   </td>
 </tr>

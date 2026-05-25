@@ -1,21 +1,13 @@
 import urllib.parse
-from typing import Optional
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
-from app.models import GameStatus, GameWithState
+from app.models import GameWithState
 from app.templates_config import templates
 
 router = APIRouter()
-
-# GameStatus values are still passed to the inline edit form (the user
-# can change a game's status via the Edit button), but Status is no
-# longer a displayed Library column or filter (removed in v0.8.7 per
-# test-group feedback that the in-library badge was inaccurate and
-# double-tracked with Shortlist's status display).
-_ALL_STATUSES = [s.value for s in GameStatus]
 
 _SORT_COLUMNS = [
     "name", "game_type", "tags",
@@ -189,7 +181,6 @@ async def library_page(
 
     return templates.TemplateResponse(request, "library.html", {
         "games": games,
-        "all_statuses": _ALL_STATUSES,
         "tags": tags,
         "tag_filter": tag_filter,
         "show_removed": show_removed,
@@ -215,71 +206,6 @@ async def library_rows(
 
     return templates.TemplateResponse(request, "partials/library_rows.html", {
         "games": games,
-        "all_statuses": _ALL_STATUSES,
     })
 
 
-@router.post("/games/{appid}/state", response_class=HTMLResponse)
-async def update_state(
-    request: Request,
-    appid: int,
-    status: str = Form(...),
-    hours_played_manual: Optional[str] = Form(None),
-    notes: Optional[str] = Form(None),
-):
-    hours: Optional[float] = None
-    if hours_played_manual and hours_played_manual.strip():
-        try:
-            hours = float(hours_played_manual)
-        except ValueError:
-            pass
-
-    with db.get_db() as conn:
-        db.update_game_state(
-            conn,
-            appid,
-            status=GameStatus(status),
-            hours_played_manual=hours,
-            notes=notes or None,
-            manually_set=True,
-        )
-        all_games = db.get_games_with_state(conn)
-
-    gws = next((g for g in all_games if g.game.appid == appid), None)
-    if gws is None:
-        return HTMLResponse("Not found", status_code=404)
-
-    return templates.TemplateResponse(request, "partials/library_row.html", {
-        "gws": gws,
-        "all_statuses": _ALL_STATUSES,
-    })
-
-
-@router.get("/games/{appid}/edit", response_class=HTMLResponse)
-async def edit_row(request: Request, appid: int):
-    with db.get_db() as conn:
-        all_games = db.get_games_with_state(conn)
-
-    gws = next((g for g in all_games if g.game.appid == appid), None)
-    if gws is None:
-        return HTMLResponse("Not found", status_code=404)
-
-    return templates.TemplateResponse(request, "partials/library_row_edit.html", {
-        "gws": gws,
-        "all_statuses": _ALL_STATUSES,
-    })
-
-
-@router.get("/games/{appid}/cancel-edit", response_class=HTMLResponse)
-async def cancel_edit(request: Request, appid: int):
-    with db.get_db() as conn:
-        all_games = db.get_games_with_state(conn)
-
-    gws = next((g for g in all_games if g.game.appid == appid), None)
-    if gws is None:
-        return HTMLResponse("Not found", status_code=404)
-
-    return templates.TemplateResponse(request, "partials/library_row.html", {
-        "gws": gws,
-        "all_statuses": _ALL_STATUSES,
-    })
