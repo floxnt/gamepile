@@ -27,7 +27,15 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
-from app.game_type import GAME_TYPE_BETA_PLAYTEST, GAME_TYPE_SOFTWARE, resolve_type
+from app.game_type import (
+    GAME_TYPE_BETA_PLAYTEST,
+    GAME_TYPE_MMO,
+    GAME_TYPE_MULTIPLAYER,
+    GAME_TYPE_NO_ENDPOINT,
+    GAME_TYPE_SANDBOX,
+    GAME_TYPE_SOFTWARE,
+    resolve_type,
+)
 from app.models import GameStatus, GameWithState
 
 
@@ -39,6 +47,13 @@ from app.models import GameStatus, GameWithState
 _SHORTLIST_EXCLUDED_GAME_TYPES: frozenset = frozenset({
     GAME_TYPE_SOFTWARE,
     GAME_TYPE_BETA_PLAYTEST,
+})
+
+_OPEN_ENDED_GAME_TYPES: frozenset = frozenset({
+    GAME_TYPE_MULTIPLAYER,
+    GAME_TYPE_MMO,
+    GAME_TYPE_NO_ENDPOINT,
+    GAME_TYPE_SANDBOX,
 })
 
 
@@ -354,7 +369,8 @@ def _continue_something(
 
         score = 0.0
         reasons: list[str] = []
-        if hltb and hltb > 0:
+        is_open_ended = resolve_type(game) in _OPEN_ENDED_GAME_TYPES
+        if hltb and hltb > 0 and not is_open_ended:
             ratio = min(playtime_h / hltb, 1.0)
             score += ratio * 5.0
             reasons.append(f"~{int(ratio * 100)}% through main")
@@ -373,18 +389,18 @@ def _continue_something(
 
         progress_lbl = ""
         progress_mag = 0.0
-        if hltb and hltb > 0:
+        if hltb and hltb > 0 and not is_open_ended:
             ratio = min(playtime_h / hltb, 1.0)
             progress_lbl = f"~{int(ratio * 100)}% through main story"
             progress_mag = ratio * 5.0
         else:
-            progress_lbl = f"{int(playtime_h)}h played"
+            progress_lbl = f"Played {int(playtime_h)}h"
             progress_mag = 1.0
 
         tf_penalty = _time_fit_penalty(remaining, window_h)
         tf_label, tf_mag, tf_neg = "", 0.0, False
         if tf_penalty < -0.5:
-            tf_label = "Longer than tonight's window"
+            tf_label = "Large remaining time"
             tf_mag = abs(tf_penalty)
             tf_neg = True
 
@@ -572,7 +588,7 @@ def _long_form_score(
         tf_penalty = _time_fit_penalty(remaining, window_h)
         tf_label, tf_mag, tf_neg = "", 0.0, False
         if tf_penalty < -0.5:
-            tf_label = "Longer than tonight's window"
+            tf_label = "Long commitment"
             tf_mag = abs(tf_penalty)
             tf_neg = True
 
