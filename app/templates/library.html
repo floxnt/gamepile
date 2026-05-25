@@ -47,16 +47,16 @@
   <div class="table-wrapper">
     <table class="library-table">
       <colgroup>
-        <col style="width:18%">{# Title #}
-        <col style="width:6%">{# Type #}
-        <col style="width:14%">{# Tags #}
-        <col style="width:7%">{# HLTB Main #}
-        <col style="width:9%">{# HLTB Compl #}
-        <col style="width:7%">{# Playtime #}
-        <col style="width:11%">{# Steam Reviews #}
-        <col style="width:7%">{# Metacritic #}
-        <col style="width:11%">{# Avg. Achievement % #}
-        <col style="width:10%">{# My Achievement % #}
+        <col data-col="name" style="width:18%">
+        <col data-col="game_type" style="width:6%">
+        <col data-col="tags" style="width:14%">
+        <col data-col="hltb_main" style="width:7%">
+        <col data-col="hltb_compl" style="width:9%">
+        <col data-col="playtime" style="width:7%">
+        <col data-col="steam_reviews" style="width:11%">
+        <col data-col="metacritic" style="width:7%">
+        <col data-col="median_unlock" style="width:11%">
+        <col data-col="user_achievement" style="width:10%">
       </colgroup>
       <thead>
         <tr>
@@ -108,4 +108,5 @@
   </div>
   {% endif %}
 </div>
+<script src="/static/library-resize.js"></script>
 {% endblock %}

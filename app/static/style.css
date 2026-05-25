@@ -735,6 +735,20 @@ select option {
   background: var(--surface2);
 }
 
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+}
+.col-resize-handle:hover {
+  background: var(--accent);
+  opacity: 0.3;
+}
+
 .sort-link {
   display: block;
   padding: 0.5rem 0.4rem;
