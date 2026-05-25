@@ -823,11 +823,10 @@ Key properties of the build:
   AppImage's `--appimage-extract-and-run` fallback).
 - **AppImage REPLACES the tar.gz.** Same "replace, don't double-ship"
   shape as v0.8.0's installer replacing the Windows zip.
-- **Placeholder icon (stock Adwaita).** linuxdeploy requires an icon to
-  build; v0.8.2 ships the runner's stock `applications-games` theme
-  icon as a placeholder. Real GamePile icon design is deferred to a
-  separate polish round that also covers the Inno Setup `.iss` icon
-  gap.
+- **Icon.** linuxdeploy requires an icon to build. v0.8.2 shipped a
+  stock Adwaita `applications-games` placeholder; **v0.9.1 replaced
+  it** with the custom GamePile cartridge-stack icon from
+  `assets/icons/` (see the icon deferred-housekeeping note below).
 
 Build pipeline change: the workflow installs `librsvg2-bin` +
 `adwaita-icon-theme` (host-only, not SHA-pinned — they don't ship
@@ -862,8 +861,10 @@ Deferred housekeeping queued by this phase:
 
 - Re-pin linuxdeploy + linuxdeploy-plugin-gtk URLs/SHAs when bytes
   drift (same pattern as the .NET 8 / Node 20 deferred pins).
-- Commission/create a real GamePile icon and wire it through both
-  AppImage AppDir + Inno Setup `.iss` in one polish round.
+- ~~Commission/create a real GamePile icon~~ — **Done (v0.9.1).**
+  Custom cartridge-stack icon shipped in `assets/icons/`. Wired
+  through AppImage, Inno Setup installer, pywebview window icon,
+  and PyInstaller bundle. Adwaita placeholder removed.
 
 See `SPEC_V5_DISTRIBUTION.md` "AppImage (Linux, v0.8.2+)" for the full
 architecture record, AppDir layout, tool-combination rationale,

@@ -110,6 +110,10 @@ CloseApplications=yes
 RestartApplications=no
 CloseApplicationsFilter=*.exe,*.dll,*.pyd
 
+; Custom app icon. Used in the installer wizard and as the installed
+; application's icon (Start Menu, desktop shortcut, Add/Remove Programs).
+SetupIconFile=..\assets\icons\gamepile-icon.ico
+
 ; Modern visual style. No custom wizard pages; the defaults are right for
 ; a friend-distribution installer.
 WizardStyle=modern
@@ -135,14 +139,17 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; (avoids "the file at the destination is newer" prompts on downgrade
 ; scenarios; matches the simple replace-all upgrade semantics).
 Source: "{#MyPayloadDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; App icon for shortcuts — installed alongside the payload so Start Menu
+; and desktop shortcuts reference it via {app}\gamepile-icon.ico.
+Source: "..\assets\icons\gamepile-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Start Menu shortcut — primary launch path for friends.
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\gamepile-icon.ico"
 ; Uninstall shortcut alongside, per the standard Inno pattern.
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 ; Optional desktop icon — gated by the [Tasks] entry above.
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\gamepile-icon.ico"; Tasks: desktopicon
 
 [Run]
 ; Postinstall: offer to launch GamePile when the installer finishes. Checked

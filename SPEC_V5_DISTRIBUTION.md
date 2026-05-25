@@ -856,9 +856,9 @@ package INTO the AppImage payload (Linux). If their identity is wrong,
 the user gets wrong code. Pinning protects the user-facing output.
 
 Host-only tools: ISCC.exe (compiles the installer once on the CI host
-and never reaches the user), apt packages used for placeholder-icon
-rendering (rsvg-convert and adwaita-icon-theme are read by the runner
-during build; their bytes never enter the user-distributed AppImage).
+and never reaches the user), apt packages on the Linux runner
+(libegl1, libgl1, libopengl0 are needed for PyInstaller's PySide6
+analysis-time import but never enter the user-distributed AppImage).
 Pinning them would add maintenance burden without protecting any
 user-visible output. Chocolatey / apt / the ubuntu-latest / windows-
 latest base images are the trust boundary, and that boundary is
@@ -1293,35 +1293,21 @@ menu even though they're launchers/managers — the friend audience
 hunts for game-related tools under the Games menu, not Utility.
 `Game;Utility;` would create duplicate menu entries on KDE Plasma.
 
-### AppImage icon: stock fallback, real icon deferred (v0.8.2)
+### AppImage icon
 
 linuxdeploy requires an icon to build — it's a hard error otherwise,
-not a warning. v0.8.2 ships without a custom GamePile-designed icon
-because icon design is real polish-round work, not distribution-
-pipeline work. Rushing one in the same round as the AppImage change
-would muddy the validation — if the AppImage works but the icon looks
-wrong, those should be separate signals not blended.
+not a warning. v0.8.2 shipped with a stock Adwaita `applications-games`
+placeholder. **v0.9.1 replaced it** with the custom GamePile
+cartridge-stack icon from `assets/icons/gamepile-icon-256.png`. The
+build step copies the repo-bundled icon directly — no Adwaita probing,
+no rsvg-convert, no runner icon-theme dependency.
 
-The build step uses the runner's stock Adwaita `applications-games`
-icon as the placeholder: PNG if shipped at the standard hicolor path
-(`/usr/share/icons/Adwaita/256x256/legacy/applications-games.png` or
-similar), otherwise the symbolic SVG rendered to 256×256 PNG via
-`rsvg-convert`. Probe order is PNG first (no rendering surprises),
-then full-color SVG, then symbolic SVG; failure to find any candidate
-fails the build loudly with a candidate-search dump so a future Ubuntu
-version's `adwaita-icon-theme` reshuffle surfaces as a specific error
-rather than a silently-broken icon path.
-
-The user perceives this as the OS-default generic icon because it
-literally is — copied verbatim from the runner's theme. When a real
-GamePile icon is commissioned (deferred housekeeping below), the
-icon-source paths in the workflow's "Build AppImage" step swap to
-`cp assets/icons/gamepile.png "$ICON_DST"` and the rest of the
-pipeline is unchanged. Target repo path for the eventual real icon:
-`assets/icons/` (platform-agnostic, build-target-agnostic). The same
-deferred polish round also covers the Inno Setup `.iss` icon gap
-(`installer/gamepile.iss` currently has no custom installer / Add/Remove
-Programs icon either — same fix surface).
+The same icon set (`assets/icons/`) also covers the Windows Inno Setup
+installer (`.ico` format via `SetupIconFile` + shortcut `IconFilename`)
+and the pywebview window icon (`icon=` parameter in
+`webview.create_window()`). Multi-resolution PNGs (64–1024) and a
+multi-resolution `.ico` (16–256) are generated from the 1024×1024
+transparent-background master.
 
 ### SHA-pinning of linuxdeploy + plugin-gtk
 
@@ -1634,20 +1620,13 @@ PyInstaller bundle verified locally on Linux:
   expected to go stale; the discipline is to track that staleness
   explicitly rather than let it rot silently.
 
-- **Commission/create a real GamePile application icon and wire it
-  through both AppImage AppDir + Inno Setup `.iss`.** v0.8.2 ships the
-  Linux AppImage with a placeholder icon copied from the runner's
-  stock Adwaita `applications-games` theme entry; v0.8.0's Inno Setup
-  installer ships without a custom icon as well. Both surfaces should
-  be addressed in one polish round so the icon identity is consistent
-  across platforms. When commissioned, the icon source lands at
-  `assets/icons/` in the repo (platform-agnostic), preferably with
-  PNG variants at 512/256/128 plus an SVG source. Workflow wiring:
-  swap the icon-source path in `.github/workflows/release.yml`
-  "Build AppImage" step from the Adwaita probe block to
-  `cp assets/icons/gamepile.png "$ICON_DST"`; add a SetupIconFile +
-  UninstallDisplayIcon directive to `installer/gamepile.iss` pointing
-  at a `.ico` derived from the same source.
+- ~~Commission/create a real GamePile application icon~~ — **Done
+  (v0.9.1).** Custom cartridge-stack icon at `assets/icons/`. Wired
+  through AppImage (256px PNG via `--icon-file`), Inno Setup
+  (`SetupIconFile` + shortcut `IconFilename` referencing the `.ico`),
+  and pywebview window (`icon=` parameter). Adwaita probe block and
+  `adwaita-icon-theme` / `librsvg2-bin` apt dependencies removed from
+  the workflow.
 
 - **Revisit code signing if/when friend-count grows.** The unsigned-
   shipping decision was right for the friend-distribution scope of

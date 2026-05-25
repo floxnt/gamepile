@@ -66,6 +66,17 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+def _resolve_icon_path() -> str:
+    """Return the path to the GamePile window icon.
+
+    Frozen mode: bundled at sys._MEIPASS/assets/icons/gamepile-icon-256.png.
+    Dev mode: repo-relative assets/icons/gamepile-icon-256.png."""
+    from pathlib import Path
+    if getattr(sys, "frozen", False):
+        return str(Path(sys._MEIPASS) / "assets" / "icons" / "gamepile-icon-256.png")
+    return str(Path(__file__).parent.parent / "assets" / "icons" / "gamepile-icon-256.png")
+
+
 app = FastAPI(title="GamePile", docs_url=None, redoc_url=None)
 
 app.mount(
@@ -562,7 +573,7 @@ def run() -> None:
     )
 
     gui = "qt" if sys.platform == "linux" else None
-    webview.start(gui=gui)
+    webview.start(gui=gui, icon=_resolve_icon_path())
     sys.exit(0)
 
 

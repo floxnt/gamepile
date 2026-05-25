@@ -43,8 +43,7 @@ jobs:
       # Linux runner system deps for the Qt-backed build (v0.9.0+).
       # PySide6 installs from a manylinux wheel, but PyInstaller's
       # analysis-time import of PySide6.QtCore needs libGL/libEGL on the
-      # runner. adwaita-icon-theme + librsvg2-bin support the AppImage
-      # placeholder-icon pipeline (unchanged from v0.8.x).
+      # runner.
       - name: Install system deps (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
@@ -52,9 +51,7 @@ jobs:
           sudo apt-get install -y \
             libegl1 \
             libgl1 \
-            libopengl0 \
-            adwaita-icon-theme \
-            librsvg2-bin
+            libopengl0
 
       - name: Install dependencies
         run: uv sync
@@ -436,44 +433,8 @@ jobs:
           cp -r dist/gamepile/* "$APPDIR/usr/bin/"
           cp installer/linux/gamepile.desktop "$APPDIR/usr/share/applications/gamepile.desktop"
 
-          # Stock placeholder icon (same probe as v0.8.x — unchanged).
           ICON_DST="$APPDIR/usr/share/icons/hicolor/256x256/apps/gamepile.png"
-          PNG_CANDIDATES=(
-            /usr/share/icons/Adwaita/256x256/legacy/applications-games.png
-            /usr/share/icons/Adwaita/256x256/apps/applications-games.png
-          )
-          SVG_CANDIDATES=(
-            /usr/share/icons/Adwaita/scalable/categories/applications-games.svg
-            /usr/share/icons/Adwaita/scalable/legacy/applications-games.svg
-            /usr/share/icons/Adwaita/symbolic/categories/applications-games-symbolic.svg
-            /usr/share/icons/Adwaita/symbolic/legacy/applications-games-symbolic.svg
-          )
-
-          FOUND_ICON=""
-          for ICON in "${PNG_CANDIDATES[@]}"; do
-            if [[ -f "$ICON" ]]; then
-              cp "$ICON" "$ICON_DST"
-              FOUND_ICON="$ICON (PNG, copied as-is)"
-              break
-            fi
-          done
-          if [[ -z "$FOUND_ICON" ]]; then
-            for SVG in "${SVG_CANDIDATES[@]}"; do
-              if [[ -f "$SVG" ]]; then
-                rsvg-convert -w 256 -h 256 "$SVG" -o "$ICON_DST"
-                FOUND_ICON="$SVG (rendered to 256x256 PNG via rsvg-convert)"
-                break
-              fi
-            done
-          fi
-          if [[ -z "$FOUND_ICON" ]]; then
-            echo "No stock Adwaita applications-games icon found at any expected path."
-            echo "adwaita-icon-theme layout may have shifted on this Ubuntu runner."
-            echo "Available Adwaita icons matching applications-games:"
-            find /usr/share/icons/Adwaita -name 'applications-games*' 2>/dev/null || echo "  (none)"
-            exit 1
-          fi
-          echo "Placeholder icon source: $FOUND_ICON"
+          cp assets/icons/gamepile-icon-256.png "$ICON_DST"
 
           # Single-phase linuxdeploy with custom AppRun. The custom
           # AppRun sets PYWEBVIEW_GUI=qt (suppresses GTK auto-detect
