@@ -1624,13 +1624,16 @@ a.affinity-pill--clickable:focus-visible {
   align-items: flex-start;
 }
 
-.btn-back {
-  align-self: center;
-  font-size: 1.2rem;
-  padding: 0.3rem 0.55rem;
+.nav-back {
+  color: var(--muted);
+  font-size: 1.1rem;
+  padding: 0.25rem 0;
   line-height: 1;
-  flex-shrink: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
 }
+.nav-back:hover { color: var(--text); }
 
 .game-detail-cover {
   width: 200px;

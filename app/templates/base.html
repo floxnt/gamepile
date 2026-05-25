@@ -10,6 +10,9 @@
 <body class="{% block body_class %}{% endblock %}">
   <header>
     <nav>
+      {% if request.url.path.startswith("/games/") %}
+        <button class="nav-back" aria-label="Back" onclick="history.length>1?history.back():location='/library'">&#8592;</button>
+      {% endif %}
       <a href="/" class="nav-brand">GamePile</a>
       <div class="nav-links">
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Shortlist</a>

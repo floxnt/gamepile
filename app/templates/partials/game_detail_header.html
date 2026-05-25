@@ -1,10 +1,5 @@
-{# Section 1 — Header. Back button + cover art + title block + meta. #}
+{# Section 1 — Header. Cover art + title block + meta. #}
 <header class="game-detail-header">
-  <button
-    class="btn btn-ghost btn-sm btn-back"
-    aria-label="Back"
-    onclick="history.length>1?history.back():location='/library'"
-  >&#8592;</button>
   <img
     src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/library_600x900.jpg"
     alt="{{ game.name }}"
