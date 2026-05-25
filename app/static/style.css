@@ -1624,6 +1624,14 @@ a.affinity-pill--clickable:focus-visible {
   align-items: flex-start;
 }
 
+.btn-back {
+  align-self: center;
+  font-size: 1.2rem;
+  padding: 0.3rem 0.55rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .game-detail-cover {
   width: 200px;
   min-width: 200px;
