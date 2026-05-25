@@ -69,12 +69,13 @@ log = logging.getLogger(__name__)
 def _resolve_icon_path() -> str:
     """Return the path to the GamePile window icon.
 
-    Frozen mode: bundled at sys._MEIPASS/assets/icons/gamepile-icon-256.png.
-    Dev mode: repo-relative assets/icons/gamepile-icon-256.png."""
+    Windows requires .ico (System.Drawing.Icon only accepts ICO format).
+    Linux/macOS use PNG (Qt and Cocoa accept it natively)."""
     from pathlib import Path
+    filename = "gamepile-icon.ico" if sys.platform == "win32" else "gamepile-icon-256.png"
     if getattr(sys, "frozen", False):
-        return str(Path(sys._MEIPASS) / "assets" / "icons" / "gamepile-icon-256.png")
-    return str(Path(__file__).parent.parent / "assets" / "icons" / "gamepile-icon-256.png")
+        return str(Path(sys._MEIPASS) / "assets" / "icons" / filename)
+    return str(Path(__file__).parent.parent / "assets" / "icons" / filename)
 
 
 app = FastAPI(title="GamePile", docs_url=None, redoc_url=None)
@@ -527,6 +528,28 @@ def _run_check_windows_runtime() -> None:
         from Microsoft.Web.WebView2.WinForms import WebView2  # type: ignore[import-not-found]
         if hasattr(WebView2, "ContextMenu") and not hasattr(WebView2, "ContextMenuStrip"):
             print("fail: stage 3 — WebView2 exposes ContextMenu without ContextMenuStrip",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        # Stage 4: icon-loading path (v0.9.1 regression class).
+        # System.Drawing.Icon() only accepts .ico — passing a PNG crashes
+        # with 0xe0434352 CLR exception at window-creation time. Verify
+        # the resolved icon path loads without exception.
+        icon_path = _resolve_icon_path()
+        print(f"[chain] stage 4: icon path = {icon_path}", file=sys.stderr)
+        if not os.path.isfile(icon_path):
+            print(f"fail: stage 4 — icon file not found: {icon_path}",
+                  file=sys.stderr)
+            sys.exit(1)
+        from System.Drawing import Icon as DrawingIcon  # type: ignore[import-not-found]
+        try:
+            _ico = DrawingIcon(icon_path)
+            _ico.Dispose()
+            print("[chain] stage 4: System.Drawing.Icon() loaded OK",
+                  file=sys.stderr)
+        except BaseException as ico_exc:
+            print(f"fail: stage 4 — System.Drawing.Icon({icon_path!r}) "
+                  f"threw {type(ico_exc).__name__}: {ico_exc}",
                   file=sys.stderr)
             sys.exit(1)
 

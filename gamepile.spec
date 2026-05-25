@@ -256,6 +256,7 @@ a = Analysis(
         ("app/templates", "app/templates"),
         ("app/static", "app/static"),
         ("assets/icons/gamepile-icon-256.png", "assets/icons"),
+        ("assets/icons/gamepile-icon.ico", "assets/icons"),
         *webview_datas,
         *pythonnet_datas,
         *clr_loader_datas,
