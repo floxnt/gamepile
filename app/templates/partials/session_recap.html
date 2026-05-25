@@ -1,0 +1,38 @@
+{# End-of-session recap — counts only, no manufactured metrics. #}
+<div class="session-card session-recap" id="session-card">
+  <h2 class="session-recap-title">Session complete</h2>
+  <p class="session-recap-subtitle">Reviewed {{ total_reviewed }} games in {{ section_title }}</p>
+
+  {% if total_reviewed > 0 %}
+    <ul class="session-recap-list">
+      {% if counts.get("in_progress", 0) %}
+        <li>In progress / picked: {{ counts.in_progress }}</li>
+      {% endif %}
+      {% if counts.get("finished", 0) %}
+        <li>Confirmed finished: {{ counts.finished }}</li>
+      {% endif %}
+      {% if counts.get("bounced", 0) %}
+        <li>Bounced: {{ counts.bounced }}</li>
+      {% endif %}
+      {% if counts.get("not_my_thing", 0) %}
+        <li>Not my thing: {{ counts.not_my_thing }}</li>
+      {% endif %}
+      {% if counts.get("never_recommend", 0) %}
+        <li>Never recommend: {{ counts.never_recommend }}</li>
+      {% endif %}
+      {% if counts.get("pinned", 0) %}
+        <li>Pinned to Shortlist: {{ counts.pinned }}</li>
+      {% endif %}
+      {% if counts.get("skipped", 0) %}
+        <li class="recap-skipped">Skipped: {{ counts.skipped }}</li>
+      {% endif %}
+      {% if counts.get("other", 0) %}
+        <li>Other: {{ counts.other }}</li>
+      {% endif %}
+    </ul>
+  {% else %}
+    <p class="session-recap-empty">No games in this section to review.</p>
+  {% endif %}
+
+  <a href="/backlog" class="btn btn-primary btn-sm">Back to Backlog</a>
+</div>

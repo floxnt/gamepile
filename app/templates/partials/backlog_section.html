@@ -6,6 +6,14 @@
   <summary class="backlog-section-header">
     <span class="section-title">{{ section.title }}</span>
     <span class="section-count">({{ section.rows | length }})</span>
+    <button
+      class="btn btn-ghost btn-sm session-start-btn"
+      hx-post="/backlog/session/start"
+      hx-target="main"
+      hx-swap="innerHTML"
+      hx-vals='{"section_key": "{{ section.key }}", "appids_json": "{{ section.rows | map(attribute='game.appid') | list | tojson | replace('\"', '\\\"') }}"}'
+      onclick="event.stopPropagation()"
+    >Review as session</button>
   </summary>
   <div class="backlog-section-body">
     <div class="backlog-section-controls">

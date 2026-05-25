@@ -1,0 +1,88 @@
+{# Single session card — one game, decision hints, action buttons. #}
+{% set game = gws.game %}
+{% set state = gws.state %}
+{% set played_h = state.hours_played_manual if state.hours_played_manual is not none else (game.playtime_minutes / 60.0) %}
+<div class="session-card" id="session-card">
+  <div class="session-card-header">
+    <span class="session-progress-sm">{{ index + 1 }} / {{ total }}</span>
+  </div>
+
+  <div class="session-card-body">
+    <img
+      src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/library_600x900.jpg"
+      alt="{{ game.name }}"
+      class="session-cover"
+      onerror="this.onerror=null;this.src='https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/header.jpg'"
+    >
+    <div class="session-info">
+      <h2 class="session-title">{{ game.name }}</h2>
+
+      {% if hints %}
+        <div class="session-hints">
+          {% for hint in hints %}
+            <span class="hint-chip hint-chip--{{ hint.kind }}">{{ hint.label }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="session-stats">
+        {% if game.hltb_main_hours %}
+          <span class="stat-item"><span class="stat-value">Main {{ game.hltb_main_hours | fmt_hltb }}</span></span>
+        {% endif %}
+        {% if game.playtime_minutes %}
+          <span class="stat-item"><span class="stat-label">Played</span> <span class="stat-value">{{ game.playtime_minutes | fmt_minutes }}</span></span>
+        {% endif %}
+        {% if game.steam_review_pct and game.steam_review_count %}
+          <span class="stat-item">
+            <span class="stat-label">Reviews</span>
+            <span class="stat-value">{{ game.steam_review_pct }}% ({{ game.steam_review_count | fmt_count }})</span>
+          </span>
+        {% endif %}
+        {% if game.metacritic_score %}
+          <span class="stat-item"><span class="stat-label">MC</span> <span class="stat-value">{{ game.metacritic_score }}</span></span>
+        {% endif %}
+      </div>
+
+      {% if game.user_tags %}
+        <div class="session-tags">
+          {% for tag in game.user_tags.split(',')[:5] %}
+            <span class="session-tag">{{ tag.strip() }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% if state.notes %}
+        <div class="session-notes">
+          <span class="stat-label">Notes:</span> {{ state.notes | truncate(200, true, '…', 0) }}
+        </div>
+      {% endif %}
+
+      {% if state.personal_rating %}
+        <div class="session-rating">
+          {% for i in range(state.personal_rating) %}★{% endfor %}{% for i in range(5 - state.personal_rating) %}☆{% endfor %}
+        </div>
+      {% endif %}
+
+      <a href="/games/{{ game.appid }}" class="session-detail-link" title="Opens full Game Detail — ends this session">Open details ↗</a>
+    </div>
+  </div>
+
+  <div class="session-actions">
+    {% for action_key, action_label in actions %}
+      <button
+        class="btn {% if action_key in ('confirm_finished', 'pick', 'mark_in_progress', 'already_completed') %}btn-primary{% elif action_key in ('never_recommend', 'not_my_thing') %}btn-ghost session-btn--danger{% else %}btn-secondary{% endif %} btn-sm"
+        hx-post="/backlog/session/action"
+        hx-target="#session-card"
+        hx-swap="outerHTML"
+        hx-vals='{"section_key": "{{ section_key }}", "queue_json": {{ queue_json | tojson }}, "index": {{ index }}, "counts_json": {{ counts | tojson | tojson }}, "appid": {{ game.appid }}, "action": "{{ action_key }}"}'
+      >{{ action_label }}</button>
+    {% endfor %}
+    <button
+      class="btn btn-ghost btn-sm"
+      hx-post="/backlog/session/action"
+      hx-target="#session-card"
+      hx-swap="outerHTML"
+      hx-vals='{"section_key": "{{ section_key }}", "queue_json": {{ queue_json | tojson }}, "index": {{ index }}, "counts_json": {{ counts | tojson | tojson }}, "appid": {{ game.appid }}, "action": "skip"}'
+    >Skip</button>
+  </div>
+</div>

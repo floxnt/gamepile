@@ -655,3 +655,97 @@ def build_backlog_view(games: list, filters: BacklogFilters, affinities: dict) -
         pill_filter_value=pill_value,
         is_empty_pill_only=is_empty_pill_only,
     )
+
+
+# ---------------------------------------------------------------------------
+# Decision Session — hint chips
+# ---------------------------------------------------------------------------
+
+@dataclass
+class DecisionHint:
+    label: str
+    kind: str  # "positive" | "neutral" | "negative" | "info"
+
+
+def compute_session_thresholds(games: list) -> dict:
+    """Compute library-adaptive HLTB thresholds once at session start."""
+    hltb_values = sorted(
+        g.game.hltb_main_hours
+        for g in games
+        if g.game.hltb_main_hours is not None and g.game.hltb_main_hours > 0
+    )
+    if not hltb_values:
+        return {"hltb_median": 10.0, "hltb_p75": 30.0}
+    n = len(hltb_values)
+    return {
+        "hltb_median": hltb_values[n // 2],
+        "hltb_p75": hltb_values[int(n * 0.75)],
+    }
+
+
+def compute_decision_hints(gws: GameWithState, affinities: dict, thresholds: dict) -> list:
+    """Return up to 5 DecisionHint chips for a session card."""
+    game, state = gws.game, gws.state
+    hints: list[tuple[int, DecisionHint]] = []  # (priority, hint)
+
+    if state.status == GameStatus.in_progress:
+        hints.append((10, DecisionHint("Already in progress", "positive")))
+    elif state.status == GameStatus.never_played:
+        hints.append((10, DecisionHint("Never played", "neutral")))
+    elif state.status == GameStatus.dropped:
+        hints.append((10, DecisionHint("Soft dropped", "negative")))
+    elif state.status == GameStatus.played_unclassified:
+        hints.append((10, DecisionHint("Played, uncategorized", "neutral")))
+
+    if is_forever_game(game):
+        hints.append((9, DecisionHint("Open-ended / forever game", "info")))
+
+    hltb = game.hltb_main_hours
+    median = thresholds.get("hltb_median", 10.0)
+    p75 = thresholds.get("hltb_p75", 30.0)
+    if hltb is None:
+        hints.append((7, DecisionHint("Unknown time", "info")))
+    elif hltb < median:
+        hints.append((8, DecisionHint("Short", "positive")))
+    elif hltb > p75:
+        hints.append((8, DecisionHint("Long", "negative")))
+
+    pct = game.steam_review_pct
+    count = game.steam_review_count or 0
+    if pct is not None and count >= 10:
+        if pct >= 80:
+            hints.append((7, DecisionHint("Highly reviewed", "positive")))
+        elif 60 <= pct < 80:
+            hints.append((6, DecisionHint("Mixed reviews", "negative")))
+    elif pct is None or count < 10:
+        if count > 0:
+            hints.append((5, DecisionHint("Insufficient reviews", "info")))
+
+    if affinities:
+        from app.affinity import deduplicate_labels
+        labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
+        total_contrib = 0.0
+        low_conf_count = 0
+        match_count = 0
+        for kind, value in labels:
+            key = (kind, value.lower())
+            if key not in affinities:
+                continue
+            weight, pick_count = affinities[key]
+            from app.affinity import _MULTIPLIERS
+            confidence = min(pick_count / 5.0, 1.0)
+            total_contrib += weight * _MULTIPLIERS[kind] * confidence
+            match_count += 1
+            if pick_count < 5:
+                low_conf_count += 1
+
+        if match_count > 0:
+            if total_contrib >= 0.5:
+                hints.append((8, DecisionHint("Positive taste match", "positive")))
+            elif total_contrib <= -0.5:
+                hints.append((8, DecisionHint("Against your taste", "negative")))
+            if low_conf_count == match_count and match_count > 0:
+                hints.append((4, DecisionHint("Low taste confidence", "info")))
+
+    hints.sort(key=lambda x: x[0], reverse=True)
+    return [h for _, h in hints[:5]]

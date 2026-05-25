@@ -1,0 +1,8 @@
+{# Decision Session — full <main> replacement. Shows one card at a time. #}
+<section class="session-page" id="session-content">
+  <div class="session-header">
+    <h1 class="page-title">Review: {{ section_title }}</h1>
+    <span class="session-progress">{{ index + 1 }} of {{ total }}</span>
+  </div>
+  {% include "partials/session_card.html" %}
+</section>
