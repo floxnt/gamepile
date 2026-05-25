@@ -1626,12 +1626,12 @@ a.affinity-pill--clickable:focus-visible {
 
 .nav-back {
   color: var(--muted);
-  font-size: 1.1rem;
   padding: 0.25rem 0;
-  line-height: 1;
   cursor: pointer;
   background: none;
   border: none;
+  display: inline-flex;
+  align-items: center;
 }
 .nav-back:hover { color: var(--text); }
 
