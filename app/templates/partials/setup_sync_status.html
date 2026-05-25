@@ -5,14 +5,11 @@
 
 {% if completed %}
   <div id="sync-status"
-       class="setup-sync-status setup-sync-status--complete"
-       hx-get="/shortlist"
-       hx-trigger="load delay:1s"
-       hx-target="body"
-       hx-swap="outerHTML">
+       class="setup-sync-status setup-sync-status--complete">
     <p class="setup-explainer setup-explainer--success">
       Library sync complete — redirecting to your Shortlist…
     </p>
+    <script>setTimeout(function(){ window.location.href = "/"; }, 1000);</script>
     {% if errors %}
       <details class="setup-sync-errors">
         <summary>{{ errors | length }} non-fatal error(s) during sync</summary>
