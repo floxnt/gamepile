@@ -23,7 +23,10 @@ body {
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -39,10 +42,11 @@ a:hover { text-decoration: underline; }
 header {
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
 }
+
+#refresh-status { flex-shrink: 0; }
 
 nav {
   max-width: 1200px;
@@ -94,61 +98,22 @@ nav .btn { margin-left: auto; }
   vertical-align: middle;
 }
 
-/* ===== Main ===== */
+/* ===== Main (scroll container) ===== */
 main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.page-wrap {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
 
-/* Library page needs more horizontal room for its 13-column table.
-   Without this, Steam %, Steam Reviews, and Metacritic scroll off the
-   right edge inside .table-wrapper and look "missing" to the user. */
-body.page-library main {
+.page-wrap--wide {
   max-width: 1600px;
   padding: 1.5rem 1rem;
-}
-
-/* Library page uses a fixed app-shell flex layout so the table-wrapper
-   fills the remaining viewport and scrolls internally. This is what
-   makes the sticky table header work: position: sticky resolves against
-   the nearest scrolling ancestor, so the wrapper must be a bounded
-   scroll container. The earlier "max-height: calc(100vh - N)" approach
-   worked in WebKitGTK but not in WebView2/Chromium under this layout
-   context — the flex-fill approach is engine-agnostic.
-
-   `min-height: 0` overrides the default `min-height: auto` on flex
-   items, which would otherwise expand the flex item to at-least-its-
-   content-size and defeat the overflow constraint. Required at every
-   flex level. `overflow: hidden` on body prevents the page itself from
-   scrolling — only the table region scrolls. The sticky page header
-   (`header { position: sticky; top: 0 }`) is unaffected because it
-   lives in its own flex slot above main. */
-body.page-library {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-body.page-library header { flex-shrink: 0; }
-body.page-library main {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-body.page-library .library-controls { flex-shrink: 0; }
-body.page-library #library-content {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-body.page-library .library-count { flex-shrink: 0; }
-body.page-library .table-wrapper {
-  flex: 1;
-  min-height: 0;
 }
 
 /* ===== Buttons ===== */
@@ -730,49 +695,9 @@ select option {
   margin-bottom: 0.75rem;
 }
 
-/* Sticky thead requires the wrapper to be the bounded vertical scroll
-   container. The Library page's app-shell flex layout (see
-   `body.page-library` rules near the top of this file) bounds the
-   wrapper to the remaining viewport height; this rule keeps the
-   horizontal scroll for the 13-column table and makes the wrapper a
-   scroll container on both axes. */
 .table-wrapper {
-  overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-}
-
-/* Thin scrollbar styling for the Library scroll container.
-   Drops the track entirely (transparent) and keeps only the draggable
-   thumb. Scoped to .table-wrapper specifically — does not apply to
-   other scroll containers in the app. A future global pass can
-   broaden if desired.
-
-   -webkit- pseudo-elements work in both WebView2 (Windows) and
-   WebKitGTK (WSL/Linux dev). No Firefox/scrollbar-width fallback —
-   neither shipped target engine needs it. */
-.table-wrapper::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.table-wrapper::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.table-wrapper::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-
-.table-wrapper::-webkit-scrollbar-thumb:hover {
-  background: var(--muted);
-}
-
-/* Corner where vertical + horizontal scrollbars would meet — keep it
-   transparent so the bare-thumb look stays consistent at intersections. */
-.table-wrapper::-webkit-scrollbar-corner {
-  background: transparent;
 }
 
 /* `border-collapse: separate` (instead of `collapse`) is required for
@@ -792,13 +717,8 @@ select option {
   background: var(--surface2);
 }
 
-/* position: sticky pins the header row at the top of .table-wrapper's
-   scroll region. z-index keeps the header above scrolling body rows
-   including any with their own stacking context. Solid background
-   prevents body rows bleeding through. With border-collapse: separate,
-   border-bottom belongs to the th cell alone — it doesn't merge with
-   the first row's border-top, so it stays pinned with the cell during
-   scroll. */
+/* Sticky thead pins column headers at the top of <main>'s scroll
+   region. Solid background prevents body rows bleeding through. */
 .library-table th {
   padding: 0;
   text-align: left;

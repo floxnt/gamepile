@@ -44,7 +44,9 @@
   <div id="refresh-status"></div>
 
   <main>
-    {% block content %}{% endblock %}
+    <div class="page-wrap {% block wrap_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </div>
   </main>
 </body>
 </html>
