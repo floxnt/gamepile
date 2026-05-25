@@ -504,6 +504,43 @@ label.dimmed { opacity: 0.4; pointer-events: none; }
   margin-left: 0.25rem;
 }
 
+.why-details {
+  margin-top: 0.35rem;
+}
+
+.why-details-toggle {
+  font-size: 0.75rem;
+  color: var(--accent);
+  cursor: pointer;
+  list-style: none;
+}
+.why-details-toggle::-webkit-details-marker { display: none; }
+.why-details-toggle::marker { content: ""; }
+.why-details-toggle:hover { text-decoration: underline; }
+.why-details[open] .why-details-toggle { margin-bottom: 0.3rem; }
+
+.why-breakdown {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.why-component {
+  font-size: 0.78rem;
+  color: var(--text);
+  padding: 0.15rem 0.5rem;
+  background: var(--surface2);
+  border-radius: 3px;
+  border-left: 2px solid var(--accent);
+}
+.why-component--negative {
+  border-left-color: var(--warn);
+  color: var(--muted);
+}
+
 /* --- Warnings --- */
 .card-warnings {
   display: flex;

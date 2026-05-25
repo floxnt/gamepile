@@ -94,6 +94,12 @@ class RecommendRequest:
 
 
 @dataclass
+class ExplanationComponent:
+    label: str
+    magnitude: float  # absolute contribution magnitude for ordering
+    is_negative: bool = False
+
+@dataclass
 class Candidate:
     gws: GameWithState
     remaining_hours: float
@@ -102,6 +108,7 @@ class Candidate:
     source: Optional[str] = None
     reasons: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    explanation: list = field(default_factory=list)  # list[ExplanationComponent]
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +227,17 @@ def _short_term(
         if spread_used > 0.25:
             fit_reason = f"close to {req.minutes}min window"
         all_reasons = pin_reasons + affinity_reasons + score_reasons + [fit_reason]
+
+        st_label, st_mag, rec_label, rec_mag, q_label, q_mag = _short_term_explanation_parts(gws)
+        fit_label = f"Short — fits tonight's window" if spread_used <= 0.25 else f"Close to tonight's window"
+        explanation = _build_explanation(
+            gws, req,
+            status_label=st_label, status_magnitude=st_mag,
+            recency_label=rec_label, recency_magnitude=rec_mag,
+            quality_label=q_label, quality_magnitude=q_mag,
+            time_fit_label=fit_label, time_fit_magnitude=1.0,
+            pin_active=gws.state.pinned_for_shortlist,
+        )
         candidates.append(Candidate(
             gws=gws,
             remaining_hours=remaining,
@@ -228,6 +246,7 @@ def _short_term(
             source=RecommendMode.i_only_have_tonight.value,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
+            explanation=explanation,
         ))
 
     for gws in time_unknown:
@@ -236,9 +255,16 @@ def _short_term(
         score += affinity_delta
         pin_reasons, pin_delta = _pin_contribution(gws)
         score += pin_delta
-        # No "fits window" reason — duration unknown. Existing _build_warnings
-        # already adds a "duration unknown" amber tag.
         all_reasons = pin_reasons + affinity_reasons + score_reasons
+
+        st_label, st_mag, rec_label, rec_mag, q_label, q_mag = _short_term_explanation_parts(gws)
+        explanation = _build_explanation(
+            gws, req,
+            status_label=st_label, status_magnitude=st_mag,
+            recency_label=rec_label, recency_magnitude=rec_mag,
+            quality_label=q_label, quality_magnitude=q_mag,
+            pin_active=gws.state.pinned_for_shortlist,
+        )
         candidates.append(Candidate(
             gws=gws,
             remaining_hours=0.0,
@@ -247,6 +273,7 @@ def _short_term(
             source=RecommendMode.i_only_have_tonight.value,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
+            explanation=explanation,
         ))
 
     for c in candidates:
@@ -279,6 +306,32 @@ def _score_short_term(gws: GameWithState) -> tuple[float, list[str]]:
         reasons.append(q)
 
     return score, reasons
+
+
+def _short_term_explanation_parts(gws: GameWithState) -> tuple:
+    """Return (status_label, status_mag, recency_label, recency_mag, quality_label, quality_mag)."""
+    game, state = gws.game, gws.state
+    now = datetime.utcnow()
+    st_label, st_mag = "", 0.0
+    rec_label, rec_mag = "", 0.0
+    q_label, q_mag = "", 0.0
+
+    if state.status == GameStatus.in_progress:
+        st_label, st_mag = "Already in progress", 2.0
+    elif state.status == GameStatus.never_played:
+        st_label, st_mag = "Never played", 1.0
+
+    if game.last_played_steam is None:
+        if state.status != GameStatus.never_played:
+            rec_label, rec_mag = "Never played", 1.0
+    elif game.last_played_steam < now - timedelta(days=30):
+        rec_label, rec_mag = "Not played recently", 1.0
+
+    q = _quality_str(game)
+    if q:
+        q_label, q_mag = "Highly reviewed", 1.0
+
+    return st_label, st_mag, rec_label, rec_mag, q_label, q_mag
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +371,31 @@ def _continue_something(
         score += pin_delta
         all_reasons = pin_reasons + affinity_reasons + reasons
 
+        progress_lbl = ""
+        progress_mag = 0.0
+        if hltb and hltb > 0:
+            ratio = min(playtime_h / hltb, 1.0)
+            progress_lbl = f"~{int(ratio * 100)}% through main story"
+            progress_mag = ratio * 5.0
+        else:
+            progress_lbl = f"{int(playtime_h)}h played"
+            progress_mag = 1.0
+
+        tf_penalty = _time_fit_penalty(remaining, window_h)
+        tf_label, tf_mag, tf_neg = "", 0.0, False
+        if tf_penalty < -0.5:
+            tf_label = "Longer than tonight's window"
+            tf_mag = abs(tf_penalty)
+            tf_neg = True
+
+        explanation = _build_explanation(
+            gws, req,
+            status_label="Already in progress", status_magnitude=2.0,
+            progress_label=progress_lbl, progress_magnitude=progress_mag,
+            time_fit_label=tf_label, time_fit_magnitude=tf_mag, time_fit_negative=tf_neg,
+            pin_active=gws.state.pinned_for_shortlist,
+        )
+
         c = Candidate(
             gws=gws,
             remaining_hours=remaining or 0.0,
@@ -325,6 +403,7 @@ def _continue_something(
             source=RecommendMode.continue_something.value,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
+            explanation=explanation,
         )
         candidates.append(c)
 
@@ -406,6 +485,20 @@ def _comfort_pick(
         hours_played = int(game.playtime_minutes / 60)
         why = pin_reasons + [f"{hours_played} hours played"] + affinity_reasons
 
+        recency_label = ""
+        recency_mag = 0.0
+        if game.last_played_steam and game.last_played_steam >= week_ago:
+            recency_label = "Recently played — deprioritized for variety"
+            recency_mag = 1.0
+
+        explanation = _build_explanation(
+            gws, req,
+            status_label=f"{hours_played} hours played — a proven favorite",
+            status_magnitude=min(game.playtime_minutes / 3000.0, 5.0),
+            recency_label=recency_label, recency_magnitude=recency_mag,
+            pin_active=gws.state.pinned_for_shortlist,
+        )
+
         c = Candidate(
             gws=gws,
             remaining_hours=game.hltb_main_hours or 0.0,
@@ -413,6 +506,7 @@ def _comfort_pick(
             source=RecommendMode.comfort_pick.value,
             reasons=why[:3],
             warnings=_build_warnings(gws),
+            explanation=explanation,
         )
         candidates.append(c)
 
@@ -466,6 +560,31 @@ def _long_form_score(
 
         hltb_ctx = f"long-form ({_fmt_hours(hltb)})"
         all_reasons = pin_reasons + affinity_reasons + score_reasons + [hltb_ctx]
+
+        q_label, q_mag = "", 0.0
+        if _is_critically_acclaimed(gws.game):
+            q_label = _critic_str(gws.game) or "Critically acclaimed"
+            q_mag = 3.0
+        elif _is_high_quality(gws.game):
+            q_label = "Highly reviewed"
+            q_mag = 2.0
+
+        tf_penalty = _time_fit_penalty(remaining, window_h)
+        tf_label, tf_mag, tf_neg = "", 0.0, False
+        if tf_penalty < -0.5:
+            tf_label = "Longer than tonight's window"
+            tf_mag = abs(tf_penalty)
+            tf_neg = True
+
+        explanation = _build_explanation(
+            gws, req,
+            status_label="Never played", status_magnitude=1.0,
+            quality_label=q_label, quality_magnitude=q_mag,
+            time_fit_label=tf_label, time_fit_magnitude=tf_mag, time_fit_negative=tf_neg,
+            pin_active=gws.state.pinned_for_shortlist,
+            extra=[ExplanationComponent(f"Long-form commitment ({_fmt_hours(hltb)})", 0.5)],
+        )
+
         c = Candidate(
             gws=gws,
             remaining_hours=remaining or hltb,
@@ -473,6 +592,7 @@ def _long_form_score(
             source=source,
             reasons=all_reasons[:3],
             warnings=_build_warnings(gws),
+            explanation=explanation,
         )
         candidates.append(c)
 
@@ -565,12 +685,23 @@ def _surprise(
         remaining = pick_gws.game.hltb_main_hours or 0.0
 
         reasons = _surprise_reasons(pick_gws, bucket)
+
+        explanation: list[ExplanationComponent] = []
+        if bucket == "quality":
+            explanation.append(ExplanationComponent("Highly reviewed", 2.0))
+        if pick_gws.state.status == GameStatus.never_played:
+            explanation.append(ExplanationComponent("Never played", 1.0))
+        explanation.append(ExplanationComponent("Adds variety — random selection for discovery", 1.0))
+        explanation.extend(_affinity_explanation(pick_gws.game, req.affinities))
+        explanation.sort(key=lambda c: c.magnitude, reverse=True)
+
         c = Candidate(
             gws=pick_gws,
             remaining_hours=remaining,
             source=RecommendMode.surprise_me.value,
             reasons=reasons,
             warnings=_build_warnings(pick_gws),
+            explanation=explanation,
         )
         selected.append(c)
         picked_ids.add(pick_gws.game.appid)
@@ -615,6 +746,7 @@ def _iterative_variety_select(
         source=c.source,
         reasons=c.reasons,
         warnings=c.warnings,
+        explanation=c.explanation,
     ) for c in candidates]
 
     selected: list[Candidate] = []
@@ -642,6 +774,61 @@ def _affinity_contribution(game, affinities: dict) -> tuple[list[str], float]:
     delta = compute_affinity_score(game, affinities)
     reasons = get_affinity_summary(game, affinities) if abs(delta) >= 0.1 else []
     return reasons, delta
+
+
+def _affinity_explanation(game, affinities: dict) -> list[ExplanationComponent]:
+    if not affinities:
+        return []
+    from app.affinity import get_affinity_explanation
+    return get_affinity_explanation(game, affinities)
+
+
+def _build_explanation(
+    gws: GameWithState,
+    req: RecommendRequest,
+    *,
+    status_label: str = "",
+    status_magnitude: float = 0.0,
+    quality_label: str = "",
+    quality_magnitude: float = 0.0,
+    recency_label: str = "",
+    recency_magnitude: float = 0.0,
+    progress_label: str = "",
+    progress_magnitude: float = 0.0,
+    time_fit_label: str = "",
+    time_fit_magnitude: float = 0.0,
+    time_fit_negative: bool = False,
+    pin_active: bool = False,
+    extra: list = None,
+) -> list:
+    """Assemble explanation components, sorted by magnitude, skipping zeroes."""
+    components: list[ExplanationComponent] = []
+
+    if pin_active:
+        components.append(ExplanationComponent("Pinned from Backlog", PIN_SCORE_BOOST))
+
+    if status_label and status_magnitude > 0:
+        components.append(ExplanationComponent(status_label, status_magnitude))
+
+    if quality_label and quality_magnitude > 0:
+        components.append(ExplanationComponent(quality_label, quality_magnitude))
+
+    if recency_label and recency_magnitude > 0:
+        components.append(ExplanationComponent(recency_label, recency_magnitude))
+
+    if progress_label and progress_magnitude > 0:
+        components.append(ExplanationComponent(progress_label, progress_magnitude))
+
+    if time_fit_label and time_fit_magnitude > 0:
+        components.append(ExplanationComponent(time_fit_label, time_fit_magnitude, is_negative=time_fit_negative))
+
+    components.extend(_affinity_explanation(gws.game, req.affinities))
+
+    if extra:
+        components.extend(extra)
+
+    components.sort(key=lambda c: c.magnitude, reverse=True)
+    return components
 
 
 def _pin_contribution(gws: GameWithState) -> tuple[list[str], float]:

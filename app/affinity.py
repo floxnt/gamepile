@@ -120,6 +120,67 @@ def get_affinity_summary(game: Game, affinities: dict) -> list[str]:
     return [f"matches your taste ({', '.join(parts)})"]
 
 
+def get_affinity_explanation(game: Game, affinities: dict) -> list:
+    """Return ExplanationComponent list for the Why Picked breakdown."""
+    from app.recommender import ExplanationComponent
+    if not affinities:
+        return []
+
+    labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
+    matched_labels: list[str] = []
+    total_contrib = 0.0
+    low_confidence_count = 0
+    total_count = 0
+
+    for kind, value in labels:
+        key = (kind, value.lower())
+        if key not in affinities:
+            continue
+        weight, pick_count = affinities[key]
+        confidence = min(pick_count / 5.0, 1.0)
+        contrib = weight * _MULTIPLIERS[kind] * confidence
+        if abs(contrib) >= 0.1:
+            matched_labels.append(value)
+            total_contrib += contrib
+            total_count += 1
+            if pick_count < 5:
+                low_confidence_count += 1
+
+    if not matched_labels:
+        return []
+
+    components: list[ExplanationComponent] = []
+    label_text = ", ".join(matched_labels[:4])
+    if len(matched_labels) > 4:
+        label_text += f" +{len(matched_labels) - 4} more"
+
+    if total_contrib >= 0:
+        components.append(ExplanationComponent(
+            label=f"Matches your taste: {label_text}",
+            magnitude=abs(total_contrib),
+        ))
+    else:
+        components.append(ExplanationComponent(
+            label=f"Against your taste: {label_text}",
+            magnitude=abs(total_contrib),
+            is_negative=True,
+        ))
+
+    if low_confidence_count > 0 and total_count > 0:
+        if low_confidence_count == total_count:
+            components.append(ExplanationComponent(
+                label="Low confidence — GamePile has limited feedback for these taste labels",
+                magnitude=0.0,
+            ))
+        elif low_confidence_count > total_count // 2:
+            components.append(ExplanationComponent(
+                label="Mixed confidence — some taste labels have limited feedback",
+                magnitude=0.0,
+            ))
+
+    return components
+
+
 def apply_quick_drop_affinity(
     conn: sqlite3.Connection,
     game: Game,

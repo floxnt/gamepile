@@ -80,6 +80,18 @@
           <span class="why-hint">(estimated from Steam playtime — set manual hours for a precise estimate)</span>
         {% endif %}
       </div>
+      {% if candidate.explanation %}
+        <details class="why-details">
+          <summary class="why-details-toggle">Why this pick?</summary>
+          <ul class="why-breakdown">
+            {% for comp in candidate.explanation %}
+              <li class="why-component {% if comp.is_negative %}why-component--negative{% endif %}">
+                {{ comp.label }}
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% endif %}
     {% endif %}
 
     {# Warnings #}
