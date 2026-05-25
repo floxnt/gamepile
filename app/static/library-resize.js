@@ -10,21 +10,62 @@
     var ths = table.querySelectorAll("thead th");
     if (!cols.length) return;
 
-    restoreWidths(cols);
+    ensurePxWidths(cols, table);
+    restoreWidths(cols, table);
 
     for (var i = 0; i < ths.length - 1; i++) {
-      addHandle(ths[i], cols, i, table);
+      if (!ths[i].querySelector(".col-resize-handle")) {
+        addHandle(ths[i], cols, i, table);
+      }
     }
   }
 
-  function restoreWidths(cols) {
+  function ensurePxWidths(cols, table) {
+    var first = cols[0].style.width;
+    if (first && first.indexOf("%") !== -1) {
+      for (var i = 0; i < cols.length; i++) {
+        var rect = cols[i].getBoundingClientRect
+          ? null
+          : null;
+        var th = table.querySelectorAll("thead th")[i];
+        if (th) {
+          cols[i].style.width = th.getBoundingClientRect().width + "px";
+        }
+      }
+    }
+  }
+
+  function restoreWidths(cols, table) {
     try {
       var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
       if (!saved) return;
+
+      var firstId = cols[0].getAttribute("data-col");
+      if (!firstId || typeof saved[firstId] !== "number") return;
+
+      var isOldFormat = true;
       for (var i = 0; i < cols.length; i++) {
         var id = cols[i].getAttribute("data-col");
-        if (id && typeof saved[id] === "number") {
-          cols[i].style.width = saved[id] + "%";
+        if (id && typeof saved[id] === "number" && saved[id] > 100) {
+          isOldFormat = false;
+          break;
+        }
+      }
+
+      if (isOldFormat) {
+        var tableW = table.getBoundingClientRect().width;
+        for (var j = 0; j < cols.length; j++) {
+          var cid = cols[j].getAttribute("data-col");
+          if (cid && typeof saved[cid] === "number") {
+            cols[j].style.width = (saved[cid] / 100) * tableW + "px";
+          }
+        }
+      } else {
+        for (var k = 0; k < cols.length; k++) {
+          var kid = cols[k].getAttribute("data-col");
+          if (kid && typeof saved[kid] === "number") {
+            cols[k].style.width = saved[kid] + "px";
+          }
         }
       }
     } catch (e) {}
@@ -35,7 +76,7 @@
       var w = {};
       for (var i = 0; i < cols.length; i++) {
         var id = cols[i].getAttribute("data-col");
-        if (id) w[id] = parseFloat(cols[i].style.width);
+        if (id) w[id] = Math.round(parseFloat(cols[i].style.width));
       }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(w));
     } catch (e) {}
@@ -50,32 +91,43 @@
       e.preventDefault();
       e.stopPropagation();
 
+      ensurePxWidths(cols, table);
+
       var startX = e.clientX;
-      var tableW = table.getBoundingClientRect().width;
-      var startPct = parseFloat(cols[idx].style.width);
-      var nextPct = parseFloat(cols[idx + 1].style.width);
-      var minPct = (MIN_PX / tableW) * 100;
+      var startWidths = [];
+      for (var i = 0; i < cols.length; i++) {
+        startWidths.push(parseFloat(cols[i].style.width));
+      }
 
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
       document.body.style.webkitUserSelect = "none";
 
       function onMove(e) {
-        var delta = ((e.clientX - startX) / tableW) * 100;
-        var newPct = startPct + delta;
-        var newNext = nextPct - delta;
+        var delta = e.clientX - startX;
+        var widths = startWidths.slice();
 
-        if (newPct < minPct) {
-          newPct = minPct;
-          newNext = startPct + nextPct - minPct;
-        }
-        if (newNext < minPct) {
-          newNext = minPct;
-          newPct = startPct + nextPct - minPct;
+        if (delta > 0) {
+          var remaining = delta;
+          for (var r = idx + 1; r < widths.length && remaining > 0; r++) {
+            var available = widths[r] - MIN_PX;
+            if (available <= 0) continue;
+            var take = Math.min(remaining, available);
+            widths[r] -= take;
+            remaining -= take;
+          }
+          widths[idx] = startWidths[idx] + (delta - remaining);
+        } else {
+          var shrink = -delta;
+          var maxShrink = startWidths[idx] - MIN_PX;
+          if (shrink > maxShrink) shrink = maxShrink;
+          widths[idx] = startWidths[idx] - shrink;
+          widths[idx + 1] = startWidths[idx + 1] + shrink;
         }
 
-        cols[idx].style.width = newPct + "%";
-        cols[idx + 1].style.width = newNext + "%";
+        for (var c = 0; c < cols.length; c++) {
+          cols[c].style.width = widths[c] + "px";
+        }
       }
 
       function onUp() {

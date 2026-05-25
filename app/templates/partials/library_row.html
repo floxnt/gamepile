@@ -16,11 +16,7 @@
     <span class="badge badge-type-{{ gt }}" title="{{ game_type_tooltips[gt] }}">{{ game_type_labels[gt] }}</span>
   </td>
   <td class="library-tags">
-    {% if tag_list %}
-      {{ tag_list[:3] | join(", ") }}{% if tag_list | length > 3 %}<span class="library-tags-more"> +{{ tag_list | length - 3 }} more</span>{% endif %}
-    {% else %}
-      —
-    {% endif %}
+    <span class="library-tags-inner">{% if tag_list %}{{ tag_list[:3] | join(", ") }}{% if tag_list | length > 3 %}<span class="library-tags-more"> +{{ tag_list | length - 3 }} more</span>{% endif %}{% else %}—{% endif %}</span>
   </td>
   <td>
     {% if gws.game.hltb_main_hours %}
