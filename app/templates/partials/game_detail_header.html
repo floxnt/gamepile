@@ -1,5 +1,7 @@
-{# Section 1 — Header. Cover art + title block + meta. #}
-<header class="game-detail-header">
+{# Section 1 — Header. Cover art + title block + meta + status + glance stats.
+   Status bar is an HTMX swap target (#game-detail-status-bar) — it must keep
+   its id so status/type/reset endpoints can re-render it in place. #}
+<section class="game-detail-header">
   <img
     src="https://cdn.akamai.steamstatic.com/steam/apps/{{ game.appid }}/library_600x900.jpg"
     alt="{{ game.name }}"
@@ -20,5 +22,14 @@
         <span class="badge badge-length">Forever game</span>
       {% endif %}
     </div>
+
+    {% include "partials/game_detail_status_bar.html" %}
+
+    <div class="game-detail-glance">
+      {% if game.hltb_main_hours %}<span class="glance-item">Main {{ game.hltb_main_hours | fmt_hltb }}</span>{% endif %}
+      {% if game.playtime_minutes %}<span class="glance-item">Played {{ game.playtime_minutes | fmt_minutes }}</span>{% endif %}
+      {% if game.steam_review_pct %}<span class="glance-item">Reviews {{ game.steam_review_pct }}%</span>{% endif %}
+      {% if game.last_played_steam %}<span class="glance-item">Last played {{ relative_time(game.last_played_steam) }}</span>{% endif %}
+    </div>
   </div>
-</header>
+</section>

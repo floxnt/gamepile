@@ -4,11 +4,8 @@
 {% block content %}
 <section class="game-detail-page">
 
-  {# Section 1 — Header #}
+  {# Section 1 — Header (includes status bar + glance stats) #}
   {% include "partials/game_detail_header.html" %}
-
-  {# Section 2 — Status bar (HTMX swap target) #}
-  {% include "partials/game_detail_status_bar.html" %}
 
   {# Section 3 — Game data (read-only) #}
   {% include "partials/game_detail_data.html" %}
