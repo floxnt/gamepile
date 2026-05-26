@@ -132,7 +132,7 @@
                 hx-swap="outerHTML"
                 hx-push-url="true"
                 class="sort-link{% if h.active %} sort-link--active{% endif %}"
-              >{{ h.label }}{% if h.arrow %} <span class="sort-arrow">{{ h.arrow }}</span>{% endif %}</a>
+              ><span class="sort-label">{{ h.label }}</span>{% if h.arrow %}<span class="sort-arrow">{{ h.arrow }}</span>{% endif %}</a>
             </th>
           {%- endmacro %}
 
