@@ -146,11 +146,20 @@ def _bucket_range(bucket_key: str, buckets: list) -> tuple[float, float] | None:
 
 def _apply_filters(
     games: list[GameWithState],
+    q: str,
     tags: list[str],
     hltb_main: str,
     hltb_compl: str,
     game_type_filter: str,
 ) -> list[GameWithState]:
+    # Title search — case-insensitive substring, ANDed with every other
+    # axis. No fuzzy matching or ranking: at ~650 games a plain substring
+    # scan is instant and predictable, and ranking would fight the user's
+    # chosen column sort.
+    needle = q.strip().lower()
+    if needle:
+        games = [g for g in games if needle in g.game.name.lower()]
+
     if tags:
         tag_set = {t.lower() for t in tags}
         games = [
@@ -200,6 +209,7 @@ def _parse_tags(raw: str) -> list[str]:
 
 
 def _filter_params_dict(
+    q: str,
     tags: str,
     show_removed: bool,
     hltb_main: str,
@@ -207,6 +217,7 @@ def _filter_params_dict(
     game_type_filter: str,
 ) -> dict:
     return {
+        "q": q,
         "tags": tags,
         "show_removed": "true" if show_removed else "",
         "hltb_main": hltb_main,
@@ -239,6 +250,7 @@ def _active_filter_count(
 @router.get("/library", response_class=HTMLResponse)
 async def library_page(
     request: Request,
+    q: str = "",
     tags: str = "",
     show_removed: bool = False,
     hltb_main: str = "",
@@ -253,10 +265,10 @@ async def library_page(
     all_tags = _collect_tags(all_games)
     tag_list = _parse_tags(tags)
 
-    games = _apply_filters(all_games, tag_list, hltb_main, hltb_compl, game_type)
+    games = _apply_filters(all_games, q, tag_list, hltb_main, hltb_compl, game_type)
     games = _sort_games(games, sort, dir)
 
-    fp = _filter_params_dict(tags, show_removed, hltb_main, hltb_compl, game_type)
+    fp = _filter_params_dict(q, tags, show_removed, hltb_main, hltb_compl, game_type)
     sort_headers = _build_sort_headers(sort, dir, fp)
 
     return templates.TemplateResponse(request, "library.html", {
@@ -264,6 +276,7 @@ async def library_page(
         "all_tags": all_tags,
         "active_tags": tag_list,
         "tags_csv": tags,
+        "q": q,
         "show_removed": show_removed,
         "hltb_main": hltb_main,
         "hltb_compl": hltb_compl,

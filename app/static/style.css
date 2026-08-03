@@ -698,6 +698,48 @@ select option {
   gap: 0.75rem;
   margin-bottom: 0.75rem;
 }
+
+/* --- Title search --- */
+.search-form { display: flex; }
+
+/* Deliberately NOT folded into the global `select, textarea,
+   input[type=text]…` rule: that rule sets appearance:none, which in
+   Chromium removes the native clear button — and the `search` event that
+   button fires is what the HTMX trigger listens for. Styled explicitly
+   here instead so the field is dark-themed AND still clearable.
+   (White-on-white native controls are a named recurring regression in
+   docs/DESIGN_CONTRACT.md.) */
+.library-search {
+  width: 15rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  color-scheme: dark;
+}
+.library-search::placeholder { color: var(--muted); }
+.library-search:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* The native cancel glyph is invisible against the dark field, so it's
+   masked and repainted with a theme colour. Only the appearance changes
+   — the button still fires `search` on click. */
+.library-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 0.75rem;
+  width: 0.75rem;
+  cursor: pointer;
+  background-color: var(--muted);
+  -webkit-mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 4l8 8M12 4l-8 8' stroke='%23000' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 4l8 8M12 4l-8 8' stroke='%23000' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.library-search::-webkit-search-cancel-button:hover { background-color: var(--text); }
 .filter-bar .library-count {
   margin-left: auto;
   color: var(--muted);

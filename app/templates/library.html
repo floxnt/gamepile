@@ -6,6 +6,46 @@
 {% block content %}
 <section class="library-controls">
   <div class="filter-bar">
+    {# Title search. Always visible — it's a primary action, not something
+       to go hunting for behind the Filters disclosure.
+
+       Debounced live filtering rather than the panel's apply-then-submit:
+       one field, instant feedback, nothing to compose before committing.
+       The `search` trigger catches the input's native clear button.
+
+       The applied filter state rides along as hidden inputs so search
+       ANDs with whatever the panel has committed. Deliberately NOT
+       hx-include of #filter-form — that would pick up half-set pending
+       panel values the user hasn't applied yet.
+
+       hx-replace-url (not push) keeps a debounced keystroke stream from
+       stacking one history entry per pause. #}
+    <form class="search-form"
+          hx-get="/library"
+          hx-trigger="keyup changed delay:300ms from:#library-search, search from:#library-search"
+          hx-select="#library-content"
+          hx-target="#library-content"
+          hx-swap="outerHTML"
+          hx-select-oob="#library-count"
+          hx-replace-url="true">
+      <input type="search"
+             id="library-search"
+             name="q"
+             class="library-search"
+             value="{{ q }}"
+             placeholder="Search games…"
+             autocomplete="off"
+             spellcheck="false"
+             aria-label="Search games by title">
+      {% if tags_csv %}<input type="hidden" name="tags" value="{{ tags_csv }}">{% endif %}
+      {% if hltb_main %}<input type="hidden" name="hltb_main" value="{{ hltb_main }}">{% endif %}
+      {% if hltb_compl %}<input type="hidden" name="hltb_compl" value="{{ hltb_compl }}">{% endif %}
+      {% if game_type_filter %}<input type="hidden" name="game_type" value="{{ game_type_filter }}">{% endif %}
+      {% if show_removed %}<input type="hidden" name="show_removed" value="true">{% endif %}
+      {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+      {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+    </form>
+
     <button type="button" class="btn btn-secondary btn-sm" id="filter-toggle">
       Filters{% if filter_count %} <span class="filter-badge">{{ filter_count }}</span>{% endif %}
     </button>
@@ -18,7 +58,11 @@
       </div>
     {% endif %}
 
-    <span class="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</span>
+    {# id is the hx-select-oob target: the count lives outside
+       #library-content, so partial swaps have to update it out-of-band
+       or it goes stale (it did, for the panel's Apply, before search
+       made the staleness obvious). #}
+    <span class="library-count" id="library-count">{{ games | length }} game{{ 's' if games | length != 1 }}</span>
   </div>
 
   <div class="filter-panel" id="filter-panel" hidden>
@@ -27,10 +71,14 @@
           hx-select="#library-content"
           hx-target="#library-content"
           hx-swap="outerHTML"
+          hx-select-oob="#library-count"
           hx-push-url="true">
 
       {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
       {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+      {# Carry the live search term through an Apply so committing panel
+         filters doesn't silently drop it. #}
+      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       <input type="hidden" name="tags" id="tags-hidden" value="{{ tags_csv }}">
 
       <div class="filter-grid">
@@ -96,7 +144,15 @@
       <div class="filter-actions">
         <button type="submit" class="btn btn-primary btn-sm">Apply</button>
         {% if filter_count %}
-          <a href="/library{% if sort %}?sort={{ sort }}{% if dir and dir != 'asc' %}&dir={{ dir }}{% endif %}{% endif %}" class="filter-clear">Clear all filters</a>
+          {# Clears the panel axes only. The search term survives — it's a
+             separate always-visible control with its own clear button,
+             not one of the "filters" this link is scoped to. Sort is
+             preserved for the same reason it always has been. #}
+          {% set _keep = [] %}
+          {% if q %}{% set _ = _keep.append(("q", q)) %}{% endif %}
+          {% if sort %}{% set _ = _keep.append(("sort", sort)) %}{% endif %}
+          {% if dir and dir != "asc" %}{% set _ = _keep.append(("dir", dir)) %}{% endif %}
+          <a href="/library{% if _keep %}?{{ _keep | urlencode }}{% endif %}" class="filter-clear">Clear all filters</a>
         {% endif %}
       </div>
     </form>
@@ -154,9 +210,12 @@
     </table>
   </div>
   {% else %}
-  {% set _has_filters = filter_count > 0 %}
   <div class="empty-state">
-    {% if _has_filters %}
+    {% if q and filter_count %}
+      <p>No games match “{{ q }}” with the current filters.</p>
+    {% elif q %}
+      <p>No games match “{{ q }}”.</p>
+    {% elif filter_count %}
       <p>No games match these filters. Try a different combination or clear filters.</p>
     {% else %}
       <p>No games found. <button hx-post="/refresh" hx-target="#refresh-status" hx-swap="innerHTML" class="btn-link">Refresh your library</button> to populate it from Steam.</p>
