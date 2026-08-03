@@ -83,6 +83,21 @@
     </details>
   </div>
 
+  <div class="settings-section">
+    <h2 class="settings-section-title">Backup</h2>
+    <p class="settings-section-help">
+      Downloads everything you've authored — statuses, ratings, notes,
+      pins, manual overrides, your pick history and the taste model built
+      from it. Fetched Steam and HowLongToBeat data isn't included; a
+      refresh rebuilds that on its own.
+    </p>
+    {# Plain link, not htmx: the response is a file download, and an
+       htmx-driven request would swap the JSON into the page instead. #}
+    <a href="/settings/export" class="btn btn-secondary btn-sm" download>
+      Export backup (JSON)
+    </a>
+  </div>
+
   <p class="settings-footer">
     Storage backend: <em>{% if keyring_available %}OS keychain{% else %}.env file fallback{% endif %}</em>
   </p>

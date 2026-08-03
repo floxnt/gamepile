@@ -12,9 +12,11 @@ import logging
 
 import httpx
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
+from app import backup as backup_module
 from app import credentials
+from app import database as db
 from app.fetchers import steam as steam_fetcher
 from app.routes.setup import _resolve_steam_id_input, _validate_credentials
 from app.templates_config import templates
@@ -115,3 +117,26 @@ async def update_steam_id(request: Request, steam_id_input: str = Form(...)):
     ctx = _build_context()
     ctx["steam_id_saved"] = True
     return templates.TemplateResponse(request, "settings.html", ctx)
+
+
+@router.get("/settings/export")
+async def export_backup():
+    """Download the user-authored layer as JSON.
+
+    Built and returned in one shot rather than streamed: the payload is
+    a few hundred KB at realistic library sizes, and holding it in memory
+    means a mid-build failure returns a 500 instead of a truncated file
+    that looks valid until someone tries to restore from it.
+    """
+    with db.get_db() as conn:
+        payload = backup_module.build_backup(conn)
+
+    return Response(
+        content=backup_module.serialize(payload),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{backup_module.filename()}"'
+            ),
+        },
+    )
