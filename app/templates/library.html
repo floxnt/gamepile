@@ -51,6 +51,7 @@
         {% if hltb_main %}<input type="hidden" name="hltb_main" value="{{ hltb_main }}">{% endif %}
         {% if hltb_compl %}<input type="hidden" name="hltb_compl" value="{{ hltb_compl }}">{% endif %}
         {% if game_type_filter %}<input type="hidden" name="game_type" value="{{ game_type_filter }}">{% endif %}
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
         {% if show_removed %}<input type="hidden" name="show_removed" value="true">{% endif %}
         {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
         {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
@@ -134,6 +135,19 @@
             <option value="">Any</option>
             {% for key, label, lo, hi in hltb_compl_buckets %}
               <option value="{{ key }}" {% if hltb_compl == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Status axis — the only route to finished games. They leave the
+           Backlog on completion and Library dropped its Status column in
+           v0.8.7, so without this the completed pile is unreachable. #}
+        <div class="filter-section">
+          <label class="filter-label" for="status-select">Status</label>
+          <select name="status" id="status-select" class="filter-select">
+            <option value="">Any</option>
+            {% for value, label in status_options %}
+              <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </div>

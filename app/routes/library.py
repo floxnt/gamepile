@@ -9,7 +9,7 @@ from app.game_type import (
     GAME_TYPE_LABELS,
     resolve_type,
 )
-from app.models import GameWithState
+from app.models import GameStatus, GameWithState
 from app.templates_config import templates
 
 router = APIRouter()
@@ -45,6 +45,20 @@ _HLTB_COMPL_BUCKETS: list[tuple[str, str, float, float]] = [
 ]
 
 _GAME_TYPE_OPTIONS = [(t, GAME_TYPE_LABELS[t]) for t in ALL_GAME_TYPES]
+
+# Status axis. Finished games leave the Backlog entirely (it has no
+# finished section) and the Status column was dropped from Library in
+# v0.8.7 — so before this filter existed, a completed game had nowhere
+# it could be found. Labels are user-facing; values are GameStatus.
+_STATUS_OPTIONS: list[tuple[str, str]] = [
+    (GameStatus.never_played.value,        "Never played"),
+    (GameStatus.played_unclassified.value, "Played, unsorted"),
+    (GameStatus.in_progress.value,         "In progress"),
+    (GameStatus.finished.value,            "Finished"),
+    (GameStatus.dropped.value,             "Dropped"),
+    (GameStatus.not_interested.value,      "Not interested"),
+]
+_VALID_STATUSES = {v for v, _ in _STATUS_OPTIONS}
 
 
 def _sort_games(games: list[GameWithState], sort: str, direction: str) -> list[GameWithState]:
@@ -151,6 +165,7 @@ def _apply_filters(
     hltb_main: str,
     hltb_compl: str,
     game_type_filter: str,
+    status_filter: str,
 ) -> list[GameWithState]:
     # Title search — case-insensitive substring, ANDed with every other
     # axis. No fuzzy matching or ranking: at ~650 games a plain substring
@@ -191,6 +206,9 @@ def _apply_filters(
             if resolve_type(g.game) == game_type_filter
         ]
 
+    if status_filter in _VALID_STATUSES:
+        games = [g for g in games if g.state.status.value == status_filter]
+
     return games
 
 
@@ -215,6 +233,7 @@ def _filter_params_dict(
     hltb_main: str,
     hltb_compl: str,
     game_type_filter: str,
+    status_filter: str,
 ) -> dict:
     return {
         "q": q,
@@ -223,6 +242,7 @@ def _filter_params_dict(
         "hltb_main": hltb_main,
         "hltb_compl": hltb_compl,
         "game_type": game_type_filter,
+        "status": status_filter,
     }
 
 
@@ -232,6 +252,7 @@ def _active_filter_count(
     hltb_main: str,
     hltb_compl: str,
     game_type_filter: str,
+    status_filter: str,
 ) -> int:
     c = 0
     if tags:
@@ -243,6 +264,8 @@ def _active_filter_count(
     if hltb_compl:
         c += 1
     if game_type_filter:
+        c += 1
+    if status_filter:
         c += 1
     return c
 
@@ -256,6 +279,7 @@ async def library_page(
     hltb_main: str = "",
     hltb_compl: str = "",
     game_type: str = "",
+    status: str = "",
     sort: str = "",
     dir: str = "asc",
 ):
@@ -265,10 +289,14 @@ async def library_page(
     all_tags = _collect_tags(all_games)
     tag_list = _parse_tags(tags)
 
-    games = _apply_filters(all_games, q, tag_list, hltb_main, hltb_compl, game_type)
+    games = _apply_filters(
+        all_games, q, tag_list, hltb_main, hltb_compl, game_type, status,
+    )
     games = _sort_games(games, sort, dir)
 
-    fp = _filter_params_dict(q, tags, show_removed, hltb_main, hltb_compl, game_type)
+    fp = _filter_params_dict(
+        q, tags, show_removed, hltb_main, hltb_compl, game_type, status,
+    )
     sort_headers = _build_sort_headers(sort, dir, fp)
 
     return templates.TemplateResponse(request, "library.html", {
@@ -281,6 +309,8 @@ async def library_page(
         "hltb_main": hltb_main,
         "hltb_compl": hltb_compl,
         "game_type_filter": game_type,
+        "status_filter": status,
+        "status_options": _STATUS_OPTIONS,
         "sort": sort,
         "dir": dir,
         "sort_headers": sort_headers,
@@ -288,6 +318,6 @@ async def library_page(
         "hltb_compl_buckets": _HLTB_COMPL_BUCKETS,
         "game_type_options": _GAME_TYPE_OPTIONS,
         "filter_count": _active_filter_count(
-            tag_list, show_removed, hltb_main, hltb_compl, game_type,
+            tag_list, show_removed, hltb_main, hltb_compl, game_type, status,
         ),
     })
