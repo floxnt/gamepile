@@ -1,6 +1,6 @@
 # GamePile Feature Inventory — Current Shipped State
 
-**Version:** 0.9.2 (2026-05-25)
+**Version:** 0.9.10 + unreleased v1.0-readiness work (2026-08-03)
 **Purpose:** Complete factual inventory of what GamePile currently does
 and doesn't do, for grounding external product-direction discussion.
 
@@ -62,10 +62,33 @@ as of v0.8.7):
 | 9 | Avg. Achievement % | Yes | Steam achievements (median) |
 | 10 | My Achievement % | Yes | Steam player achievements |
 
-**Filters:** Tag dropdown (SteamSpy user_tags), "Show removed" toggle
-(includes is_active=0 games).
+**Title search:** Always-visible search box in the filter bar.
+Case-insensitive substring match on game name, debounced 300ms, ANDed
+with every other axis. Persists in the URL (`?q=`). Deliberately not
+behind the Filters disclosure — it's a primary action. No fuzzy
+matching or relevance ranking: ranking would fight the user's chosen
+column sort.
+
+**Advanced filter panel:** Collapsible panel behind a "Filters" button,
+which carries a badge showing the count of active axes. Apply-then-
+submit (not live-filtering) so a multi-axis filter can be composed
+before committing. Axes: tags (searchable multi-select with chips),
+HLTB Main bucket, HLTB Completionist bucket, Status, Type, and "Show
+removed" (includes is_active=0 games).
+
+The **Status** axis is the only route to finished games — they leave
+the Backlog on completion and the Status column was dropped from
+Library in v0.8.7, so before it existed the completed pile had no
+destination at all.
+
+**Column resize:** Drag handles between headers. Widths persist to
+localStorage under `gamepile-col-widths`. Not exported in backups — px
+values don't transfer between machines at different DPI scaling.
 
 **Sticky header:** Column headers persist on scroll for sort access.
+
+**Scrolling:** Page-level, not an inner scroll container (the pattern
+was made global — see DESIGN_CONTRACT).
 
 ### Backlog (`/backlog`)
 
@@ -97,6 +120,20 @@ state:
 - Pick for Shortlist / Pin to Shortlist / Unpin
 - Mark in progress / Confirm finished / Bounced / Not my thing / Never recommend
 
+**Decision Sessions** — a focused triage mode started per section. The
+section's games become a queue and are presented one card at a time
+(full `<main>` replacement, "N of M" progress) with decision hints
+computed against library-wide thresholds. Each card offers only the
+actions valid for that game's current status; answering advances the
+queue, and a recap renders at the end.
+
+Same transitions as the Shortlist quick-actions, with the same affinity
+consequences: `confirm_finished` clears any pin and applies finished
+affinity; `bounced` sets dropped/soft; `not_my_thing` sets
+dropped/strong; both drops feed the taste model. The point is to make
+clearing a backlog section a single sustained pass rather than a
+scroll-and-click hunt.
+
 ### Dashboard (`/dashboard`)
 
 Stats overview: recent picks (last 7 days), affinity trends (positive
@@ -115,8 +152,14 @@ Per-game deep view with 6 sections:
    HLTB times, SteamSpy tags, median achievement unlock %, user
    achievement %, Metacritic. Manual HLTB ID override with URL/ID
    input.
-4. **Personal** — notes (free text, auto-save), personal rating (1–5
-   stars, clearable), manual hours played
+4. **Personal** — notes (free text, auto-save), personal rating
+   (half-stars, clearable), manual hours played
+
+   Ratings are stored as a 0–10 integer and displayed as 0.5–5.0.
+   Clicking the left half of a star sets a half-step, the right half a
+   full step; clicking the current value clears it. The integer scale
+   is why backups carry a `rating_scale` field — an importer assuming
+   0–5 would silently halve every rating.
 5. **Affinity contributions** — per-label affinity weights this game
    contributes to (genre × weight, tag × weight, developer × weight)
 6. **Pick history** — chronological list of every time this game
@@ -131,12 +174,32 @@ View and edit credentials. API key displayed masked (last 4 visible).
 SteamID displayed in full. Edit-in-place forms with re-validation
 before persisting. Banner when using .env fallback instead of keyring.
 
+**Backup export** — downloads the user-authored layer as JSON
+(`gamepile-backup-YYYY-MM-DD.json`). Covers game_state in full, the
+sparse manual overrides on `games` (`game_type` paired with its
+`game_type_manual` flag, plus `hltb_id_manual`), the affinity table,
+and pick history. Excludes fetched Steam/HLTB data and computed
+signals — a refresh rebuilds those — and excludes localStorage column
+widths.
+
+The envelope is version-stamped (`schema`, `rating_scale`,
+`exported_at`, `app_version`). Timestamps are passed through as
+stored, never restamped with export time. Export only; **import is not
+implemented yet.**
+
 ### Setup Wizard (`/setup/*`)
 
 First-run flow: Welcome → Migrate (conditional, .env → keyring) →
 API Key → SteamID (vanity name resolution) → Validate (test
 GetOwnedGames call) → Done (kicks off initial sync with progress
 polling). Error recovery via combined edit page.
+
+The Done page polls `/setup/sync-status` every 2s and resolves to one
+of three states: still working, complete (auto-redirects to Shortlist),
+or failed. The failed branch names the reason, stops the polling chain,
+and offers Retry plus "Continue to app anyway". That escape link is
+also present while running, because a sync wedged at `running=True` is
+indistinguishable from a slow one and would otherwise be a dead end.
 
 ---
 
@@ -152,6 +215,16 @@ polling). Error recovery via combined edit page.
 | `finished` | Completed | Manual only ("Confirm finished" / "Already completed") |
 | `dropped` | Stopped playing | Manual only ("Bounced off it") |
 | `not_interested` | Will never play | Manual only ("Not my thing" / "Never recommend") |
+
+`game_state.finished_at` records when a game entered `finished`, set on
+the transition into that status and cleared when it leaves. Distinct
+from `updated_at`, which any edit moves — completion history stays
+honest even if the row is touched later. Backfilled once for pre-
+existing finished games from `updated_at` (data migration v2), which is
+the best available approximation for rows that predate the column.
+
+Finished games are reachable via the Library Status filter. They do not
+appear in the Backlog, which has no finished section by design.
 
 ### Status inference rules (auto, when `manually_set = 0`)
 
@@ -262,6 +335,10 @@ me. Auto-expires after 14 days.
 | Column | Type | Description |
 |---|---|---|
 | `hltb_id_manual` | INTEGER | Manual HLTB game ID (bypasses name search) |
+| `game_type` + `game_type_manual` | TEXT + BOOLEAN | Manual type override. The flag alone is not enough — the chosen value lives in `game_type`, so the pair must travel together |
+
+`games.user_tags` is *not* a manual override despite the name: it holds
+SteamSpy community tags and is fetched, not authored.
 
 ### Deprecated
 
@@ -350,10 +427,18 @@ in Library and Game Detail. Added v0.8.7.
 
 | Axis | Type | Values |
 |---|---|---|
-| Tag filter | Single-select dropdown | All unique SteamSpy user tags |
+| Title search | Debounced text input (always visible) | Case-insensitive substring on game name |
+| Tag filter | Searchable multi-select with chips | All unique SteamSpy user tags |
+| HLTB Main | Single-select bucket | <5h, 5–10, 10–20, 20–30, 30–40, 40–60, 60–100, 100h+ |
+| HLTB Completionist | Single-select bucket | <15h, 15–30, 30–60, 60–100, 100–150, 150h+ |
+| Status | Single-select dropdown | never_played, played_unclassified, in_progress, finished, dropped, not_interested |
+| Type | Single-select dropdown | The 11 game types (see §D) |
 | Show removed | Toggle | Include is_active=0 games |
 | Sort column | Click header | name, game_type, tags, hltb_main, hltb_compl, playtime, steam_reviews, metacritic, median_unlock, user_achievement |
 | Sort direction | Toggle | asc / desc |
+
+All axes AND together and persist in the URL. Everything except title
+search lives in the apply-then-submit panel; title search filters live.
 
 ### Backlog
 
@@ -438,15 +523,19 @@ exclusion) + strong drop affinity (-1.0). Path 2 sets status only.
 
 ### "I want to understand why a game was recommended"
 
-1. Shortlist card → "Why picked" line shows up to 3 reasons
+1. Shortlist card → "Why:" line shows up to 3 reasons
    (e.g., "Matches your taste (Action: +2.1)", "In progress",
    "Fits tonight's window")
-2. Game Detail → Affinity contributions section shows per-label
+2. Same card → "Why this pick?" disclosure expands the full breakdown:
+   every scoring component that contributed, ordered by magnitude, with
+   negative contributors marked
+3. Game Detail → Affinity contributions section shows per-label
    breakdown (genre/tag/developer × weight)
 
-**Gap:** No way to see the raw numerical score or all scoring
-components. "Why picked" is a curated 3-reason summary, not a full
-breakdown.
+**Gap:** The breakdown lists components by label, not by raw numeric
+score. Ordering conveys relative magnitude; the exact arithmetic is not
+surfaced. This is deliberate — component labels are honest about *what*
+counted without implying the score is a prediction.
 
 ---
 
@@ -460,12 +549,14 @@ breakdown.
 | Game type | Game Detail dropdown | Overrides auto-classification |
 | Manual hours | Game Detail | Overrides Steam playtime for display |
 | Notes | Game Detail | Free text, persisted per-game |
-| Personal rating | Game Detail | 1–5 stars, clearable |
+| Personal rating | Game Detail | Half-stars 0.5–5.0 (stored 0–10), clearable |
 | HLTB ID | Game Detail | Overrides name-based HLTB search |
 | Feedback (4 steps) | Shortlist prompt | Rating, genre match, retroactive pick → affinity |
 | Pin to Shortlist | Backlog | +6.0 boost for 14 days |
 | Quick actions | Shortlist cards, Backlog rows | Status transitions + affinity effects |
+| Decision Session actions | Backlog session mode | Same transitions, one card at a time |
 | API key / SteamID | Settings, Setup wizard | Stored in OS keyring |
+| Backup export | Settings | Downloads the user-authored layer as JSON |
 
 ### Removed (retired with hook-point, v0.7.0)
 
@@ -528,6 +619,24 @@ Force refresh bypasses all TTLs.
 - COALESCE-on-upsert: existing non-NULL values are preserved when the
   new value is NULL (prevents data loss on transient API failures)
 - Dormant hook-point columns preserved by the same COALESCE mechanism
+- JSON backup export from Settings (see §A) — the only way to get the
+  user-authored layer out of the SQLite file
+
+### Schema and data migrations
+
+Two mechanisms, deliberately separated:
+
+- **Schema-shape migrations** are `ALTER TABLE ADD COLUMN` statements
+  run on every startup under try/except. Genuinely idempotent: a repeat
+  run raises "duplicate column" and is swallowed.
+- **Data migrations** are version-gated behind `PRAGMA user_version`
+  and run at most once.
+
+The split is not stylistic. A data migration placed in the idempotent
+list re-executes on every launch, and one that rescales values compounds
+each time — a rating-scale migration did exactly that, doubling stored
+ratings on every restart before it was caught. `_migrate_v1_rating_scale`
+is retained as an intentional no-op to hold the version slot.
 
 ---
 
@@ -623,6 +732,10 @@ Per `docs/DESIGN_CONTRACT.md` and `docs/PROJECT_STATE.md`:
 
 ### Deferred product
 
+- **Backup import.** Export shipped first as insurance; the importer is
+  a separate round. The envelope is version-stamped (`schema`,
+  `rating_scale`) specifically so that importer has something to branch
+  on rather than guessing at files already in the wild.
 - OpenCritic re-introduction via web scraping (methodology argument
   valid, effort not justified yet)
 - v1.0 milestone reserved for "friend-validation has shaken bugs out

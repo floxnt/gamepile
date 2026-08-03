@@ -102,9 +102,11 @@ test-group feedback, not provisional.
 
 ## Navigation
 
-- Top-level nav: Shortlist, Library
-  (and future: Backlog, Dashboard, Game Detail, Settings — added when
-  implemented, not before)
+- Top-level nav: Shortlist, Backlog, Library, Dashboard
+- Settings sits apart from those four, in the right-hand nav chrome —
+  it's configuration, not a destination you browse
+- Game Detail is reached by clicking through from a list; it is
+  deliberately not a nav item
 - Do not add navigation items speculatively
 - "Refresh Library" + "Force" stay in the top-right header position
 
@@ -133,8 +135,7 @@ during refresh.
 When verifying behavior against the real database, never UPDATE production
 data for testing purposes. Use one of:
 
-- A temp copy: `cp gamepile.db gamepile-test.db` and point the app at it via
-  env override
+- A temp copy under a `GAMEPILE_DATA_DIR` override (see below)
 - An explicit transaction wrapped around test mutations, with rollback
 - A read-only query that simulates the condition rather than mutating to
   create it
@@ -142,6 +143,36 @@ data for testing purposes. Use one of:
 Test mutations to live data, even with intent to restore, can lose precision
 on timestamps and other fields. Recovery from approximate values is possible
 but never identical to the original.
+
+### `GAMEPILE_DATA_DIR`
+
+Set this env var to a directory and GamePile resolves its entire data
+directory there — database, logs, everything — instead of the
+platformdirs location. Blank or unset means normal behavior.
+
+```
+mkdir -p /tmp/gp-test
+cp ~/.local/share/gamepile/gamepile.db /tmp/gp-test/
+GAMEPILE_DATA_DIR=/tmp/gp-test uv run uvicorn app.main:app --port 8801
+```
+
+**Always verify the override actually took effect before writing
+anything.** This document recommended an "env override" for a long time
+before one existed, and a session that assumed it worked ran `init_db()`
+against the real database six times, corrupting user ratings. Print the
+resolved path and assert it first:
+
+```python
+import app.config as c
+assert str(c.DB_PATH).startswith("/tmp/"), f"ISOLATION FAILED: {c.DB_PATH}"
+```
+
+The test suites go further and don't trust config resolution at all —
+`tests/test_migrations.py` and `tests/test_backup.py` patch
+`app.database.DB_PATH` directly and hard-assert the path is under the
+system temp dir before opening a connection. Prefer that pattern for
+anything automated; an env var that silently does nothing is exactly
+how the original incident happened.
 
 ## Scope guardrails (what NOT to add without explicit request)
 
