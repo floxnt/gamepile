@@ -100,9 +100,15 @@ def init_db() -> None:
             );
         """)
 
-        # --- Migrations ---
-        # TODO: for v3+, replace try/except ALTER TABLE with a proper migration
-        #       system using a schema_version table that tracks applied migrations.
+        # --- Schema-shape migrations ---
+        # ALTER TABLE ADD COLUMN is genuinely idempotent under try/except:
+        # the second run raises "duplicate column" and is swallowed, leaving
+        # the schema unchanged. These are safe to re-execute every startup.
+        #
+        # DATA migrations are NOT safe that way and must never live in this
+        # list — they go in _apply_data_migrations() behind PRAGMA
+        # user_version. See the comment there for the incident that forced
+        # the split.
         for ddl in [
             "ALTER TABLE game_state ADD COLUMN manually_set BOOLEAN NOT NULL DEFAULT 0",
             "ALTER TABLE games ADD COLUMN user_tags TEXT NOT NULL DEFAULT ''",
@@ -192,31 +198,118 @@ def init_db() -> None:
             # profile is API-private, or the fetch hasn't run yet. Same
             # COALESCE-on-upsert pattern as median_achievement_unlock_pct.
             "ALTER TABLE games ADD COLUMN user_achievement_pct REAL",
+            # v0.9.12 — timestamp of the transition INTO 'finished'. Distinct
+            # from updated_at, which moves on ANY state write (a note edited
+            # months later would otherwise re-date the completion). Set once
+            # on entering finished, cleared on leaving it, never touched by
+            # subsequent edits. Powers honest completion history.
+            "ALTER TABLE game_state ADD COLUMN finished_at TEXT",
         ]:
             try:
                 conn.execute(ddl)
             except Exception:
                 pass  # column already exists
 
-        # v0.9.9: scale personal_rating from 1-5 to 0-10 for half-star support.
-        # Existing rows with values 1-5 become 2-10. Idempotent: values >5
-        # are already in the new scale, so we only double values <=5.
-        conn.execute(
-            "UPDATE game_state SET personal_rating = personal_rating * 2 "
-            "WHERE personal_rating IS NOT NULL AND personal_rating <= 5"
-        )
-
         # Convert any legacy 'played' rows to 'played_unclassified'. The old enum
         # used 'played' as a catch-all for "Steam shows hours, user hasn't
         # categorised" — same meaning as the new played_unclassified state.
+        # Genuinely idempotent (after one run no 'played' rows remain), so it
+        # stays outside the versioned runner.
         conn.execute(
             "UPDATE game_state SET status = 'played_unclassified' WHERE status = 'played'"
         )
+
+        _apply_data_migrations(conn)
 
         # Backfill: re-run inference for every auto-inferred row so the new rules
         # (played_unclassified split + recent-activity in_progress check) take effect.
         # Manually-set statuses are never touched.
         _backfill_inferred_statuses(conn)
+
+
+# ---------------------------------------------------------------------------
+# Versioned data migrations
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS
+#
+# init_db() runs on every application startup. Schema-shape migrations
+# (ALTER TABLE ADD COLUMN) tolerate that because re-running them raises and
+# is swallowed. Data migrations do not.
+#
+# v0.9.9 shipped an unguarded UPDATE that doubled personal_rating for every
+# row with a value <= 5, on the assumption that "values > 5 are already
+# migrated, so this is idempotent". That assumption was wrong: on the 0-10
+# half-star scale, 1-5 are the legitimate encodings of 0.5*-2.5*. So every
+# low rating — including brand-new ones the user had just entered — was
+# doubled again on each launch until it crossed 5. A user-set 1.0* (stored
+# 2) became 2.0* after one restart and 4.0* after two.
+#
+# PRAGMA user_version is a free integer in the SQLite file header. Every
+# data migration is gated on it, and it is bumped once all pending steps
+# succeed. get_db() wraps init_db() in a single transaction, so a failure
+# mid-way rolls back both the data change and the version bump.
+
+_SCHEMA_VERSION = 2
+
+
+def _apply_data_migrations(conn: sqlite3.Connection) -> None:
+    """Run pending data migrations, gated on PRAGMA user_version.
+
+    Add new steps as `if current < N:` blocks and raise _SCHEMA_VERSION.
+    Never put a data migration in the ALTER TABLE list in init_db().
+    """
+    current = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current >= _SCHEMA_VERSION:
+        return
+
+    if current < 1:
+        _migrate_v1_rating_scale(conn)
+    if current < 2:
+        _migrate_v2_backfill_finished_at(conn)
+
+    # PRAGMA takes a literal, not a bound parameter. _SCHEMA_VERSION is an
+    # int constant defined above — never user input.
+    conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+def _migrate_v1_rating_scale(conn: sqlite3.Connection) -> None:
+    """Rating scale 0-10 (half-star). INTENTIONALLY A NO-OP.
+
+    This version marks the scale as settled without touching data. The
+    doubling UPDATE that used to run here is gone for good, because
+    nothing in the data distinguishes these three cases:
+
+      - Opened at least once on v0.9.9-v0.9.11 → already doubled, repeatedly.
+        Doubling again corrupts it further.
+      - Created on v0.9.9+ → written natively as 0-10, never needed doubling.
+      - Last opened before v0.9.9 → genuinely still on the 1-5 scale.
+
+    The first two dominate and are actively harmed by re-running it; the
+    third is indistinguishable from them. So whatever is stored is accepted
+    as truth from here on.
+
+    Consequence worth knowing: a database last opened BEFORE v0.9.9 will
+    show its ratings at half value and needs a one-time manual correction.
+    That is deliberately not automated — auto-detection would silently
+    double every database that is already correct.
+    """
+    return
+
+
+def _migrate_v2_backfill_finished_at(conn: sqlite3.Connection) -> None:
+    """Seed finished_at for games already marked finished.
+
+    Best-effort and APPROXIMATE: updated_at was the only timestamp that
+    existed before this column, and it moves on any state write. A
+    backfilled value marks the last time the row was touched, not
+    necessarily when the game was finished. Values written after this
+    migration are exact.
+    """
+    conn.execute(
+        "UPDATE game_state SET finished_at = updated_at "
+        "WHERE status = 'finished' AND finished_at IS NULL"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +452,7 @@ def _row_to_state(row: sqlite3.Row) -> GameState:
         pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if "pinned_for_shortlist" in keys and row["pinned_for_shortlist"] is not None else False,
         pinned_at=_parse_dt(row["pinned_at"]) if "pinned_at" in keys else None,
         personal_rating=row["personal_rating"] if "personal_rating" in keys else None,
+        finished_at=_parse_dt(row["finished_at"]) if "finished_at" in keys else None,
     )
 
 
@@ -620,7 +714,8 @@ def get_games_with_state(
             gs.dropped_strength,
             gs.pinned_for_shortlist,
             gs.pinned_at,
-            gs.personal_rating
+            gs.personal_rating,
+            gs.finished_at
         FROM games g
         LEFT JOIN game_state gs ON g.appid = gs.appid
         {where}
@@ -643,6 +738,7 @@ def get_games_with_state(
             pinned_for_shortlist=bool(row["pinned_for_shortlist"]) if row["pinned_for_shortlist"] is not None else False,
             pinned_at=_parse_dt(row["pinned_at"]),
             personal_rating=row["personal_rating"],
+            finished_at=_parse_dt(row["finished_at"]),
         )
         result.append(GameWithState(game=game, state=state))
     return result
@@ -664,22 +760,37 @@ def update_game_state(
     dropped_strength: Optional[str] = None,
 ) -> None:
     existing = conn.execute(
-        "SELECT appid FROM game_state WHERE appid = ?", (appid,)
+        "SELECT appid, status FROM game_state WHERE appid = ?", (appid,)
     ).fetchone()
 
     now = datetime.utcnow().isoformat()
     if not existing:
         ms = 1 if manually_set else 0
+        effective = status or GameStatus.never_played
+        # A game whose very first state write is 'finished' still needs a
+        # completion timestamp — don't leave it to the UPDATE branch.
+        finished_at = now if effective == GameStatus.finished else None
         conn.execute("""
-            INSERT INTO game_state (appid, status, hours_played_manual, notes, manually_set, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (appid, (status or GameStatus.never_played).value, hours_played_manual, notes, ms, now))
+            INSERT INTO game_state (appid, status, hours_played_manual, notes, manually_set, updated_at, finished_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (appid, effective.value, hours_played_manual, notes, ms, now, finished_at))
     else:
         updates = ["updated_at = ?"]
         params: list = [now]
         if status is not None:
             updates.append("status = ?")
             params.append(status.value)
+            # finished_at tracks the transition INTO finished, not every
+            # write while finished. Re-asserting 'finished' on an already-
+            # finished row leaves the original timestamp alone; leaving
+            # finished clears it.
+            was_finished = existing["status"] == GameStatus.finished.value
+            if status == GameStatus.finished:
+                if not was_finished:
+                    updates.append("finished_at = ?")
+                    params.append(now)
+            else:
+                updates.append("finished_at = NULL")
             # If status is being moved away from dropped, clear the orphan
             # dropped_strength so it doesn't dangle. Caller-supplied
             # dropped_strength below overrides this if provided alongside.
@@ -778,8 +889,11 @@ def reset_status_to_inferred(conn: sqlite3.Connection, appid: int) -> Optional[G
     # Also clear dropped_strength: if we're re-inferring to anything that
     # isn't `dropped` (and infer_status never returns dropped), the
     # dropped_strength field becomes meaningless and would otherwise dangle.
+    # infer_status never returns 'finished', so a Reset always moves the
+    # game out of finished — clear the completion timestamp with it.
     conn.execute(
-        "UPDATE game_state SET status = ?, manually_set = 0, dropped_strength = NULL, updated_at = ? WHERE appid = ?",
+        "UPDATE game_state SET status = ?, manually_set = 0, dropped_strength = NULL, "
+        "finished_at = NULL, updated_at = ? WHERE appid = ?",
         (new_status.value, now, appid),
     )
     return new_status
