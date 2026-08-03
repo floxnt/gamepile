@@ -41,8 +41,13 @@ def _run_module(path: Path) -> bool:
         return True
 
     try:
-        main_fn()
-        return True
+        # Two conventions exist in tests/: some suites raise SystemExit(1),
+        # others `return 1` and rely on `raise SystemExit(main())` under
+        # __main__. Calling main() directly bypasses that guard, so the
+        # return code MUST be honored — until v0.9.12 it was discarded and
+        # six suites reported green no matter how many assertions failed.
+        rc = main_fn()
+        return rc in (0, None)
     except SystemExit as exc:
         # Test files call sys.exit(1) on failure; treat that as a failed suite.
         return exc.code in (0, None)

@@ -49,7 +49,7 @@ def _pick(picked_at, status_at_pick=None, was_forever_at_pick=None, mode="i_only
 
 def _game(appid=1, name="Test", status=GameStatus.never_played, hltb_main=10.0,
           hltb_compl=15.0, playtime=0, tags="Single-player", user_tags="",
-          updated_at=None):
+          updated_at=None, finished_at=None):
     g = Game(
         appid=appid, name=name, playtime_minutes=playtime,
         last_played_steam=None, installed=None, hltb_main_hours=hltb_main,
@@ -62,6 +62,7 @@ def _game(appid=1, name="Test", status=GameStatus.never_played, hltb_main=10.0,
     s = GameState(
         appid=appid, status=status, hours_played_manual=None, notes=None,
         updated_at=updated_at or datetime.utcnow(),
+        finished_at=finished_at,
     )
     return GameWithState(game=g, state=s)
 
@@ -119,15 +120,40 @@ def test_compute_finished_this_month():
     start_of_may = datetime(2026, 5, 1, 0, 0, 0)
     end_of_april = datetime(2026, 4, 30, 23, 59, 0)
 
+    # Keyed on finished_at as of v0.9.12 (updated_at moved on any state
+    # write, so a late note edit used to re-date the completion).
     games = [
-        _game(appid=1, status=GameStatus.finished, updated_at=datetime(2026, 5, 2, 10, 0, 0)),   # in
-        _game(appid=2, status=GameStatus.finished, updated_at=start_of_may),                       # in (boundary)
-        _game(appid=3, status=GameStatus.finished, updated_at=end_of_april),                       # out
-        _game(appid=4, status=GameStatus.in_progress, updated_at=datetime(2026, 5, 2, 10, 0, 0)), # out (status)
-        _game(appid=5, status=GameStatus.finished, updated_at=datetime(2026, 5, 3, 11, 0, 0)),    # in
+        _game(appid=1, status=GameStatus.finished, finished_at=datetime(2026, 5, 2, 10, 0, 0)),   # in
+        _game(appid=2, status=GameStatus.finished, finished_at=start_of_may),                       # in (boundary)
+        _game(appid=3, status=GameStatus.finished, finished_at=end_of_april),                       # out
+        _game(appid=4, status=GameStatus.in_progress, finished_at=datetime(2026, 5, 2, 10, 0, 0)), # out (status)
+        _game(appid=5, status=GameStatus.finished, finished_at=datetime(2026, 5, 3, 11, 0, 0)),    # in
     ]
     assert compute_finished_this_month(games, now) == 3
     assert compute_finished_this_month([], now) == 0
+
+
+def test_finished_this_month_ignores_updated_at():
+    """A game finished in April whose row was touched in May (note edit,
+    rating change) must not count toward May. This is the bug finished_at
+    was added to fix."""
+    now = datetime(2026, 5, 3, 12, 0, 0)
+    games = [
+        _game(appid=1, status=GameStatus.finished,
+              finished_at=datetime(2026, 4, 10, 9, 0, 0),
+              updated_at=datetime(2026, 5, 2, 10, 0, 0)),
+    ]
+    assert compute_finished_this_month(games, now) == 0
+
+
+def test_finished_this_month_skips_null_finished_at():
+    """A finished row with no timestamp can't be attributed to a month."""
+    now = datetime(2026, 5, 3, 12, 0, 0)
+    games = [
+        _game(appid=1, status=GameStatus.finished,
+              updated_at=datetime(2026, 5, 2, 10, 0, 0), finished_at=None),
+    ]
+    assert compute_finished_this_month(games, now) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +279,8 @@ TESTS = [
     test_is_backlog_pick,
     test_compute_picks_per_week,
     test_compute_finished_this_month,
+    test_finished_this_month_ignores_updated_at,
+    test_finished_this_month_skips_null_finished_at,
     test_compute_days_since_last_pick,
     test_build_affinity_profile_basic,
     test_build_affinity_profile_negatives_section,

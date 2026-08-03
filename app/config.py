@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import platformdirs
 from dotenv import load_dotenv
@@ -16,8 +17,24 @@ _DB_FILENAME = "gamepile.db"
 _LEGACY_DIR_NAMES = ("tonights-pick", "game-roulette")
 _LEGACY_DB_FILENAMES = ("tonights-pick.db", "game-roulette.db")
 
+# Escape hatch for pointing the app at a throwaway data directory.
+# docs/DESIGN_CONTRACT.md ("Testing against live data") instructs
+# developers to redirect the app at a temp DB copy "via env override" —
+# but no such override existed, so every script that thought it was
+# isolated silently wrote to the real user database. Added v0.9.12.
+_DATA_DIR_ENV_VAR = "GAMEPILE_DATA_DIR"
+
+
+def data_dir_override() -> Optional[Path]:
+    """The GAMEPILE_DATA_DIR override, or None when unset/blank."""
+    raw = os.environ.get(_DATA_DIR_ENV_VAR, "").strip()
+    return Path(raw).expanduser() if raw else None
+
 
 def _resolve_data_dir() -> Path:
+    override = data_dir_override()
+    if override is not None:
+        return override
     return Path(platformdirs.user_data_dir(_DATA_DIR_NAME, appauthor=False))
 
 
@@ -33,6 +50,11 @@ def _migrate_legacy_data(target_dir: Path) -> None:
     if sys.platform != "linux":
         return
     if target_dir.exists():
+        return
+    # Never rehome legacy data into an explicitly-overridden directory —
+    # the override means "use this throwaway location", not "adopt the
+    # user's real data".
+    if data_dir_override() is not None:
         return
 
     parent = target_dir.parent
