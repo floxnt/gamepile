@@ -98,6 +98,12 @@ class RefreshProgress:
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     elapsed_seconds: Optional[float] = None
+    # Set only when the run died on an unhandled error. Needed because the
+    # finally block below stamps completed_at unconditionally, so
+    # completed_at alone can't tell success from failure — the setup page
+    # used to read a crashed sync as "complete" and redirect on it.
+    # `errors` is not a substitute: it also collects non-fatal HLTB misses.
+    fatal_error: Optional[str] = None
 
 
 # Single shared progress instance — one refresh at a time.
@@ -176,6 +182,7 @@ async def run_refresh(force: bool = False) -> None:
 
     except Exception as exc:
         log.exception("Refresh failed with unhandled error")
+        progress.fatal_error = str(exc) or exc.__class__.__name__
         progress.errors.append(f"Fatal: {exc}")
         progress.elapsed_seconds = time.monotonic() - t0
         if log_id is not None:

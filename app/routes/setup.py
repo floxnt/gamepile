@@ -28,6 +28,7 @@ makes this safe and avoids the FastAPI session-middleware overhead
 just to hold two strings briefly. Cleared after successful persistence.
 """
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -54,6 +55,11 @@ _setup_session: dict = {
     "steam_id": None,
     "validation_error": None,
 }
+
+# Strong reference to the first-run sync task. asyncio only holds a weak
+# one, so without this the task can be collected mid-flight. It also lets
+# sync_status distinguish "still working" from "died on the way in".
+_sync_task: Optional[asyncio.Task] = None
 
 
 def _reset_session() -> None:
@@ -333,12 +339,54 @@ async def done_page(request: Request):
 async def start_sync(request: Request):
     """Kick off the initial library sync as a background task. Returns
     the first sync-status partial so the polling chain begins."""
-    import asyncio
+    global _sync_task
     if not sync_module.is_running():
         # Schedule as background task. The existing sync_module.progress
         # singleton tracks state for the polling endpoint to read.
-        asyncio.create_task(sync_module.run_refresh(force=False))
+        #
+        # The reference is held deliberately. asyncio keeps only a weak
+        # reference to a running task, so dropping this one lets the
+        # first-run sync be garbage-collected mid-flight — and because
+        # run_refresh's finally block would then never execute, the page
+        # polls a progress object that stays at its defaults forever.
+        # Holding it also gives sync_status a way to see the task died.
+        _sync_task = asyncio.create_task(sync_module.run_refresh(force=False))
     return await sync_status(request)
+
+
+def _sync_failure() -> Optional[str]:
+    """Describe how the sync failed, or None if it didn't.
+
+    Two distinct failure shapes, and neither is visible in completed_at:
+
+    1. run_refresh caught an unhandled error. Its finally block still
+       stamps completed_at, so the naive "completed_at is not None" check
+       read a crashed sync as success and redirected the user into a
+       half-populated app. progress.fatal_error is the honest signal.
+
+    2. The coroutine died before or outside that try — cancelled, or
+       raised on the way in. The finally never ran, nothing was stamped,
+       and the page polls a default progress object forever showing
+       "Starting…". Only the task object knows.
+    """
+    p = sync_module.progress
+    if p.fatal_error:
+        return p.fatal_error
+
+    task = _sync_task
+    if task is None or not task.done():
+        return None
+
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return "The sync was cancelled before it finished."
+    if exc is not None:
+        return str(exc) or exc.__class__.__name__
+    if p.completed_at is None:
+        # Returned without ever reaching the finally block.
+        return "The sync stopped unexpectedly before it finished."
+    return None
 
 
 @router.get("/setup/sync-status", response_class=HTMLResponse)
@@ -346,14 +394,18 @@ async def sync_status(request: Request):
     """Polled by the done page every 2s. Returns a partial that:
       - Shows the current phase + game name + count while running
       - Renders an hx-trigger redirect to /shortlist when sync completes
+      - Surfaces a failure with an escape hatch when it doesn't
     """
     p = sync_module.progress
+    failure = _sync_failure()
     return templates.TemplateResponse(request, "partials/setup_sync_status.html", {
         "running": p.running,
         "phase": p.phase,
         "current_game": p.current_game,
         "current_index": p.current_index,
         "total_games": p.total_games,
-        "completed": (not p.running) and p.completed_at is not None,
+        "completed": (not p.running) and p.completed_at is not None and not failure,
+        "failed": bool(failure),
+        "failure_message": failure,
         "errors": p.errors,
     })

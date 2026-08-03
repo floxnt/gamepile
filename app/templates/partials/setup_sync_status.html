@@ -1,7 +1,8 @@
 {# Polled fragment for the setup done page. While running, re-polls
    itself every 2s. When sync completes, replaces itself with a
-   redirect trigger that lands the user on /shortlist. Errors render
-   inline so a failed sync doesn't loop silently. #}
+   redirect trigger that lands the user on /shortlist. A failed sync
+   stops the polling loop and says so, rather than redirecting into a
+   half-populated app or spinning on "Starting…" forever. #}
 
 {% if completed %}
   <div id="sync-status"
@@ -13,6 +14,35 @@
     {% if errors %}
       <details class="setup-sync-errors">
         <summary>{{ errors | length }} non-fatal error(s) during sync</summary>
+        <ul>
+          {% for err in errors[:10] %}<li>{{ err }}</li>{% endfor %}
+        </ul>
+      </details>
+    {% endif %}
+  </div>
+{% elif failed %}
+  {# No hx-trigger here: the polling chain ends deliberately. Re-polling
+     a dead sync just animates a spinner over a corpse. #}
+  <div id="sync-status"
+       class="setup-sync-status setup-sync-status--failed">
+    <p class="setup-explainer setup-explainer--error">
+      Sync didn't complete.{% if failure_message %} {{ failure_message }}{% endif %}
+    </p>
+    <p class="setup-sync-progress">
+      Whatever was fetched before the failure has been saved. You can
+      retry now, or continue and refresh later from the app.
+    </p>
+    <div class="setup-sync-actions">
+      <button class="btn btn-primary btn-sm"
+              hx-post="/setup/start-sync"
+              hx-target="#sync-status"
+              hx-swap="outerHTML">Retry sync</button>
+      {# The escape hatch. A partial library beats a wall. #}
+      <a href="/" class="setup-sync-escape">Continue to app anyway</a>
+    </div>
+    {% if errors %}
+      <details class="setup-sync-errors">
+        <summary>{{ errors | length }} error(s) during sync</summary>
         <ul>
           {% for err in errors[:10] %}<li>{{ err }}</li>{% endfor %}
         </ul>
@@ -39,5 +69,10 @@
     {% else %}
       <p class="setup-sync-progress">Connecting to Steam…</p>
     {% endif %}
+    {# Also offered while running. A sync wedged with running=True never
+       reaches the failed branch — nothing can distinguish it from a slow
+       one — so the way out has to exist here too. Sync continues in the
+       background if the user takes it. #}
+    <a href="/" class="setup-sync-escape">Continue to app anyway</a>
   </div>
 {% endif %}

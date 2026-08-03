@@ -2434,6 +2434,42 @@ a.affinity-pill--clickable:focus-visible {
   color: var(--warn);
 }
 
+/* Failed sync. Left border rather than a filled panel: this is the end
+   of the polling chain, not an alert to dismiss. */
+.setup-sync-status--failed {
+  border-left: 3px solid var(--danger);
+}
+
+.setup-explainer--error {
+  color: var(--danger);
+  margin: 0 0 0.4rem;
+}
+
+.setup-sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 0.9rem;
+}
+
+/* The way out of a wedged first run. Quiet by default — during a healthy
+   sync it's an offer, not a prompt — but always reachable. */
+.setup-sync-escape {
+  display: inline-block;
+  margin-top: 0.9rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-decoration: underline;
+}
+
+.setup-sync-escape:hover {
+  color: var(--text);
+}
+
+.setup-sync-actions .setup-sync-escape {
+  margin-top: 0;
+}
+
 /* ===== v4 settings page ===== */
 .nav-settings-link {
   margin-left: 0.7rem;
