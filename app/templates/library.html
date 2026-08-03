@@ -26,7 +26,7 @@
           hx-select="#library-content"
           hx-target="#library-content"
           hx-swap="outerHTML"
-          hx-select-oob="#library-count"
+          hx-select-oob="#library-count,#search-filter-state"
           hx-replace-url="true">
       <input type="search"
              id="library-search"
@@ -37,13 +37,24 @@
              autocomplete="off"
              spellcheck="false"
              aria-label="Search games by title">
-      {% if tags_csv %}<input type="hidden" name="tags" value="{{ tags_csv }}">{% endif %}
-      {% if hltb_main %}<input type="hidden" name="hltb_main" value="{{ hltb_main }}">{% endif %}
-      {% if hltb_compl %}<input type="hidden" name="hltb_compl" value="{{ hltb_compl }}">{% endif %}
-      {% if game_type_filter %}<input type="hidden" name="game_type" value="{{ game_type_filter }}">{% endif %}
-      {% if show_removed %}<input type="hidden" name="show_removed" value="true">{% endif %}
-      {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
-      {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+      {# Applied filter state, so a search ANDs with what the panel has
+         committed. Deliberately not hx-include of #filter-form, which
+         would pick up pending panel values the user hasn't applied.
+
+         Wrapped in an id so every partial swap can refresh it OOB — this
+         form is otherwise only re-rendered on a full page load, so after
+         an Apply it would still hold the pre-Apply filters and the next
+         keystroke would silently revert them. Search never mirrors `q`
+         here; the visible input above is its only source. #}
+      <span id="search-filter-state">
+        {% if tags_csv %}<input type="hidden" name="tags" value="{{ tags_csv }}">{% endif %}
+        {% if hltb_main %}<input type="hidden" name="hltb_main" value="{{ hltb_main }}">{% endif %}
+        {% if hltb_compl %}<input type="hidden" name="hltb_compl" value="{{ hltb_compl }}">{% endif %}
+        {% if game_type_filter %}<input type="hidden" name="game_type" value="{{ game_type_filter }}">{% endif %}
+        {% if show_removed %}<input type="hidden" name="show_removed" value="true">{% endif %}
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
+      </span>
     </form>
 
     <button type="button" class="btn btn-secondary btn-sm" id="filter-toggle">
@@ -66,19 +77,24 @@
   </div>
 
   <div class="filter-panel" id="filter-panel" hidden>
+    {# hx-include pulls the LIVE search input into an Apply. It must not be
+       mirrored as a hidden field here: this form is only re-rendered on a
+       full page load, so a server-rendered copy goes stale the moment the
+       user edits the box. Two `q` values in one request is worse than
+       stale — the last one wins, so a cleared box lost to the stale
+       hidden copy and the term appeared to resurrect itself. The visible
+       input is the single source of truth for `q`. #}
     <form id="filter-form"
           hx-get="/library"
+          hx-include="#library-search"
           hx-select="#library-content"
           hx-target="#library-content"
           hx-swap="outerHTML"
-          hx-select-oob="#library-count"
+          hx-select-oob="#library-count,#search-filter-state"
           hx-push-url="true">
 
       {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
       {% if dir and dir != "asc" %}<input type="hidden" name="dir" value="{{ dir }}">{% endif %}
-      {# Carry the live search term through an Apply so committing panel
-         filters doesn't silently drop it. #}
-      {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
       <input type="hidden" name="tags" id="tags-hidden" value="{{ tags_csv }}">
 
       <div class="filter-grid">
@@ -186,6 +202,7 @@
                 hx-select="#library-content"
                 hx-target="#library-content"
                 hx-swap="outerHTML"
+                hx-select-oob="#library-count,#search-filter-state"
                 hx-push-url="true"
                 class="sort-link{% if h.active %} sort-link--active{% endif %}"
               ><span class="sort-label">{{ h.label }}</span>{% if h.arrow %}<span class="sort-arrow">{{ h.arrow }}</span>{% endif %}</a>
