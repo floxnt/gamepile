@@ -380,19 +380,34 @@ jobs:
       # needed for AppDir → AppImage packaging (AppRun generation +
       # squashfs compression).
       #
-      # Pin source: github.com/linuxdeploy/linuxdeploy continuous release.
-      # Continuous-only — no semver tags upstream. SHA512 pinned at
-      # target_commitish a9f929ff0e32d5c4bcb7b5c380adff4802f918ba
-      # (refreshed 2026-05-12). Deferred housekeeping: re-pin when
-      # upstream issues a notable update.
+      # Pin source: github.com/linuxdeploy/linuxdeploy, release tag
+      # 1-alpha-20251107-1 (published 2025-11-07).
+      #
+      # This previously read "continuous-only — no semver tags upstream"
+      # and pinned the rolling continuous asset. That premise was wrong:
+      # upstream does publish immutable dated tags, and pinning the
+      # rolling one meant every upstream rebuild broke our SHA512 check.
       - name: Download and verify linuxdeploy (Linux only)
         if: matrix.platform_label == 'linux'
         run: |
           mkdir -p tools
           cd tools
 
-          LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-          LINUXDEPLOY_SHA512="000097de845868905595a58c5532387155e493ee76dd5134f143b6d028bbebb62188b99c9a5836c387f3038604167bf71ba4318bfd80d204a0c030bcc9892f8f"
+          # Pinned to an immutable release tag, NOT the rolling
+          # "continuous" tag. continuous is re-published in place
+          # whenever upstream builds, which rotates the asset's SHA512
+          # and hard-fails this verification step through no fault of
+          # ours — it broke the v1.0.0 release build on 2026-08-03 after
+          # upstream re-published on 2026-08-01. A tagged asset never
+          # changes, so builds stay reproducible and this step only ever
+          # fires on a genuine mismatch.
+          #
+          # Bumping this is a deliberate act: pick a newer tag from
+          # https://github.com/linuxdeploy/linuxdeploy/releases and
+          # recompute the hash. Never paste in whatever the server
+          # happened to return — that defeats the entire check.
+          LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage"
+          LINUXDEPLOY_SHA512="537511c1001fdc515bf4af2e9b1a2a1a5eb78a6389957e6c264f6af8910146090c0e68c822b70f2bbced4657964149cc1e934b708a3537024ae040b7d0ad6df5"
 
           echo "Downloading linuxdeploy..."
           curl -fsSL -o linuxdeploy-x86_64.AppImage "$LINUXDEPLOY_URL"
