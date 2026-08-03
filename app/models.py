@@ -112,9 +112,15 @@ class GameState:
     # this", on manual unpin, or after 14 days.
     pinned_for_shortlist: bool = False
     pinned_at: Optional[datetime] = None
-    # 1-5 user rating set via the Game Detail page; NULL when the user
-    # hasn't rated. Distinct from the recommender's affinity weight.
+    # 0-10 half-star user rating set via the Game Detail page (1 = 0.5★,
+    # 10 = 5★); NULL when the user hasn't rated. Divide by 2 for display.
+    # Distinct from the recommender's affinity weight.
     personal_rating: Optional[int] = None
+    # When the game entered 'finished'. Set on the transition in, cleared
+    # on the way out, never moved by later edits — unlike updated_at,
+    # which any state write bumps. NULL for non-finished games. Values
+    # backfilled by migration v2 are approximate (see database.py).
+    finished_at: Optional[datetime] = None
 
 
 @dataclass

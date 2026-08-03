@@ -135,8 +135,18 @@ def month_start_label(now: datetime) -> str:
 
 
 def compute_finished_this_month(games: list, now: datetime) -> int:
-    """Distinct count of games whose state was last updated to 'finished'
-    on or after the start of the current calendar month.
+    """Distinct count of games finished on or after the start of the
+    current calendar month.
+
+    Keyed on finished_at, not updated_at. updated_at moves on any state
+    write, so editing a note on a game finished in March used to pull it
+    into April's count. finished_at is stamped once on the transition into
+    'finished' and never moved by later edits.
+
+    Rows finished before the finished_at column existed carry a
+    migration-backfilled approximation (see database.py). Rows with a NULL
+    finished_at are not counted — a finished game with no timestamp can't
+    be attributed to a month.
 
     Each appid has at most one game_state row, so distinctness is automatic
     — the spec's deduplication requirement is structurally satisfied.
@@ -145,7 +155,8 @@ def compute_finished_this_month(games: list, now: datetime) -> int:
     return sum(
         1 for gws in games
         if gws.state.status == GameStatus.finished
-        and gws.state.updated_at >= start
+        and gws.state.finished_at is not None
+        and gws.state.finished_at >= start
     )
 
 
