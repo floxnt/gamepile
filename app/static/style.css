@@ -2470,6 +2470,31 @@ a.affinity-pill--clickable:focus-visible {
   margin-top: 0;
 }
 
+/* Backup export result. The path is the payload here — there's no save
+   dialog in the webview, so it must be readable and selectable. */
+.export-result:not(:empty) {
+  margin-top: 0.8rem;
+}
+
+.export-path {
+  display: block;
+  margin-top: 0.3rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.export-error-detail {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
 /* ===== v4 settings page ===== */
 .nav-settings-link {
   margin-left: 0.7rem;

@@ -174,8 +174,9 @@ View and edit credentials. API key displayed masked (last 4 visible).
 SteamID displayed in full. Edit-in-place forms with re-validation
 before persisting. Banner when using .env fallback instead of keyring.
 
-**Backup export** — downloads the user-authored layer as JSON
-(`gamepile-backup-YYYY-MM-DD.json`). Covers game_state in full, the
+**Backup export** — writes the user-authored layer to disk as JSON
+(`gamepile-backup-YYYY-MM-DD.json`), into the user's Downloads folder
+when it exists and the app data dir otherwise. Covers game_state in full, the
 sparse manual overrides on `games` (`game_type` paired with its
 `game_type_manual` flag, plus `hltb_id_manual`), the affinity table,
 and pick history. Excludes fetched Steam/HLTB data and computed
@@ -186,6 +187,22 @@ The envelope is version-stamped (`schema`, `rating_scale`,
 `exported_at`, `app_version`). Timestamps are passed through as
 stored, never restamped with export time. Export only; **import is not
 implemented yet.**
+
+It is written server-side rather than served as a browser download, and
+the UI shows the full resolved path afterwards. This is not a stylistic
+choice: neither embedded webview will complete a `Content-Disposition`
+download. pywebview gates downloads behind `settings['ALLOW_DOWNLOADS']`,
+which defaults to `False`, so the Qt backend never connects its
+`downloadRequested` handler and the Windows WebView2 backend sets
+`args.Cancel = True`. The button produced no file and no error. Enabling
+the flag would not have been sufficient either — pywebview's Qt handler
+calls `download.setPath()`, which Qt removed from
+`QWebEngineDownloadRequest` in 6.2. Writing the file directly needs no
+webview-specific code and behaves the same on both platforms.
+
+Repeat exports on the same day suffix `-2`, `-3`, … rather than
+overwriting; writes go through a `.partial` temp file and a rename, so
+an interrupted export can't leave a truncated file that looks valid.
 
 ### Setup Wizard (`/setup/*`)
 

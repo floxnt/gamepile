@@ -12,7 +12,7 @@ import logging
 
 import httpx
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 
 from app import backup as backup_module
 from app import credentials
@@ -119,24 +119,36 @@ async def update_steam_id(request: Request, steam_id_input: str = Form(...)):
     return templates.TemplateResponse(request, "settings.html", ctx)
 
 
-@router.get("/settings/export")
-async def export_backup():
-    """Download the user-authored layer as JSON.
+@router.post("/settings/export", response_class=HTMLResponse)
+async def export_backup(request: Request):
+    """Write the user-authored layer to disk and report where it landed.
 
-    Built and returned in one shot rather than streamed: the payload is
-    a few hundred KB at realistic library sizes, and holding it in memory
-    means a mid-build failure returns a 500 instead of a truncated file
-    that looks valid until someone tries to restore from it.
+    Deliberately not a Content-Disposition download. GamePile runs inside
+    a webview, and neither embedded engine completes one: pywebview gates
+    downloads behind a flag that defaults off, and the Windows backend
+    cancels them outright. The button did nothing at all, silently. See
+    app/backup.py for the full detail.
+
+    Because there's no save dialog to show the user where the file went,
+    the response must name the resolved path — "Saved!" alone would be
+    useless.
     """
-    with db.get_db() as conn:
-        payload = backup_module.build_backup(conn)
+    try:
+        with db.get_db() as conn:
+            path = backup_module.write_backup(conn)
+    except OSError as exc:
+        target = backup_module.default_target_dir()
+        log.exception("Backup export failed")
+        # Returned as 200 on purpose. htmx only swaps 2xx responses, so a
+        # 500 here would render nothing at all — reproducing the silent
+        # no-op this whole fix exists to remove. The failure is carried
+        # in the partial, where the user can actually see it.
+        return templates.TemplateResponse(
+            request, "partials/settings_export_result.html",
+            {"ok": False, "target_dir": str(target), "error": str(exc)},
+        )
 
-    return Response(
-        content=backup_module.serialize(payload),
-        media_type="application/json",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="{backup_module.filename()}"'
-            ),
-        },
+    return templates.TemplateResponse(
+        request, "partials/settings_export_result.html",
+        {"ok": True, "path": str(path)},
     )

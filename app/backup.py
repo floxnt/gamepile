@@ -20,6 +20,9 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from pathlib import Path
+
+from app import config
 
 # Bump when the envelope shape changes in a way an importer must notice.
 SCHEMA_VERSION = 1
@@ -148,3 +151,85 @@ def serialize(backup: dict) -> str:
 def filename(now: datetime | None = None) -> str:
     stamp = (now or datetime.now()).strftime("%Y-%m-%d")
     return f"gamepile-backup-{stamp}.json"
+
+
+# ---------------------------------------------------------------------------
+# Writing to disk
+#
+# The export is written server-side rather than served as a browser
+# download. GamePile ships inside a webview, and neither embedded engine
+# will complete a Content-Disposition download: pywebview gates both on a
+# settings['ALLOW_DOWNLOADS'] flag that defaults to False, so Qt never
+# connects its downloadRequested handler and the Windows WebView2 backend
+# sets args.Cancel = True outright. The click produced no file and no
+# error. Enabling the flag wouldn't be enough either — pywebview's Qt
+# handler calls download.setPath(), removed from
+# QWebEngineDownloadRequest back in Qt 6.2.
+#
+# Writing the file ourselves needs no webview-specific code and behaves
+# identically on both platforms. The trade-off is no native save dialog,
+# which is why every caller must surface the resolved path.
+# ---------------------------------------------------------------------------
+
+def default_target_dir() -> Path:
+    """Where backups land: the user's Downloads folder when it exists,
+    otherwise the app's own data directory.
+
+    Downloads is the first place someone looks for a file an app just
+    saved. The data dir is the fallback rather than the default because
+    it's buried under platformdirs and nobody browses there by habit —
+    but it's guaranteed to exist and be writable, which Downloads isn't.
+    """
+    downloads = Path.home() / "Downloads"
+    if downloads.is_dir():
+        return downloads
+    return config.DATA_DIR
+
+
+def _unique_path(directory: Path, name: str) -> Path:
+    """First free path for `name` in `directory`, suffixing -2, -3, … on
+    collision.
+
+    Exporting twice in one day must not overwrite the first file. This is
+    a backup feature; silently replacing an existing backup with a newer
+    one is the specific failure it exists to prevent.
+    """
+    candidate = directory / name
+    if not candidate.exists():
+        return candidate
+    stem, suffix = candidate.stem, candidate.suffix
+    n = 2
+    while True:
+        candidate = directory / f"{stem}-{n}{suffix}"
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def write_backup(
+    conn: sqlite3.Connection,
+    target_dir: Path | None = None,
+) -> Path:
+    """Build the export and write it to disk. Returns the resolved path.
+
+    Raises OSError if the target directory can't be written to — the
+    caller is expected to surface that rather than swallow it, since a
+    backup that silently didn't happen is worse than no backup button.
+    """
+    directory = Path(target_dir) if target_dir is not None else default_target_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+
+    payload = build_backup(conn)
+    path = _unique_path(directory, filename())
+
+    # Write via a temp file in the same directory, then rename. A crash
+    # partway through must not leave a truncated file sitting there
+    # looking like a valid backup.
+    tmp = path.with_name(path.name + ".partial")
+    try:
+        tmp.write_text(serialize(payload), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+    return path.resolve()

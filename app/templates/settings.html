@@ -91,11 +91,19 @@
       from it. Fetched Steam and HowLongToBeat data isn't included; a
       refresh rebuilds that on its own.
     </p>
-    {# Plain link, not htmx: the response is a file download, and an
-       htmx-driven request would swap the JSON into the page instead. #}
-    <a href="/settings/export" class="btn btn-secondary btn-sm" download>
+    <p class="settings-section-help">
+      The file is written straight to disk — the embedded webview can't
+      complete a browser download, so there's no save dialog. The path
+      is shown below once it's written.
+    </p>
+    <button type="button"
+            class="btn btn-secondary btn-sm"
+            hx-post="/settings/export"
+            hx-target="#export-result"
+            hx-swap="outerHTML">
       Export backup (JSON)
-    </a>
+    </button>
+    <div id="export-result"></div>
   </div>
 
   <p class="settings-footer">

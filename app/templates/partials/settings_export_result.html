@@ -1,0 +1,15 @@
+{# Result of a backup export. There is no native save dialog in the
+   webview, so the full resolved path is the only way the user learns
+   where the file went — never shorten it to "Saved!". #}
+<div id="export-result" class="export-result">
+  {% if ok %}
+    <p class="settings-success">Backup saved.</p>
+    <code class="export-path">{{ path }}</code>
+  {% else %}
+    <p class="settings-error">Couldn't write the backup.</p>
+    <p class="export-error-detail">
+      Tried to write to <code class="export-path">{{ target_dir }}</code>
+    </p>
+    <p class="export-error-detail">{{ error }}</p>
+  {% endif %}
+</div>

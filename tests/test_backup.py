@@ -275,6 +275,109 @@ def test_filename_uses_dated_pattern():
     assert name == "gamepile-backup-2026-08-03.json", name
 
 
+# --- writing to disk --------------------------------------------------
+#
+# The export is written server-side because neither embedded webview
+# completes a Content-Disposition download (see app/backup.py). These
+# pin the behaviour the UI depends on.
+
+def test_write_backup_creates_a_readable_file():
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            with db.get_db() as conn:
+                _seed_game(conn, 10, "Zed")
+                _seed_state(conn, 10, personal_rating=7)
+                conn.commit()
+                path = backup.write_backup(conn, target_dir=Path(out))
+            assert path.exists(), f"no file at {path}"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            assert data["game_state"][0]["personal_rating"] == 7
+
+
+def test_write_backup_returns_an_absolute_path():
+    """The UI has no save dialog — the returned path is the only way the
+    user learns where the file went, so it must be fully resolved."""
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            with db.get_db() as conn:
+                path = backup.write_backup(conn, target_dir=Path(out))
+            assert path.is_absolute(), path
+
+
+def test_second_export_same_day_does_not_overwrite_the_first():
+    """Silently replacing an existing backup is the exact failure a
+    backup feature exists to prevent."""
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            with db.get_db() as conn:
+                first = backup.write_backup(conn, target_dir=Path(out))
+                second = backup.write_backup(conn, target_dir=Path(out))
+            assert first != second, f"both exports wrote to {first}"
+            assert first.exists() and second.exists()
+            assert second.name.endswith("-2.json"), second.name
+
+
+def test_write_backup_creates_a_missing_directory():
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            nested = Path(out) / "does" / "not" / "exist"
+            with db.get_db() as conn:
+                path = backup.write_backup(conn, target_dir=nested)
+            assert path.exists(), path
+
+
+def test_write_backup_raises_on_unwritable_directory():
+    """Must surface, not swallow — a backup that silently didn't happen
+    is worse than no button at all."""
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            locked = Path(out) / "locked"
+            locked.mkdir()
+            locked.chmod(0o500)  # r-x: can traverse, cannot create
+            try:
+                with db.get_db() as conn:
+                    try:
+                        backup.write_backup(conn, target_dir=locked)
+                    except OSError:
+                        pass
+                    else:
+                        raise AssertionError("no OSError on unwritable dir")
+            finally:
+                locked.chmod(0o700)
+
+
+def test_failed_write_leaves_no_partial_file():
+    """A truncated file that looks like a valid backup is the worst
+    possible outcome."""
+    with _isolated_db():
+        with tempfile.TemporaryDirectory(prefix="gamepile-out-") as out:
+            target = Path(out)
+            with db.get_db() as conn:
+                with patch.object(backup, "serialize",
+                                  side_effect=OSError("disk full")):
+                    try:
+                        backup.write_backup(conn, target_dir=target)
+                    except OSError:
+                        pass
+            leftovers = list(target.iterdir())
+            assert leftovers == [], f"left behind {leftovers}"
+
+
+def test_default_target_dir_prefers_downloads():
+    with tempfile.TemporaryDirectory(prefix="gamepile-home-") as home:
+        downloads = Path(home) / "Downloads"
+        downloads.mkdir()
+        with patch.object(Path, "home", staticmethod(lambda: Path(home))):
+            assert backup.default_target_dir() == downloads
+
+
+def test_default_target_dir_falls_back_to_data_dir():
+    """Downloads isn't guaranteed to exist; the data dir always is."""
+    with tempfile.TemporaryDirectory(prefix="gamepile-home-") as home:
+        with patch.object(Path, "home", staticmethod(lambda: Path(home))):
+            assert backup.default_target_dir() == config.DATA_DIR
+
+
 TESTS = [
     test_envelope_has_all_required_keys,
     test_rating_scale_is_stamped,
@@ -292,6 +395,14 @@ TESTS = [
     test_picks_are_exported_without_local_autoincrement_id,
     test_fetched_columns_are_not_exported,
     test_filename_uses_dated_pattern,
+    test_write_backup_creates_a_readable_file,
+    test_write_backup_returns_an_absolute_path,
+    test_second_export_same_day_does_not_overwrite_the_first,
+    test_write_backup_creates_a_missing_directory,
+    test_write_backup_raises_on_unwritable_directory,
+    test_failed_write_leaves_no_partial_file,
+    test_default_target_dir_prefers_downloads,
+    test_default_target_dir_falls_back_to_data_dir,
 ]
 
 
