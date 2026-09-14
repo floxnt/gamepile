@@ -21,7 +21,8 @@
     </div>
   </div>
   <div id="feedback-step-container">
-    {% include "partials/feedback_step1.html" %}
+    {% set pick = pending_pick %}
+    {% include feedback_template | default("partials/feedback_step1.html") %}
   </div>
 </div>
 {% endif %}

@@ -5,8 +5,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
-from app import prompt_state
-from app.affinity import apply_quick_drop_affinity, apply_quick_finished_affinity
+from app import prompt_state, actions, taste
 from app.recommender import (
     RecommendMode,
     RecommendRequest,
@@ -46,7 +45,7 @@ def _resolve_mode(raw: Optional[str], games_for_default) -> str:
 def _build_picks_context(request: Request, minutes: int, mode: Optional[str]) -> dict:
     include_unplayed = _bool_param(request, "include_unplayed", default=True)
     include_in_progress = _bool_param(request, "include_in_progress", default=True)
-    excluded_ids = _parse_excluded(request)
+    excluded_ids = _parse_excluded(request) | frozenset(prompt_state.skipped_appids)
 
     with db.get_db() as conn:
         # Sweep expired pins (>14 days) before loading games — must happen
@@ -100,9 +99,11 @@ async def shortlist_page(request: Request):
     requested_mode = normalize_mode(request.query_params.get("mode"))
     initial_mode = requested_mode or default_mode_for_library(all_games)
 
+    from app.routes.feedback import resume_context
     return templates.TemplateResponse(request, "pick.html", {
         "recent_picks": recent_picks,
         "pending_pick": pending_pick,
+        "feedback_template": resume_context(pending_pick) if pending_pick else "partials/feedback_step1.html",
         "minutes": 90,
         "mode": initial_mode,
         "include_unplayed": True,
@@ -153,85 +154,26 @@ async def quick_action(
       confirm_finished   — mark finished + +0.5 affinity per label (Backlog
                            "Mark finished" — high engagement is a positive signal)
     """
-    from app.models import GameStatus
-
     with db.get_db() as conn:
-        game = db.get_game_by_appid(conn, appid)
-        if not game:
-            return HTMLResponse("Not found", status_code=404)
-
-        if action in ("finished", "already_completed"):
-            db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
-            if pick_id:
-                db.update_pick_outcome(conn, pick_id, outcome="played_and_finished")
-
-        elif action == "mark_in_progress":
-            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
-
-        elif action == "confirm_finished":
-            db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
-            db.clear_pin(conn, appid)
-            if game:
-                apply_quick_finished_affinity(conn, game)
-
-        elif action == "pick":
-            # Backlog "I picked this" — status nudge only. No pick_history row
-            # (this isn't a recommendation outcome) and any pin auto-clears.
-            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
-            db.clear_pin(conn, appid)
-
-        elif action == "bounced":
-            db.update_game_state(
-                conn, appid,
-                status=GameStatus.dropped,
-                dropped_strength="soft",
-                manually_set=True,
-            )
-            if game:
-                apply_quick_drop_affinity(conn, game, "soft")
-            if pick_id:
-                db.update_pick_outcome(conn, pick_id, outcome="played_and_dropped")
-
-        elif action == "not_my_thing":
-            db.update_game_state(
-                conn, appid,
-                status=GameStatus.dropped,
-                dropped_strength="strong",
-                manually_set=True,
-            )
-            if game:
-                apply_quick_drop_affinity(conn, game, "strong")
-            if pick_id:
-                db.update_pick_outcome(conn, pick_id, outcome="played_and_dropped")
-
-        elif action == "never_recommend":
-            db.update_game_state(conn, appid, blacklisted=True, manually_set=True)
-
-    if card_context == "recommendation":
-        return HTMLResponse(
-            f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>'
-        )
-
-    if card_context == "backlog":
-        # Dismiss the row in-place. Section counts and stats become slightly
-        # stale until the user reloads /backlog — acceptable given the
-        # alternative (re-rendering the whole page on every action) is heavy.
-        return HTMLResponse(
-            f'<div id="backlog-row-{appid}" class="backlog-row backlog-row--dismissed"></div>'
-        )
-
-    if pick_id is None:
-        return HTMLResponse(f'<div id="recent-card-{appid}"></div>')
-
-    with db.get_db() as conn:
-        updated_picks = db.get_recent_picks(conn, limit=8)
-    rp = next((p for p in updated_picks if p.pick.id == pick_id), None)
-    if not rp:
-        return HTMLResponse(f'<div id="recent-card-{pick_id}"></div>')
-
-    return templates.TemplateResponse(request, "partials/recent_pick_card.html", {
-        "rp": rp,
+        token = actions.perform(conn, appid, action, pick_id)
+    target = (f"backlog-row-{appid}" if card_context == "backlog"
+              else f"recent-card-{pick_id}" if card_context == "recent_pick" else f"card-{appid}")
+    return templates.TemplateResponse(request, "partials/action_done.html", {
+        "target_id":target, "message":actions.MESSAGES[action], "undo_token":token,
     })
+
+
+@router.post("/actions/undo", response_class=HTMLResponse)
+async def undo_action(request: Request, token: str = Form(...)):
+    if token in prompt_state.skip_undo:
+        appid = prompt_state.skip_undo.pop(token)
+        prompt_state.skipped_appids.discard(appid)
+    else:
+        with db.get_db() as conn:
+            appid = actions.undo(conn, token)
+    response = HTMLResponse("Undone")
+    response.headers["HX-Refresh"] = "true"
+    return response
 
 
 @router.post("/games/{appid}/pick", response_class=HTMLResponse)
@@ -256,6 +198,7 @@ async def mark_picked(request: Request, appid: int):
     from app.backlog import is_forever_game
 
     with db.get_db() as conn:
+        taste.write_lock(conn)
         # Capture pre-pick eligibility for the Dashboard's picks-per-week
         # filter. Read BEFORE update_game_state so we record the state the
         # user actually acted on, not the in_progress state we're about to set.
@@ -265,13 +208,15 @@ async def mark_picked(request: Request, appid: int):
         status_at_pick = pre.state.status.value
         was_forever_at_pick = is_forever_game(pre.game) if pre else None
 
+        before = actions._snapshot(conn, appid)
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
         # Picking a game from Shortlist auto-clears any backlog pin on it —
         # the user has already acted on the surface, no need to keep boosting.
         db.clear_pin(conn, appid)
+        taste.set_signal(conn, f'quick:{appid}', appid, [])
         game = pre.game if pre else None
         game_name = game.name if game else f"App {appid}"
-        db.insert_pick_history(
+        pick_id = db.insert_pick_history(
             conn,
             appid=appid,
             game_name=game_name,
@@ -282,19 +227,23 @@ async def mark_picked(request: Request, appid: int):
             was_forever_at_pick=was_forever_at_pick,
         )
 
-    return templates.TemplateResponse(request, "partials/game_card_confirm.html", {
-        "appid": appid,
+        before['pick_id'] = pick_id
+        after = actions._snapshot(conn, appid, pick_id)
+        token = actions.record_undo(conn, appid, before, after)
+    return templates.TemplateResponse(request, "partials/action_done.html", {
+        "target_id":f"card-{appid}", "message":"Added to your recent picks", "undo_token":token,
     })
 
 
 @router.post("/games/{appid}/state", response_class=HTMLResponse)
 async def update_state_from_card(request: Request, appid: int):
-    from app.models import GameStatus
-    body = await request.form()
-    try:
-        status = GameStatus(body.get("status", "not_interested"))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Unknown status")
+    import secrets
     with db.get_db() as conn:
-        db.update_game_state(conn, appid, status=status, manually_set=True)
-    return HTMLResponse(f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>')
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(404, "Game not found")
+    prompt_state.skipped_appids.add(appid)
+    token = secrets.token_urlsafe(24)
+    prompt_state.skip_undo[token] = appid
+    return templates.TemplateResponse(request, "partials/action_done.html", {
+        "target_id":f"card-{appid}", "message":"Skipped for this session", "undo_token":token,
+    })

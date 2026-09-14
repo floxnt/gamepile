@@ -204,6 +204,7 @@ def init_db() -> None:
             # on entering finished, cleared on leaving it, never touched by
             # subsequent edits. Powers honest completion history.
             "ALTER TABLE game_state ADD COLUMN finished_at TEXT",
+            "ALTER TABLE pick_history ADD COLUMN feedback_completed_at TEXT",
             "ALTER TABLE games ADD COLUMN hltb_fetched_at TEXT",
             "ALTER TABLE games ADD COLUMN tags_fetched_at TEXT",
             "ALTER TABLE games ADD COLUMN achievements_fetched_at TEXT",
@@ -229,6 +230,15 @@ def init_db() -> None:
             "UPDATE game_state SET status = 'played_unclassified' WHERE status = 'played'"
         )
 
+        conn.execute("""CREATE TABLE IF NOT EXISTS affinity_base (
+            kind TEXT NOT NULL, value TEXT NOT NULL, weight REAL NOT NULL,
+            pick_count INTEGER NOT NULL, PRIMARY KEY(kind,value))""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS taste_signals (
+            source TEXT PRIMARY KEY, appid INTEGER NOT NULL REFERENCES games(appid),
+            contributions TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS action_undo (
+            token TEXT PRIMARY KEY, appid INTEGER NOT NULL REFERENCES games(appid),
+            before_json TEXT NOT NULL, after_json TEXT NOT NULL, created_at TEXT NOT NULL)""")
         _apply_data_migrations(conn)
 
         # Backfill: re-run inference for every auto-inferred row so the new rules
@@ -260,7 +270,7 @@ def init_db() -> None:
 # succeed. get_db() wraps init_db() in a single transaction, so a failure
 # mid-way rolls back both the data change and the version bump.
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 def _apply_data_migrations(conn: sqlite3.Connection) -> None:
@@ -278,9 +288,25 @@ def _apply_data_migrations(conn: sqlite3.Connection) -> None:
     if current < 2:
         _migrate_v2_backfill_finished_at(conn)
 
+    if current < 3:
+        _migrate_v3_taste_signals(conn)
+
     # PRAGMA takes a literal, not a bound parameter. _SCHEMA_VERSION is an
     # int constant defined above — never user input.
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+
+
+
+def _migrate_v3_taste_signals(conn):
+    # Legacy quick feedback cannot be reconstructed exactly. Preserve the
+    # aggregate as a baseline and do not replay historical pick ratings.
+    conn.execute("INSERT OR IGNORE INTO affinity_base SELECT kind,value,weight,pick_count FROM affinity")
+    conn.execute("UPDATE pick_history SET feedback_completed_at=COALESCE(outcome_recorded_at,picked_at) WHERE outcome IS NOT NULL")
+    from app import taste
+    for row in conn.execute("SELECT appid,personal_rating FROM game_state WHERE personal_rating IS NOT NULL").fetchall():
+        game=get_game_by_appid(conn,row['appid'])
+        if game:
+            taste.set_personal_rating(conn,game,row['personal_rating'])
 
 
 def _migrate_v1_rating_scale(conn: sqlite3.Connection) -> None:
@@ -1213,7 +1239,7 @@ def get_oldest_pending_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
     """Return the oldest pick_history row with outcome IS NULL, or None."""
     row = conn.execute("""
         SELECT * FROM pick_history
-        WHERE outcome IS NULL
+        WHERE feedback_completed_at IS NULL
         ORDER BY picked_at ASC
         LIMIT 1
     """).fetchone()
@@ -1293,6 +1319,7 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
             bool(row["was_forever_at_pick"]) if "was_forever_at_pick" in keys and row["was_forever_at_pick"] is not None
             else None
         ),
+        feedback_completed_at=_parse_dt(row["feedback_completed_at"]) if "feedback_completed_at" in keys else None,
     )
 
 

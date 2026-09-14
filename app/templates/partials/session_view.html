@@ -1,8 +1,13 @@
 {# Decision Session — full <main> replacement. Shows one card at a time. #}
-<section class="session-page" id="session-content">
+<section class="session-page" id="session-content" hx-sync="this:drop" hx-disabled-elt="find button">
   <div class="session-header">
     <h1 class="page-title">Review: {{ section_title }}</h1>
-    <span class="session-progress">{{ index + 1 }} of {{ total }}</span>
+    <span class="session-progress">{{ [index + 1, total] | min }} of {{ total }}</span>
   </div>
-  {% include "partials/session_card.html" %}
+  {% if session.history %}
+    <button class="btn btn-ghost btn-sm" hx-post="/backlog/session/{{ session.id }}/undo"
+      hx-vals='{{ {"index":index} | tojson }}' hx-target="#session-content" hx-swap="outerHTML">Undo last decision</button>
+  {% endif %}
+  {% if gws %}{% include "partials/session_card.html" %}
+  {% else %}{% include "partials/session_recap.html" %}{% endif %}
 </section>

@@ -181,6 +181,8 @@ class PickHistory:
     status_at_pick: Optional[str] = None      # one of GameStatus values; NULL on legacy rows
     was_forever_at_pick: Optional[bool] = None  # is_forever_game(game) at pick time
 
+    feedback_completed_at: Optional[datetime] = None
+
 
 @dataclass
 class Affinity:

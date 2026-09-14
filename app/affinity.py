@@ -116,8 +116,9 @@ def get_affinity_summary(game: Game, affinities: dict) -> list[str]:
 
     contributions.sort(key=lambda x: abs(x[0]), reverse=True)
     top = contributions[:2]
-    parts = [f"{label}: {'+' if c >= 0 else ''}{c:.1f}" for c, label in top]
-    return [f"matches your taste ({', '.join(parts)})"]
+    names = ", ".join(label for _, label in top)
+    direction = "matches your taste" if sum(c for c, _ in contributions) >= 0 else "less aligned with your taste"
+    return [f"{direction} ({names})"]
 
 
 def get_affinity_explanation(game: Game, affinities: dict) -> list:
@@ -191,10 +192,9 @@ def apply_quick_drop_affinity(
     strength: "soft"   (Bounced off it)  → -0.5 per label
               "strong" (Not my thing)    → -1.0 per label
     """
+    from app import taste
     delta = -0.5 if strength == "soft" else -1.0
-    labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
-    for kind, value in labels:
-        db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=False)
+    taste.set_signal(conn, f"quick:{game.appid}", game.appid, taste.labels(game, delta))
 
 
 def apply_quick_finished_affinity(conn: sqlite3.Connection, game: Game) -> None:
@@ -209,10 +209,8 @@ def apply_quick_finished_affinity(conn: sqlite3.Connection, game: Game) -> None:
     finished" overflow click). If the user later corrects course, lighter
     deltas are easier to recover from than +1.0.
     """
-    delta = 0.5
-    labels = deduplicate_labels(game.genre_list(), game.user_tags_list(), game.developer)
-    for kind, value in labels:
-        db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=False)
+    from app import taste
+    taste.set_signal(conn, f"quick:{game.appid}", game.appid, taste.labels(game, 0.5))
 
 
 def apply_did_not_play_affinity(
@@ -220,6 +218,7 @@ def apply_did_not_play_affinity(
     picked_game: Game,
     reason: str,
     preferred_game: Optional[Game] = None,
+    *, source: Optional[str] = None,
 ) -> None:
     """
     Apply affinity changes for a did-not-play feedback path.
@@ -229,38 +228,13 @@ def apply_did_not_play_affinity(
     changed_mood   — no negative on picked game; +0.3 to preferred_game if given
     picked_another_game — -0.3 to picked game; +0.3 to preferred_game if given
     """
-    if reason in ("no_time", "technical_issue"):
-        return
-
-    picked_labels = deduplicate_labels(
-        picked_game.genre_list(),
-        picked_game.user_tags_list(),
-        picked_game.developer,
-    )
-
-    if reason == "changed_mood":
-        # No penalty on picked game — user didn't reject it, just changed mood.
-        if preferred_game:
-            other_labels = deduplicate_labels(
-                preferred_game.genre_list(),
-                preferred_game.user_tags_list(),
-                preferred_game.developer,
-            )
-            for kind, value in other_labels:
-                db.upsert_affinity_delta(conn, kind, value, +0.3, increment_pick_count=False)
-        return
-
+    from app import taste
+    values=[]
     if reason == "picked_another_game":
-        for kind, value in picked_labels:
-            db.upsert_affinity_delta(conn, kind, value, -0.3, increment_pick_count=False)
-        if preferred_game:
-            other_labels = deduplicate_labels(
-                preferred_game.genre_list(),
-                preferred_game.user_tags_list(),
-                preferred_game.developer,
-            )
-            for kind, value in other_labels:
-                db.upsert_affinity_delta(conn, kind, value, +0.3, increment_pick_count=False)
+        values += taste.labels(picked_game,-0.3,confidence=False)
+    if reason in ("picked_another_game", "changed_mood") and preferred_game:
+        values += taste.labels(preferred_game,0.3,confidence=False)
+    taste.set_signal(conn,source or f"alternative:{picked_game.appid}",picked_game.appid,values)
 
 
 def apply_affinity_update(
@@ -280,29 +254,15 @@ def apply_affinity_update(
       - Step 3 genre match → additional modifier for genres/tags (not developer)
       - Step 4 retroactive → +0.3 to preferred game labels, -0.3 to played game labels
     """
-    labels = deduplicate_labels(
-        played_game.genre_list(),
-        played_game.user_tags_list(),
-        played_game.developer,
-    )
-
-    step2_delta = _RATING_DELTA.get(rating, 0.0) if rating is not None else 0.0
-    step3_mod   = _GENRE_MATCH_MOD.get(genre_match_rating, 0.0) if genre_match_rating is not None else 0.0
-
-    for kind, value in labels:
-        is_dev = (kind == "developer")
-        # Developer only gets the step-2 signal; genre match doesn't relate to developer.
-        raw = step2_delta + (0.0 if is_dev else step3_mod)
-        delta = max(-1.5, min(1.5, raw))
-        db.upsert_affinity_delta(conn, kind, value, delta, increment_pick_count=True)
-
+    from app import taste
+    values=[]
+    step2_delta = _RATING_DELTA.get(rating, 0.0)
+    step3_mod = _GENRE_MATCH_MOD.get(genre_match_rating, 0.0)
+    if rating is not None or genre_match_rating is not None:
+        for kind, value in deduplicate_labels(played_game.genre_list(), played_game.user_tags_list(), played_game.developer):
+            delta=step2_delta + (0.0 if kind == 'developer' else step3_mod)
+            values.append({"kind":kind,"value":value,"delta":max(-1.5,min(1.5,delta)),"confidence":True})
     if would_have_other_game:
-        other_labels = deduplicate_labels(
-            would_have_other_game.genre_list(),
-            would_have_other_game.user_tags_list(),
-            would_have_other_game.developer,
-        )
-        for kind, value in other_labels:
-            db.upsert_affinity_delta(conn, kind, value, +0.3, increment_pick_count=False)
-        for kind, value in labels:
-            db.upsert_affinity_delta(conn, kind, value, -0.3, increment_pick_count=False)
+        values += taste.labels(would_have_other_game,0.3,confidence=False)
+        values += taste.labels(played_game,-0.3,confidence=False)
+    taste.set_signal(conn,f"pick:{pick.id}",played_game.appid,values)

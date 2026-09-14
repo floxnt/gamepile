@@ -2786,3 +2786,7 @@ a.affinity-pill--clickable:focus-visible {
 .session-recap-list li { color: var(--text); }
 .recap-skipped { color: var(--muted); }
 .session-recap-empty { color: var(--muted); margin-bottom: 1.5rem; }
+
+/* Compact feedback alongside the action the user just took. */
+.action-result { display:flex; align-items:center; gap:0.75rem; padding:0.65rem 0; flex-wrap:wrap; }
+#app-error { padding:0.75rem; }

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
+from app import taste, actions
 from app.backlog import is_forever_game
 from app.fetchers import hltb as hltb_fetcher
 from app.game_detail import (
@@ -91,6 +92,10 @@ async def game_detail_page(request: Request, appid: int):
     ctx = _build_full_context(appid)
     if ctx is None:
         raise HTTPException(status_code=404, detail="Game not found")
+    from app import decision_sessions
+    session_id=request.query_params.get('session','')
+    session=decision_sessions.sessions.get(session_id)
+    ctx['return_to_session']=session_id if session and appid in session.queue else None
     return templates.TemplateResponse(request, "game_detail.html", ctx)
 
 
@@ -108,6 +113,10 @@ async def update_status(
         raise HTTPException(status_code=400, detail=f"Unknown status: {status}")
 
     with db.get_db() as conn:
+        taste.write_lock(conn)
+        game = db.get_game_by_appid(conn, appid)
+        if game is None:
+            raise HTTPException(404, "Game not found")
         if dropped_strength is not None:
             db.update_game_state(
                 conn, appid,
@@ -117,6 +126,8 @@ async def update_status(
             )
         else:
             db.update_game_state(conn, appid, status=new_status, manually_set=True)
+        taste.set_signal(conn, f"quick:{appid}", appid,
+            taste.labels(game, -1 if dropped_strength == "strong" else -0.5) if dropped_strength else [])
 
     ctx = _status_bar_context(appid)
     if ctx is None:
@@ -130,7 +141,10 @@ async def reset_status(request: Request, appid: int):
     + HLTB + last_played. Status may demote (e.g. finished → played_unclassified).
     """
     with db.get_db() as conn:
+        taste.write_lock(conn)
         result = db.reset_status_to_inferred(conn, appid)
+        if result is not None:
+            taste.set_signal(conn, f"quick:{appid}", appid, [])
     if result is None:
         raise HTTPException(status_code=404)
     ctx = _status_bar_context(appid)
@@ -202,7 +216,12 @@ async def update_rating(
         new_value = rating
 
     with db.get_db() as conn:
+        taste.write_lock(conn)
+        game = db.get_game_by_appid(conn, appid)
+        if game is None:
+            raise HTTPException(404, "Game not found")
         db.set_personal_rating(conn, appid, new_value)
+        taste.set_personal_rating(conn, game, new_value)
         gws = db.get_game_with_state_by_appid(conn, appid)
     if gws is None:
         raise HTTPException(status_code=404)
@@ -352,3 +371,19 @@ async def reset_hltb_id(request: Request, appid: int):
     return templates.TemplateResponse(
         request, "partials/game_detail_data.html", ctx,
     )
+
+
+@router.post("/games/{appid}/restore",response_class=HTMLResponse)
+async def restore_game(request:Request,appid:int):
+    with db.get_db() as conn:
+        token=actions.perform(conn,appid,'restore')
+    return templates.TemplateResponse(request,'partials/action_done.html',{
+        'target_id':'game-exclusion','message':'Restored to recommendations','undo_token':token})
+
+
+@router.post("/games/{appid}/clear_technical_issue",response_class=HTMLResponse)
+async def clear_technical_issue(request:Request,appid:int):
+    with db.get_db() as conn:
+        token=actions.perform(conn,appid,'clear_technical_issue')
+    return templates.TemplateResponse(request,'partials/action_done.html',{
+        'target_id':'game-technical-issue','message':'Technical issue cleared','undo_token':token})

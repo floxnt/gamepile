@@ -1,0 +1,5 @@
+<div id="{{ target_id }}" class="action-result" role="status">
+  <span>{{ message }}.</span>
+  <button class="btn btn-ghost btn-sm" hx-post="/actions/undo"
+    hx-vals='{{ {"token": undo_token} | tojson }}' hx-target="closest .action-result" hx-swap="outerHTML">Undo</button>
+</div>
