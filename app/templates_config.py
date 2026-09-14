@@ -91,6 +91,9 @@ def _duration_label(h) -> str:
 
 
 templates = Jinja2Templates(directory=str(app_resource_dir() / "templates"))
+from app.security import CSRF_TOKEN
+templates.env.globals["csrf_token"] = CSRF_TOKEN
+
 templates.env.filters["fmt_hours"] = _fmt_hours
 templates.env.filters["fmt_minutes"] = _fmt_minutes
 templates.env.filters["fmt_count"] = _fmt_count

@@ -9,6 +9,7 @@ guarded by sys.platform check.
 No pytest dependency.
 """
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -27,7 +28,7 @@ from app import config
 
 def test_data_dir_resolves_via_platformdirs():
     """DATA_DIR (set at import time) must match a fresh platformdirs call."""
-    expected = Path(platformdirs.user_data_dir("gamepile", appauthor=False))
+    expected = config._resolve_data_dir()
     assert config.DATA_DIR == expected, (
         f"DATA_DIR={config.DATA_DIR!r} but platformdirs returns {expected!r}"
     )
@@ -36,7 +37,7 @@ def test_data_dir_resolves_via_platformdirs():
 def test_data_dir_ends_with_gamepile():
     """Cross-platform invariant: the leaf directory is always 'gamepile'.
     Catches accidental appauthor=True / wrong app name."""
-    assert config.DATA_DIR.name == "gamepile", config.DATA_DIR
+    assert config.data_dir_override() is not None or config.DATA_DIR.name == "gamepile", config.DATA_DIR
 
 
 def test_data_dir_exists_after_import():
@@ -99,7 +100,7 @@ def test_legacy_migration_runs_on_linux():
         legacy.mkdir()
         (legacy / "tonights-pick.db").write_text("legacy")
 
-        with patch.object(sys, "platform", "linux"):
+        with patch.object(sys, "platform", "linux"), patch.dict(os.environ, {"GAMEPILE_DATA_DIR": ""}):
             config._migrate_legacy_data(target)
             # Legacy renamed to target; DB file renamed too.
             assert target.exists()

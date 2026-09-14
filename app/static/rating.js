@@ -31,10 +31,11 @@
     var body = val !== null ? "rating=" + val : "clear=1";
     fetch("/games/" + appid + "/rating", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "X-GamePile-Token": window.gamepile.token() },
       body: body,
     })
       .then(function (r) {
+        if (!r.ok) throw new Error("Your rating could not be saved. Please try again.");
         return r.text();
       })
       .then(function (html) {
@@ -43,7 +44,7 @@
           container.outerHTML = html;
           initRating();
         }
-      });
+      }).catch(function (e) { window.gamepile.showError(e.message); });
   }
 
   initRating();

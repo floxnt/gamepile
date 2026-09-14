@@ -204,11 +204,21 @@ def init_db() -> None:
             # on entering finished, cleared on leaving it, never touched by
             # subsequent edits. Powers honest completion history.
             "ALTER TABLE game_state ADD COLUMN finished_at TEXT",
+            "ALTER TABLE games ADD COLUMN hltb_fetched_at TEXT",
+            "ALTER TABLE games ADD COLUMN tags_fetched_at TEXT",
+            "ALTER TABLE games ADD COLUMN achievements_fetched_at TEXT",
+            "ALTER TABLE games ADD COLUMN user_achievements_fetched_at TEXT",
+            "ALTER TABLE games ADD COLUMN hltb_override_updated_at TEXT",
+            "ALTER TABLE games ADD COLUMN hltb_match_id INTEGER",
+            "ALTER TABLE games ADD COLUMN hltb_match_name TEXT",
+            "ALTER TABLE games ADD COLUMN hltb_match_similarity REAL",
+
         ]:
             try:
                 conn.execute(ddl)
-            except Exception:
-                pass  # column already exists
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc):
+                    raise
 
         # Convert any legacy 'played' rows to 'played_unclassified'. The old enum
         # used 'played' as a catch-all for "Steam shows hours, user hasn't
@@ -434,6 +444,14 @@ def _row_to_game(row: sqlite3.Row) -> Game:
             row["user_achievement_pct"]
             if "user_achievement_pct" in keys else None
         ),
+        hltb_fetched_at=_parse_dt(row["hltb_fetched_at"]) if "hltb_fetched_at" in keys else None,
+        tags_fetched_at=_parse_dt(row["tags_fetched_at"]) if "tags_fetched_at" in keys else None,
+        achievements_fetched_at=_parse_dt(row["achievements_fetched_at"]) if "achievements_fetched_at" in keys else None,
+        user_achievements_fetched_at=_parse_dt(row["user_achievements_fetched_at"]) if "user_achievements_fetched_at" in keys else None,
+        hltb_override_updated_at=row["hltb_override_updated_at"] if "hltb_override_updated_at" in keys else None,
+        hltb_match_id=row["hltb_match_id"] if "hltb_match_id" in keys else None,
+        hltb_match_name=row["hltb_match_name"] if "hltb_match_name" in keys else None,
+        hltb_match_similarity=row["hltb_match_similarity"] if "hltb_match_similarity" in keys else None,
     )
 
 
@@ -645,6 +663,39 @@ def upsert_game(conn: sqlite3.Connection, game: Game) -> None:
         "median_achievement_unlock_pct": game.median_achievement_unlock_pct,
         "user_achievement_pct": game.user_achievement_pct,
     })
+
+
+_ENRICHMENT_FIELDS = frozenset({
+    "hltb_main_hours", "hltb_main_extra_hours", "hltb_completionist_hours",
+    "genres", "tags", "user_tags", "developer", "publisher", "metacritic_score",
+    "steam_review_pct", "steam_review_count", "release_date", "description",
+    "game_type", "app_type", "median_achievement_unlock_pct", "user_achievement_pct",
+    "hltb_fetched_at", "tags_fetched_at", "achievements_fetched_at",
+    "user_achievements_fetched_at", "hltb_match_id", "hltb_match_name", "hltb_match_similarity",
+})
+
+
+def apply_enrichment(conn: sqlite3.Connection, snapshot: Game, updates: dict) -> Optional[Game]:
+    """Write fetched fields only, respecting overrides at commit time.
+
+    Never write a stale whole Game back after awaiting network I/O. The
+    transaction serializes this read/check/write with manual edits.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    current = get_game_by_appid(conn, snapshot.appid)
+    if current is None:
+        return None
+    safe = {k: v for k, v in updates.items() if k in _ENRICHMENT_FIELDS and v is not None}
+    if current.game_type_manual:
+        safe.pop("game_type", None)
+    if (current.hltb_id_manual, current.hltb_override_updated_at) != (snapshot.hltb_id_manual, snapshot.hltb_override_updated_at):
+        safe = {k: v for k, v in safe.items() if not k.startswith("hltb_")}
+    if safe:
+        safe["last_refreshed"] = datetime.utcnow()
+        fields = ", ".join(f"{key} = ?" for key in safe)
+        values = [v.isoformat() if isinstance(v, datetime) else v for v in safe.values()]
+        conn.execute(f"UPDATE games SET {fields} WHERE appid = ?", (*values, snapshot.appid))
+    return get_game_by_appid(conn, snapshot.appid)
 
 
 def ensure_game_state(
@@ -947,12 +998,13 @@ def set_hltb_id_manual(
         """
         UPDATE games
         SET hltb_id_manual = ?,
+            hltb_override_updated_at = ?,
             hltb_main_hours = ?,
             hltb_main_extra_hours = ?,
             hltb_completionist_hours = ?
         WHERE appid = ?
         """,
-        (hltb_id, main_hours, main_extra_hours, completionist_hours, appid),
+        (hltb_id, datetime.utcnow().isoformat(), main_hours, main_extra_hours, completionist_hours, appid),
     )
 
 
@@ -971,12 +1023,13 @@ def clear_hltb_id_manual(
         """
         UPDATE games
         SET hltb_id_manual = NULL,
+            hltb_override_updated_at = ?,
             hltb_main_hours = ?,
             hltb_main_extra_hours = ?,
             hltb_completionist_hours = ?
         WHERE appid = ?
         """,
-        (main_hours, main_extra_hours, completionist_hours, appid),
+        (datetime.utcnow().isoformat(), main_hours, main_extra_hours, completionist_hours, appid),
     )
 
 

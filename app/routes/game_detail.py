@@ -1,3 +1,4 @@
+import math
 from typing import Optional
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -179,6 +180,7 @@ async def update_notes(
     if gws is None:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "partials/game_detail_notes.html", {
+        "game": gws.game,
         "state": gws.state,
         "saved": True,
     })
@@ -220,7 +222,7 @@ async def update_hours_played_manual(
     if clear:
         new_value: Optional[float] = None
     else:
-        if hours is None or hours < 0:
+        if hours is None or not math.isfinite(hours) or hours < 0:
             raise HTTPException(status_code=400, detail="Hours must be ≥ 0 or clear=1")
         new_value = hours
 
@@ -230,6 +232,7 @@ async def update_hours_played_manual(
     if gws is None:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "partials/game_detail_hours.html", {
+        "game": gws.game,
         "state": gws.state,
         "saved": True,
     })

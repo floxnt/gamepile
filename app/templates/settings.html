@@ -33,6 +33,7 @@
     <details class="settings-edit">
       <summary class="settings-edit-toggle">Change API key</summary>
       <form method="post" action="/settings/api-key" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="text"
                name="api_key"
                class="settings-input"
@@ -65,6 +66,7 @@
     <details class="settings-edit">
       <summary class="settings-edit-toggle">Change SteamID</summary>
       <form method="post" action="/settings/steam-id" class="settings-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="text"
                name="steam_id_input"
                class="settings-input"

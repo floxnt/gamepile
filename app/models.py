@@ -77,6 +77,14 @@ class Game:
     # the fetch hasn't run yet for this game. Populated by sync via
     # GetPlayerAchievements alongside the global percentages fetch.
     user_achievement_pct: Optional[float] = None
+    hltb_fetched_at: Optional[datetime] = None
+    tags_fetched_at: Optional[datetime] = None
+    achievements_fetched_at: Optional[datetime] = None
+    user_achievements_fetched_at: Optional[datetime] = None
+    hltb_override_updated_at: Optional[str] = None
+    hltb_match_id: Optional[int] = None
+    hltb_match_name: Optional[str] = None
+    hltb_match_similarity: Optional[float] = None
 
     def primary_genre(self) -> Optional[str]:
         parts = [g.strip() for g in self.genres.split(",") if g.strip()]

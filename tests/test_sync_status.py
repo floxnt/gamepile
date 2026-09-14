@@ -36,7 +36,7 @@ from app.main import app
 from app.routes import setup as setup_routes
 
 
-_client = TestClient(app)
+_client = TestClient(app, base_url="http://127.0.0.1")
 
 
 def _set_state(task=None, **progress_kw) -> None:

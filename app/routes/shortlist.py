@@ -1,7 +1,7 @@
 import json
 from typing import Optional
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
@@ -237,14 +237,16 @@ async def quick_action(
 @router.post("/games/{appid}/pick", response_class=HTMLResponse)
 async def mark_picked(request: Request, appid: int):
     from app.models import GameStatus
+    body = await request.form()
+    raw_ids = body.getlist("candidates_at_pick")
     try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    candidates_at_pick: list[int] = body.get("candidates_at_pick") or []
-    mode_str = normalize_mode(body.get("mode")) or RecommendMode.i_only_have_tonight.value
-    minutes_val = int(body.get("minutes", 90))
+        candidates_at_pick = list(dict.fromkeys(int(v) for v in raw_ids))
+        minutes_val = int(body.get("minutes", 90))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid pick details")
+    mode_str = normalize_mode(body.get("mode"))
+    if not mode_str or not 15 <= minutes_val <= 480 or len(candidates_at_pick) > 100:
+        raise HTTPException(status_code=400, detail="Invalid pick details")
     # Time window only meaningful for "I only have tonight"; the four other
     # modes are intent-driven and ignore the slider.
     time_window = (
@@ -258,7 +260,9 @@ async def mark_picked(request: Request, appid: int):
         # filter. Read BEFORE update_game_state so we record the state the
         # user actually acted on, not the in_progress state we're about to set.
         pre = db.get_game_with_state_by_appid(conn, appid)
-        status_at_pick = pre.state.status.value if pre else None
+        if pre is None:
+            raise HTTPException(status_code=404, detail="Game not found")
+        status_at_pick = pre.state.status.value
         was_forever_at_pick = is_forever_game(pre.game) if pre else None
 
         db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
@@ -286,8 +290,11 @@ async def mark_picked(request: Request, appid: int):
 @router.post("/games/{appid}/state", response_class=HTMLResponse)
 async def update_state_from_card(request: Request, appid: int):
     from app.models import GameStatus
-    body = await request.json()
-    status = GameStatus(body.get("status", "not_interested"))
+    body = await request.form()
+    try:
+        status = GameStatus(body.get("status", "not_interested"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Unknown status")
     with db.get_db() as conn:
         db.update_game_state(conn, appid, status=status, manually_set=True)
     return HTMLResponse(f'<div id="card-{appid}" class="game-card game-card--dismissed"></div>')

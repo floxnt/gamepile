@@ -59,7 +59,7 @@
 
       {% if state.personal_rating %}
         <div class="session-rating">
-          {% for i in range(state.personal_rating) %}★{% endfor %}{% for i in range(5 - state.personal_rating) %}☆{% endfor %}
+          {{ state.personal_rating / 2 }} / 5 ★
         </div>
       {% endif %}
 

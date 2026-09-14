@@ -78,7 +78,7 @@ def _resolve_icon_path() -> str:
     return str(Path(__file__).parent.parent / "assets" / "icons" / filename)
 
 
-app = FastAPI(title="GamePile", docs_url=None, redoc_url=None)
+app = FastAPI(title="GamePile", docs_url=None, redoc_url=None, openapi_url=None)
 
 app.mount(
     "/static",
@@ -126,6 +126,10 @@ async def first_run_redirect(request: Request, call_next):
     if not credentials.has_complete_credentials():
         return RedirectResponse(url="/setup/welcome", status_code=303)
     return await call_next(request)
+
+
+from app.security import protect_local_api
+app.middleware("http")(protect_local_api)
 
 
 @app.get("/healthz")
