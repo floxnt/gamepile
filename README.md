@@ -14,9 +14,9 @@ see the README bundled with each release archive (or `README.bundled.md` in this
 ## Stack
 
 - Python 3.12+, FastAPI backend
-- HTMX + Jinja2, vanilla CSS, no JS frameworks
+- Bundled HTMX + Jinja2, vanilla CSS, no JS frameworks
 - SQLite via `sqlite3` stdlib (no ORM)
-- pywebview for the native window (GTK on Linux, EdgeChromium/WebView2 on Windows)
+- pywebview for the native window (Qt/PySide6 on Linux, EdgeChromium/WebView2 on Windows)
 - [uv](https://github.com/astral-sh/uv) for dependency management
 - PyInstaller (--onedir) for binary distribution
 
@@ -24,14 +24,10 @@ see the README bundled with each release archive (or `README.bundled.md` in this
 
 ### Linux (development + binary)
 
-Install GTK + WebKit2 system libraries before `uv sync`:
-
-| Distro | Command |
-|---|---|
-| Arch | `sudo pacman -S webkit2gtk-4.1 python-gobject gtk3` |
-| Ubuntu/Debian | `sudo apt install python3-gi gir1.2-webkit2-4.1 libwebkit2gtk-4.1-0` |
-
-These cannot be bundled portably — PyInstaller can't ship system libraries.
+`uv sync --locked` installs PySide6 and QtWebEngine for development. A normal
+Linux desktop needs its standard graphics libraries (libGL/libEGL).
+The packaged AppImage bundles Qt; it does not require GTK or WebKit.
+See [the bundled README](README.bundled.md) for AppImage/FUSE requirements.
 
 ### Windows (binary only)
 
@@ -73,11 +69,22 @@ Resolved via the [`platformdirs`](https://pypi.org/project/platformdirs/) librar
 ## Running tests
 
 ```bash
-uv run python tests/run_tests.py
+uv run --locked python tests/run_tests.py
 ```
 
 Aggregates every `tests/test_*.py` suite. No pytest dependency — each suite
-runs as a script with its own `main()`.
+runs as a script with its own `main()`. Database tests use asserted temporary
+paths. Pull requests run the suites on Linux and Windows.
+
+## Backups and current changes
+
+Settings can export a JSON backup and preview an import, choose how conflicts
+are handled, and restore personal data. Import automatically saves a recovery
+backup before applying changes. Credentials are not included.
+
+See [reliability and restore notes](docs/RELIABILITY_AND_RESTORE.md) for the
+unreleased workflow changes, schema migration, restore semantics, and native
+release checks.
 
 ## Building binaries locally
 
