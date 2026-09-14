@@ -130,7 +130,7 @@ function findGames() {
     params.delete('excluded');
     _setActiveTab('tab-find');
     document.getElementById('controls-panel').classList.remove('collapsed');
-    _swapMainContent(params);
+    _swapMainContent(params, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -147,10 +147,10 @@ function tryAgain() {
     _swapMainContent(params);
 }
 
-function _swapMainContent(params) {
-    const picksUrl = '/picks?' + params.toString();
+function _swapMainContent(params, reset = false) {
+    const picksUrl = (reset ? '/picks/reset?' : '/picks?') + params.toString();
     const pageUrl  = '/?' + params.toString();
-    htmx.ajax('GET', picksUrl, {target: '#main-content', swap: 'outerHTML'});
+    htmx.ajax(reset ? 'POST' : 'GET', picksUrl, {target: '#main-content', swap: 'outerHTML'});
     history.pushState(null, '', pageUrl);
 }
 </script>

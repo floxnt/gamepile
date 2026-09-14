@@ -1,0 +1,32 @@
+<div id="import-result" class="settings-import-result" role="status">
+  {% if error %}<p class="settings-error">{{ error }} No changes were imported.</p>{% endif %}
+  {% if preview %}
+    <h3>Review this backup</h3>
+    <table class="import-preview-table">
+      <thead><tr><th>Records</th><th>In backup</th><th>Conflicts</th></tr></thead>
+      <tbody>{% for label, count in preview.counts.items() %}
+        <tr><td>{{ label }}</td><td>{{ count }}</td><td>{{ preview.conflicts.get(label, '—') }}</td></tr>
+      {% endfor %}</tbody>
+    </table>
+    {% if preview.placeholders %}
+      <p>{{ preview.placeholders | length }} games aren't in this installation yet. Their records will be preserved; refresh Steam afterward to confirm ownership and rebuild game data.</p>
+      <details><summary>Show these games</summary><ul>{% for game in preview.placeholders %}<li>{{ game.name }}</li>{% endfor %}</ul></details>
+    {% endif %}
+    {% if preview.legacy %}<p>This is an older backup. Its existing taste history will be preserved. New ratings and feedback will be editable individually.</p>{% endif %}
+    <form hx-post="/settings/import/apply" hx-target="#import-result" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="token" value="{{ token }}">
+      <fieldset>
+        <legend>When records conflict</legend>
+        <label><input type="radio" name="policy" value="backup" checked> Prefer values from the backup</label><br>
+        <label><input type="radio" name="policy" value="local"> Keep values from this installation</label>
+      </fieldset>
+      <p>The same choice applies to older taste history. Games and picks found only on this installation are kept. A backup of your current data will be saved before importing.</p>
+      <button type="submit" class="btn btn-primary btn-sm">Import this backup</button>
+    </form>
+  {% endif %}
+  {% if imported %}
+    <p class="settings-success">Backup imported. Ratings, notes, overrides, picks, and taste history have been restored.</p>
+    <p>Your data from before this import is saved at <code>{{ before_path }}</code>.</p>
+    <p>Refresh Steam to fill in missing game data. Review sessions have been reset to reflect the imported records.</p>
+  {% endif %}
+</div>

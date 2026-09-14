@@ -17,14 +17,22 @@
     event.detail.headers['X-GamePile-Token'] = token();
   });
   document.addEventListener('htmx:responseError', function (event) {
-    showError(event.detail.xhr.status === 403
-      ? 'Your session has expired. Reload GamePile and try again.'
-      : 'That change could not be completed. Reload the page and try again.');
+    var xhr = event.detail.xhr;
+    var message = 'That change could not be completed. Please try again.';
+    if (xhr.status < 500) {
+      try {
+        var detail = JSON.parse(xhr.responseText).detail;
+        if (typeof detail === 'string') message = detail;
+      } catch (_) {
+        if (xhr.responseText.length < 300 && !xhr.responseText.includes('<')) message = xhr.responseText;
+      }
+    }
+    showError(message);
   });
   document.addEventListener('htmx:sendError', function () {
     showError('GamePile could not be reached. Please try again.');
   });
-  // One request per action surface until the current response arrives.
+  // Remove the previous error before attempting another action.
   document.addEventListener('htmx:beforeRequest', function () {
     document.getElementById('app-error')?.remove();
   });

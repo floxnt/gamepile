@@ -189,6 +189,8 @@ async def update_notes(
     notes: str = Form(""),
 ):
     with db.get_db() as conn:
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(404, "Game not found")
         db.set_notes(conn, appid, notes)
         gws = db.get_game_with_state_by_appid(conn, appid)
     if gws is None:
@@ -246,6 +248,8 @@ async def update_hours_played_manual(
         new_value = hours
 
     with db.get_db() as conn:
+        if db.get_game_by_appid(conn, appid) is None:
+            raise HTTPException(404, "Game not found")
         db.set_hours_played_manual(conn, appid, new_value)
         gws = db.get_game_with_state_by_appid(conn, appid)
     if gws is None:
@@ -324,6 +328,7 @@ async def update_hltb_id(
             main_hours=result.hltb_main_hours,
             main_extra_hours=result.hltb_main_extra_hours,
             completionist_hours=result.hltb_completionist_hours,
+            matched_name=result.matched_name,
         )
 
     ctx = _data_partial_context(appid)
@@ -363,6 +368,7 @@ async def reset_hltb_id(request: Request, appid: int):
             main_hours=main,
             main_extra_hours=main_extra,
             completionist_hours=completionist,
+            matched_id=result.matched_id, matched_name=result.matched_name, similarity=result.similarity,
         )
 
     ctx = _data_partial_context(appid)

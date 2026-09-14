@@ -28,6 +28,10 @@
   }
 
   function postRating(appid, val) {
+    var widget = document.getElementById('rating-widget');
+    if (!widget || widget.dataset.saving) return;
+    widget.dataset.saving = '1';
+    widget.setAttribute('aria-busy', 'true');
     var body = val !== null ? "rating=" + val : "clear=1";
     fetch("/games/" + appid + "/rating", {
       method: "POST",
@@ -44,7 +48,11 @@
           container.outerHTML = html;
           initRating();
         }
-      }).catch(function (e) { window.gamepile.showError(e.message); });
+      }).catch(function (e) { window.gamepile.showError(e.message); })
+      .finally(function () {
+        delete widget.dataset.saving;
+        widget.removeAttribute('aria-busy');
+      });
   }
 
   initRating();

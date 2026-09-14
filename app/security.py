@@ -1,4 +1,5 @@
 """Protect the loopback API from requests initiated by other websites."""
+
 import secrets
 from urllib.parse import urlsplit
 
@@ -17,22 +18,39 @@ async def protect_local_api(request: Request, call_next):
         return PlainTextResponse("Cross-site request rejected", status_code=403)
     origin = request.headers.get("origin")
     if origin:
-        parsed = urlsplit(origin)
+        try:
+            parsed = urlsplit(origin)
+        except ValueError:
+            return PlainTextResponse("Invalid origin", status_code=403)
         if (parsed.scheme, parsed.netloc) != (request.url.scheme, request.url.netloc):
             return PlainTextResponse("Invalid origin", status_code=403)
     if request.method not in _SAFE_METHODS:
+        try:
+            content_length = int(request.headers.get("content-length", "0"))
+        except ValueError:
+            return PlainTextResponse("Invalid content length", status_code=400)
+        if content_length > 17 * 1024 * 1024:
+            return PlainTextResponse(
+                "Choose a backup smaller than 16 MB.", status_code=413
+            )
         token = request.headers.get("x-gamepile-token", "")
         # Native setup/settings forms carry a hidden field. Reading body()
         # first lets Starlette replay the body to the actual route handler.
-        if not token and request.headers.get("content-type", "").startswith("application/x-www-form-urlencoded"):
+        if not token and request.headers.get("content-type", "").startswith(
+            "application/x-www-form-urlencoded"
+        ):
             body = await request.body()
             if len(body) <= 65536:
                 token = (await request.form()).get("csrf_token", "")
         if not isinstance(token, str) or not secrets.compare_digest(token, CSRF_TOKEN):
-            return PlainTextResponse("Session expired. Reload GamePile and try again.", status_code=403)
+            return PlainTextResponse(
+                "Session expired. Reload GamePile and try again.", status_code=403
+            )
     response = await call_next(request)
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Content-Security-Policy"] = "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    response.headers["Content-Security-Policy"] = (
+        "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
+    )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     if not request.url.path.startswith("/static/"):

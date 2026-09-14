@@ -25,6 +25,13 @@
   {# Section 3 — Game data (read-only) #}
   {% include "partials/game_detail_data.html" %}
 
+{% if game.description %}
+  <section class="game-detail-description">
+    <p>{{ game.description }}</p>
+  </section>
+{% endif %}
+
+
   {# Section 4 — Personal #}
   <section class="game-detail-personal">
     <h2 class="game-detail-section-title">Personal</h2>

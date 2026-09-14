@@ -12,7 +12,8 @@ Caching policy (bypassed when force=True):
   - hltb_main_hours / user_tags missing always triggers a refetch regardless
     of TTL, so transient HLTB / SteamSpy outages can recover on the next run.
   - Steam playtime, store details, and review data are always re-fetched.
-  - last_refreshed advances on every enrichment pass.
+  - Each source has its own success timestamp; skipped/failed fetches never
+    renew a different source. Personal achievements refresh daily or after play.
 
 Adaptive pacing:
   Every HLTB lookup outcome (match vs miss) is recorded. If the last three
@@ -134,17 +135,6 @@ def _ttl_days(release_date: Optional[datetime]) -> Optional[int]:
     if age_days < _MID_AGE_DAYS:
         return _TTL_MID_DAYS
     return None
-
-
-def _is_stale(game: Game) -> bool:
-    """True when the existing enrichment data is older than the age-based TTL."""
-    if game.last_refreshed is None:
-        return True
-    ttl = _ttl_days(game.release_date)
-    if ttl is None:
-        return False
-    return datetime.utcnow() - game.last_refreshed >= timedelta(days=ttl)
-
 
 
 def _source_stale(game: Game, timestamp: Optional[datetime]) -> bool:
@@ -347,6 +337,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                     "hltb_main_hours": result.hltb_main_hours,
                     "hltb_main_extra_hours": result.hltb_main_extra_hours,
                     "hltb_completionist_hours": result.hltb_completionist_hours,
+                    "hltb_match_id": result.matched_id,
+                    "hltb_match_name": result.matched_name,
+                    "hltb_match_similarity": result.similarity,
                 })
                 updates["hltb_fetched_at"] = datetime.utcnow()
                 progress.hltb_matched += 1
@@ -380,6 +373,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                     "hltb_main_hours": result.hltb_main_hours,
                     "hltb_main_extra_hours": result.hltb_main_extra_hours,
                     "hltb_completionist_hours": result.hltb_completionist_hours,
+                    "hltb_match_id": result.matched_id,
+                    "hltb_match_name": result.matched_name,
+                    "hltb_match_similarity": result.similarity,
                 })
                 updates["hltb_fetched_at"] = datetime.utcnow()
                 progress.hltb_matched += 1
@@ -466,6 +462,9 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
 
         with db.get_db() as conn:
             enriched = db.apply_enrichment(conn, game, updates)
+            if enriched:
+                from app.taste import refresh_rating_labels
+                refresh_rating_labels(conn, enriched)
             if enriched is not None:
                 db.maybe_refine_inferred_status(
                     conn, enriched.appid, enriched.playtime_minutes,

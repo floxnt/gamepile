@@ -10,10 +10,8 @@ The affinity table is the reason this exists. It's the learned taste
 model, accumulated one pick at a time over months, and nothing can
 regenerate it.
 
-Export only for now; import lands in a later round. That asymmetry is
-deliberate — the envelope is version-stamped from day one so the future
-importer has something to branch on rather than having to guess at the
-shape of files already in the wild.
+Schema 2 includes stable pick keys and individual taste signals so imports can
+merge without counting the same feedback twice. Credentials are never included.
 """
 
 import json
@@ -25,7 +23,7 @@ from pathlib import Path
 from app import config
 
 # Bump when the envelope shape changes in a way an importer must notice.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # personal_rating is stored 0–10 (half-stars displayed as value/2). An
 # importer MUST refuse or convert on mismatch: a 0–5 file loaded as 0–10
@@ -60,6 +58,8 @@ _GAME_OVERRIDE_COLUMNS = [
     "game_type",
     "game_type_manual",
     "hltb_id_manual",
+    "completion_achievement_name_manual",
+    "stickiness_badge_manual",
 ]
 
 _AFFINITY_COLUMNS = ["kind", "value", "weight", "pick_count"]
@@ -79,6 +79,9 @@ _PICK_COLUMNS = [
     "actually_played_appid",
     "status_at_pick",
     "was_forever_at_pick",
+    "candidates_at_pick",
+    "feedback_completed_at",
+    "legacy_taste_recorded",
 ]
 
 
@@ -104,6 +107,8 @@ def build_backup(conn: sqlite3.Connection) -> dict:
     onto updated_at would destroy the history it records and make a
     restored backup look like every game was touched at once.
     """
+    if not conn.in_transaction:
+        conn.execute("BEGIN")  # One coherent snapshot across all exported tables.
     game_state = _rows(
         conn,
         f"SELECT {', '.join(_GAME_STATE_COLUMNS)} FROM game_state ORDER BY appid",
@@ -115,6 +120,7 @@ def build_backup(conn: sqlite3.Connection) -> dict:
         conn,
         f"SELECT {', '.join(_GAME_OVERRIDE_COLUMNS)} FROM games "
         "WHERE game_type_manual = 1 OR hltb_id_manual IS NOT NULL "
+        "OR completion_achievement_name_manual IS NOT NULL OR stickiness_badge_manual IS NOT NULL "
         "ORDER BY appid",
     )
 
@@ -130,6 +136,17 @@ def build_backup(conn: sqlite3.Connection) -> dict:
         f"SELECT {', '.join(_PICK_COLUMNS)} FROM pick_history ORDER BY picked_at",
     )
 
+    from app.backup_import import pick_key
+    local_picks = conn.execute("SELECT id,appid,picked_at,mode,time_window_minutes FROM pick_history").fetchall()
+    keys = {row["id"]: pick_key(dict(row)) for row in local_picks}
+    for pick in picks:
+        pick["key"] = pick_key(pick)
+    signals = _rows(conn, "SELECT source,appid,contributions,updated_at FROM taste_signals ORDER BY source")
+    for signal in signals:
+        if signal["source"].startswith("pick:"):
+            signal["source"] = "pick:" + keys[int(signal["source"].split(":", 1)[1])]
+        signal["contributions"] = json.loads(signal["contributions"])
+
     return {
         "schema": SCHEMA_VERSION,
         "rating_scale": RATING_SCALE,
@@ -139,6 +156,9 @@ def build_backup(conn: sqlite3.Connection) -> dict:
         "game_overrides": overrides,
         "affinity": affinity,
         "picks": picks,
+        "catalog": _rows(conn, "SELECT appid,name FROM games ORDER BY appid"),
+        "affinity_base": _rows(conn, "SELECT kind,value,weight,pick_count FROM affinity_base ORDER BY kind,value"),
+        "taste_signals": signals,
     }
 
 

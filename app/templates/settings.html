@@ -88,15 +88,14 @@
   <div class="settings-section">
     <h2 class="settings-section-title">Backup</h2>
     <p class="settings-section-help">
-      Downloads everything you've authored — statuses, ratings, notes,
+      Saves everything you've authored — statuses, ratings, notes,
       pins, manual overrides, your pick history and the taste model built
       from it. Fetched Steam and HowLongToBeat data isn't included; a
       refresh rebuilds that on its own.
     </p>
     <p class="settings-section-help">
-      The file is written straight to disk — the embedded webview can't
-      complete a browser download, so there's no save dialog. The path
-      is shown below once it's written.
+      Backups are saved to Downloads when that folder is available, or to
+      GamePile's data folder. The saved location appears below.
     </p>
     <button type="button"
             class="btn btn-secondary btn-sm"
@@ -106,6 +105,13 @@
       Export backup (JSON)
     </button>
     <div id="export-result"></div>
+    <form class="settings-form settings-import-form" hx-post="/settings/import/preview"
+      hx-encoding="multipart/form-data" hx-target="#import-result" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <label for="backup-file">Restore from a backup (JSON, up to 16 MB)</label>
+      <input id="backup-file" type="file" name="backup_file" accept=".json,application/json" required>
+      <button type="submit" class="btn btn-secondary btn-sm">Preview import</button>
+    </form>
+    <div id="import-result"></div>
   </div>
 
   <p class="settings-footer">

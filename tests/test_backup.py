@@ -77,7 +77,7 @@ def test_envelope_has_all_required_keys():
         with db.get_db() as conn:
             out = backup.build_backup(conn)
     expected = {"schema", "rating_scale", "exported_at", "app_version",
-                "game_state", "game_overrides", "affinity", "picks"}
+                "game_state", "game_overrides", "affinity", "picks", "catalog", "affinity_base", "taste_signals"}
     assert set(out) == expected, f"envelope keys were {sorted(out)}"
 
 

@@ -89,7 +89,7 @@ async def shortlist_page(request: Request):
     """
     with db.get_db() as conn:
         recent_picks = db.get_recent_picks(conn, limit=8)
-        pending_raw = db.get_oldest_pending_pick(conn)
+        pending_raw = db.get_oldest_pending_pick(conn, prompt_state._dismissed)
         all_games = db.get_games_with_state(conn)
 
     pending_pick = None
@@ -119,6 +119,13 @@ async def recent_picks_partial(request: Request):
     return templates.TemplateResponse(request, "partials/recent_picks.html", {
         "recent_picks": recent_picks,
     })
+
+
+@router.post("/picks/reset", response_class=HTMLResponse)
+async def reset_picks(request: Request, minutes: int = 90, mode: Optional[str] = None):
+    prompt_state.skipped_appids.clear()
+    prompt_state.skip_undo.clear()
+    return templates.TemplateResponse(request, "partials/recommendations.html", _build_picks_context(request, minutes, mode))
 
 
 @router.get("/picks", response_class=HTMLResponse)
@@ -187,7 +194,7 @@ async def mark_picked(request: Request, appid: int):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid pick details")
     mode_str = normalize_mode(body.get("mode"))
-    if not mode_str or not 15 <= minutes_val <= 480 or len(candidates_at_pick) > 100:
+    if not mode_str or not 15 <= minutes_val <= 480 or len(candidates_at_pick) > 100 or any(v <= 0 for v in candidates_at_pick):
         raise HTTPException(status_code=400, detail="Invalid pick details")
     # Time window only meaningful for "I only have tonight"; the four other
     # modes are intent-driven and ignore the slider.

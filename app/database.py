@@ -205,6 +205,7 @@ def init_db() -> None:
             # subsequent edits. Powers honest completion history.
             "ALTER TABLE game_state ADD COLUMN finished_at TEXT",
             "ALTER TABLE pick_history ADD COLUMN feedback_completed_at TEXT",
+            "ALTER TABLE pick_history ADD COLUMN legacy_taste_recorded INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE games ADD COLUMN hltb_fetched_at TEXT",
             "ALTER TABLE games ADD COLUMN tags_fetched_at TEXT",
             "ALTER TABLE games ADD COLUMN achievements_fetched_at TEXT",
@@ -301,7 +302,7 @@ def _migrate_v3_taste_signals(conn):
     # Legacy quick feedback cannot be reconstructed exactly. Preserve the
     # aggregate as a baseline and do not replay historical pick ratings.
     conn.execute("INSERT OR IGNORE INTO affinity_base SELECT kind,value,weight,pick_count FROM affinity")
-    conn.execute("UPDATE pick_history SET feedback_completed_at=COALESCE(outcome_recorded_at,picked_at) WHERE outcome IS NOT NULL")
+    conn.execute("UPDATE pick_history SET legacy_taste_recorded=1,feedback_completed_at=COALESCE(outcome_recorded_at,picked_at) WHERE outcome IS NOT NULL")
     from app import taste
     for row in conn.execute("SELECT appid,personal_rating FROM game_state WHERE personal_rating IS NOT NULL").fetchall():
         game=get_game_by_appid(conn,row['appid'])
@@ -711,7 +712,7 @@ def apply_enrichment(conn: sqlite3.Connection, snapshot: Game, updates: dict) ->
     current = get_game_by_appid(conn, snapshot.appid)
     if current is None:
         return None
-    safe = {k: v for k, v in updates.items() if k in _ENRICHMENT_FIELDS and v is not None}
+    safe = {k: v for k, v in updates.items() if k in _ENRICHMENT_FIELDS and (v is not None or k.startswith("hltb_"))}
     if current.game_type_manual:
         safe.pop("game_type", None)
     if (current.hltb_id_manual, current.hltb_override_updated_at) != (snapshot.hltb_id_manual, snapshot.hltb_override_updated_at):
@@ -1010,53 +1011,34 @@ def reset_game_type_to_inferred(conn: sqlite3.Connection, appid: int) -> Optiona
 
 
 def set_hltb_id_manual(
-    conn: sqlite3.Connection,
-    appid: int,
-    hltb_id: int,
-    main_hours: Optional[float],
-    main_extra_hours: Optional[float],
-    completionist_hours: Optional[float],
+    conn: sqlite3.Connection, appid: int, hltb_id: int,
+    main_hours: Optional[float], main_extra_hours: Optional[float],
+    completionist_hours: Optional[float], *, matched_name: Optional[str] = None,
 ) -> None:
-    """Persist the user's manual HLTB ID and the values resolved from it
-    in one statement. The fetch happens in the route handler — this helper
-    just stores the result so the in-memory and DB views stay in sync."""
-    conn.execute(
-        """
-        UPDATE games
-        SET hltb_id_manual = ?,
-            hltb_override_updated_at = ?,
-            hltb_main_hours = ?,
-            hltb_main_extra_hours = ?,
-            hltb_completionist_hours = ?
-        WHERE appid = ?
-        """,
-        (hltb_id, datetime.utcnow().isoformat(), main_hours, main_extra_hours, completionist_hours, appid),
-    )
+    """Save the chosen record, durations, and provenance atomically."""
+    now = datetime.utcnow().isoformat()
+    conn.execute("""UPDATE games SET hltb_id_manual=?, hltb_override_updated_at=?,
+        hltb_main_hours=?, hltb_main_extra_hours=?, hltb_completionist_hours=?,
+        hltb_match_id=?, hltb_match_name=?, hltb_match_similarity=NULL, hltb_fetched_at=?
+        WHERE appid=?""",
+        (hltb_id, now, main_hours, main_extra_hours, completionist_hours,
+         hltb_id, matched_name, now, appid))
 
 
 def clear_hltb_id_manual(
-    conn: sqlite3.Connection,
-    appid: int,
-    main_hours: Optional[float],
-    main_extra_hours: Optional[float],
-    completionist_hours: Optional[float],
+    conn: sqlite3.Connection, appid: int, main_hours: Optional[float],
+    main_extra_hours: Optional[float], completionist_hours: Optional[float], *,
+    matched_id: Optional[int] = None, matched_name: Optional[str] = None,
+    similarity: Optional[float] = None,
 ) -> None:
-    """Clear the manual HLTB ID and write the freshly-recomputed
-    name-search values. Caller is responsible for running the search
-    against fresh data — this helper just persists the result alongside
-    the cleared manual flag in one statement."""
-    conn.execute(
-        """
-        UPDATE games
-        SET hltb_id_manual = NULL,
-            hltb_override_updated_at = ?,
-            hltb_main_hours = ?,
-            hltb_main_extra_hours = ?,
-            hltb_completionist_hours = ?
-        WHERE appid = ?
-        """,
-        (datetime.utcnow().isoformat(), main_hours, main_extra_hours, completionist_hours, appid),
-    )
+    """Replace the override with the new automatic match (or a clean miss)."""
+    now = datetime.utcnow().isoformat()
+    conn.execute("""UPDATE games SET hltb_id_manual=NULL, hltb_override_updated_at=?,
+        hltb_main_hours=?, hltb_main_extra_hours=?, hltb_completionist_hours=?,
+        hltb_match_id=?, hltb_match_name=?, hltb_match_similarity=?, hltb_fetched_at=?
+        WHERE appid=?""",
+        (now, main_hours, main_extra_hours, completionist_hours, matched_id,
+         matched_name, similarity, now if matched_id else None, appid))
 
 
 def get_picks_for_appid(conn: sqlite3.Connection, appid: int) -> list[PickHistory]:
@@ -1235,17 +1217,13 @@ def get_most_recent_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
     return _row_to_pick_history(row) if row else None
 
 
-def get_oldest_pending_pick(conn: sqlite3.Connection) -> Optional[PickHistory]:
-    """Return the oldest pick_history row with outcome IS NULL, or None."""
-    row = conn.execute("""
-        SELECT * FROM pick_history
-        WHERE feedback_completed_at IS NULL
-        ORDER BY picked_at ASC
-        LIMIT 1
-    """).fetchone()
-    if not row:
-        return None
-    return _row_to_pick_history(row)
+def get_oldest_pending_pick(conn: sqlite3.Connection, excluded_ids=()) -> Optional[PickHistory]:
+    """Oldest incomplete feedback not dismissed for this app session."""
+    excluded = list(excluded_ids)
+    clause = ' AND id NOT IN (' + ','.join('?' for _ in excluded) + ')' if excluded else ''
+    row = conn.execute('SELECT * FROM pick_history WHERE feedback_completed_at IS NULL' + clause +
+        ' ORDER BY picked_at ASC LIMIT 1', excluded).fetchone()
+    return _row_to_pick_history(row) if row else None
 
 
 def get_pick_history_by_id(conn: sqlite3.Connection, pick_id: int) -> Optional[PickHistory]:
@@ -1320,6 +1298,7 @@ def _row_to_pick_history(row: sqlite3.Row) -> PickHistory:
             else None
         ),
         feedback_completed_at=_parse_dt(row["feedback_completed_at"]) if "feedback_completed_at" in keys else None,
+        legacy_taste_recorded=bool(row["legacy_taste_recorded"]) if "legacy_taste_recorded" in keys else False,
     )
 
 

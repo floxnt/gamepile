@@ -92,7 +92,7 @@ def compute_affinity_score(game: Game, affinities: dict) -> float:
 def get_affinity_summary(game: Game, affinities: dict) -> list[str]:
     """
     Return human-readable reason strings for the "Why picked" card line,
-    e.g. ["matches your taste (FromSoftware: +3.2, Action: +1.1)"].
+    e.g. ["matches your taste (FromSoftware, Action)"].
     Returns [] when no affinity contribution clears the display threshold.
     """
     if not affinities:
@@ -201,8 +201,7 @@ def apply_quick_finished_affinity(conn: sqlite3.Connection, game: Game) -> None:
     """Positive affinity nudge from a Backlog "Mark finished" click.
 
     +0.5 per deduplicated label — equivalent to a 4-star feedback rating.
-    pick_count is NOT incremented because this isn't a Shortlist outcome,
-    just a user-confirmed engagement signal.
+    Confidence counts this game once, even when the action is repeated.
 
     Conservative magnitude: the click confirms an inferred state (1.5x+
     HLTB main from the Likely Finished section, or any backlog "Mark
