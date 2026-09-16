@@ -5,6 +5,9 @@
 <section class="backlog-page" id="backlog-content">
 
   <h1 class="page-title">Backlog</h1>
+  {% for session in resume_sessions %}
+    <a href="/backlog/session/{{ session.id }}" class="btn btn-ghost btn-sm">Resume review ({{ session.index + 1 }}/{{ session.queue | length }})</a>
+  {% endfor %}
 
   {# Header band — backlog stats summary. Always shown when backlog is non-empty.
      Per-section counts are conditional so a zero-count bucket doesn't clutter

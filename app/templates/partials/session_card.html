@@ -59,11 +59,11 @@
 
       {% if state.personal_rating %}
         <div class="session-rating">
-          {% for i in range(state.personal_rating) %}★{% endfor %}{% for i in range(5 - state.personal_rating) %}☆{% endfor %}
+          {{ state.personal_rating / 2 }} / 5 ★
         </div>
       {% endif %}
 
-      <a href="/games/{{ game.appid }}" class="session-detail-link" title="Opens full Game Detail — ends this session">Open details ↗</a>
+      <a href="/games/{{ game.appid }}?session={{ session.id }}" class="session-detail-link" title="Your place in this session is saved">Open details ↗</a>
     </div>
   </div>
 
@@ -72,17 +72,17 @@
       <button
         class="btn {% if action_key in ('confirm_finished', 'pick', 'mark_in_progress', 'already_completed') %}btn-primary{% elif action_key in ('never_recommend', 'not_my_thing') %}btn-ghost session-btn--danger{% else %}btn-secondary{% endif %} btn-sm"
         hx-post="/backlog/session/action"
-        hx-target="#session-card"
+        hx-target="#session-content"
         hx-swap="outerHTML"
-        hx-vals='{"section_key": "{{ section_key }}", "queue_json": {{ queue_json | tojson }}, "index": {{ index }}, "counts_json": {{ counts | tojson | tojson }}, "appid": {{ game.appid }}, "action": "{{ action_key }}"}'
+        hx-vals='{{ {"session_id": session.id, "index": index, "appid": game.appid, "action": action_key} | tojson }}'
       >{{ action_label }}</button>
     {% endfor %}
     <button
       class="btn btn-ghost btn-sm"
       hx-post="/backlog/session/action"
-      hx-target="#session-card"
+      hx-target="#session-content"
       hx-swap="outerHTML"
-      hx-vals='{"section_key": "{{ section_key }}", "queue_json": {{ queue_json | tojson }}, "index": {{ index }}, "counts_json": {{ counts | tojson | tojson }}, "appid": {{ game.appid }}, "action": "skip"}'
+      hx-vals='{{ {"session_id": session.id, "index": index, "appid": game.appid, "action": "skip"} | tojson }}'
     >Skip</button>
   </div>
 </div>

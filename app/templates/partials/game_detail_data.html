@@ -72,6 +72,20 @@
       </div>
     {% endif %}
 
+    {% if game.hltb_match_id %}
+      <div class="data-row data-row--wrap">
+        <span class="data-label">HLTB source</span>
+        <span class="data-value">
+          <a href="https://howlongtobeat.com/game/{{ game.hltb_match_id }}" target="_blank" rel="noopener">{{ game.hltb_match_name or ('Record ' ~ game.hltb_match_id) }}</a>
+          <span class="data-aside">{{ 'Your correction' if game.hltb_id_manual else 'Automatic title match' }}</span>
+          {% if game.hltb_match_similarity is not none %}<span class="data-aside">{{ (game.hltb_match_similarity * 100) | round | int }}% title similarity</span>{% endif %}
+          {% if game.hltb_fetched_at %}<span class="data-aside">Checked {{ relative_time(game.hltb_fetched_at) }}</span>{% endif %}
+        </span>
+      </div>
+    {% elif game.hltb_main_hours %}
+      <p class="data-aside">Source details will appear after the next successful HLTB refresh.</p>
+    {% endif %}
+
     {# Phase 4 manual override block. Always present in the External
        column (whether or not an override is set) — name-search misses
        are common enough to warrant a discoverable affordance. #}
@@ -136,9 +150,3 @@
     </div>
   </div>
 </section>
-
-{% if game.description %}
-  <section class="game-detail-description">
-    <p>{{ game.description }}</p>
-  </section>
-{% endif %}

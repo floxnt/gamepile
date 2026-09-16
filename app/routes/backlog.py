@@ -1,10 +1,11 @@
 import json
 import urllib.parse
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import database as db
+from app import actions, decision_sessions
 from app.backlog import (
     SECTION_TITLES,
     SORT_LABELS,
@@ -58,6 +59,7 @@ async def backlog_page(request: Request):
 
     return templates.TemplateResponse(request, "backlog.html", {
         "view": view,
+        "resume_sessions": [s for s in decision_sessions.sessions.values() if s.index < len(s.queue)],
         "filters": filters,
         "time_fit_labels": TIME_FIT_LABELS,
         "status_chip_labels": STATUS_CHIP_LABELS,
@@ -73,7 +75,7 @@ async def backlog_page(request: Request):
 @router.post("/backlog/{appid}/pin", response_class=HTMLResponse)
 async def pin_game(request: Request, appid: int):
     with db.get_db() as conn:
-        db.set_pin(conn, appid)
+        actions.perform(conn, appid, "pin")
     return templates.TemplateResponse(request, "partials/backlog_pin_button.html", {
         "appid": appid,
         "pinned": True,
@@ -83,143 +85,90 @@ async def pin_game(request: Request, appid: int):
 @router.post("/backlog/{appid}/unpin", response_class=HTMLResponse)
 async def unpin_game(request: Request, appid: int):
     with db.get_db() as conn:
-        db.clear_pin(conn, appid)
+        actions.perform(conn, appid, "unpin")
     return templates.TemplateResponse(request, "partials/backlog_pin_button.html", {
         "appid": appid,
         "pinned": False,
     })
 
 
-# ---------------------------------------------------------------------------
-# Decision Sessions — in-memory, contextual review flow over Backlog sections
-# ---------------------------------------------------------------------------
+def _session(session_id):
+    session=decision_sessions.sessions.get(session_id)
+    if session is None:
+        raise HTTPException(404,"This review session has ended. Start another from Backlog.")
+    return session
 
-def _apply_session_action(appid: int, action: str) -> None:
-    """Apply a state-change action. Same transitions as shortlist quick-action."""
-    from app.affinity import apply_quick_drop_affinity, apply_quick_finished_affinity
-    from app.models import GameStatus
 
+def _session_context(session):
     with db.get_db() as conn:
-        game = db.get_game_by_appid(conn, appid)
-        if not game:
-            return
-        if action in ("finished", "already_completed"):
-            db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
-        elif action == "mark_in_progress":
-            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
-        elif action == "confirm_finished":
-            db.update_game_state(conn, appid, status=GameStatus.finished, manually_set=True)
-            db.clear_pin(conn, appid)
-            apply_quick_finished_affinity(conn, game)
-        elif action == "pick":
-            db.update_game_state(conn, appid, status=GameStatus.in_progress, manually_set=True)
-            db.clear_pin(conn, appid)
-        elif action == "bounced":
-            db.update_game_state(conn, appid, status=GameStatus.dropped, dropped_strength="soft", manually_set=True)
-            apply_quick_drop_affinity(conn, game, "soft")
-        elif action == "not_my_thing":
-            db.update_game_state(conn, appid, status=GameStatus.dropped, dropped_strength="strong", manually_set=True)
-            apply_quick_drop_affinity(conn, game, "strong")
-        elif action == "never_recommend":
-            db.update_game_state(conn, appid, blacklisted=True, manually_set=True)
+        gws=db.get_game_with_state_by_appid(conn,session.queue[session.index]) if session.index < len(session.queue) else None
+        games=db.get_games_with_state(conn)
+        affinities=db.get_all_affinities(conn)
+    return {
+        "session":session,"section_title":SECTION_TITLES[session.section],
+        "section_key":session.section,"index":session.index,"total":len(session.queue),
+        "counts":session.counts,"total_reviewed":sum(session.counts.values()),
+        "gws":gws,"hints":compute_decision_hints(gws,affinities,compute_session_thresholds(games)) if gws else [],
+        "actions":valid_actions_for_status(gws.state.status) if gws else [],
+    }
 
-def _session_context(section_key: str, queue_json: str, index: int, counts: dict):
-    """Build template context for the current session card."""
-    queue = json.loads(queue_json)
-    if index >= len(queue):
-        return None, None, queue, counts
 
-    appid = queue[index]
+@router.post("/backlog/session/start",response_class=HTMLResponse)
+async def session_start(request:Request,section_key:str=Form(...),appids_json:str=Form(...)):
+    try:
+        queue=json.loads(appids_json)
+        if not isinstance(queue,list) or len(queue)>20000 or any(type(v) is not int or v <= 0 for v in queue):
+            raise ValueError()
+        queue=list(dict.fromkeys(queue))
+    except (ValueError,TypeError):
+        raise HTTPException(400,"Invalid review queue")
+    if section_key not in SECTION_TITLES:
+        raise HTTPException(400,"Unknown backlog section")
     with db.get_db() as conn:
-        gws = db.get_game_with_state_by_appid(conn, appid)
-        all_games = db.get_games_with_state(conn)
-        affinities = db.get_all_affinities(conn)
-
-    if gws is None:
-        return None, None, queue, counts
-
-    thresholds = compute_session_thresholds(all_games)
-    hints = compute_decision_hints(gws, affinities, thresholds)
-    actions = valid_actions_for_status(gws.state.status)
-
-    return gws, {
-        "gws": gws,
-        "game": gws.game,
-        "state": gws.state,
-        "hints": hints,
-        "actions": actions,
-        "section_key": section_key,
-        "section_title": SECTION_TITLES.get(section_key, section_key),
-        "queue_json": queue_json,
-        "index": index,
-        "total": len(queue),
-        "counts": counts,
-        "valid_actions_for_status": valid_actions_for_status,
-    }, queue, counts
+        owned={g.game.appid for g in db.get_games_with_state(conn)}
+    if not set(queue).issubset(owned):
+        raise HTTPException(400,"Some games are no longer in this library")
+    session=decision_sessions.create(section_key,queue)
+    response=HTMLResponse("")
+    response.headers["HX-Redirect"]=f"/backlog/session/{session.id}"
+    return response
 
 
-@router.post("/backlog/session/start", response_class=HTMLResponse)
-async def session_start(
-    request: Request,
-    section_key: str = Form(...),
-    appids_json: str = Form(...),
-):
-    counts = {"pinned": 0, "finished": 0, "bounced": 0, "not_my_thing": 0,
-              "never_recommend": 0, "skipped": 0, "in_progress": 0, "other": 0}
-
-    _, ctx, queue, counts = _session_context(
-        section_key, appids_json, 0, counts,
-    )
-    if ctx is None:
-        return templates.TemplateResponse(request, "partials/session_recap.html", {
-            "section_title": SECTION_TITLES.get(section_key, section_key),
-            "counts": counts, "total_reviewed": 0,
-        })
-
-    return templates.TemplateResponse(request, "partials/session_view.html", ctx)
+@router.get("/backlog/session/{session_id}",response_class=HTMLResponse)
+async def session_page(request:Request,session_id:str):
+    return templates.TemplateResponse(request,"session.html",_session_context(_session(session_id)))
 
 
-@router.post("/backlog/session/action", response_class=HTMLResponse)
-async def session_action(
-    request: Request,
-    section_key: str = Form(...),
-    queue_json: str = Form(...),
-    index: int = Form(...),
-    counts_json: str = Form(...),
-    appid: int = Form(...),
-    action: str = Form(...),
-):
-    counts = json.loads(counts_json)
+@router.post("/backlog/session/action",response_class=HTMLResponse)
+async def session_action(request:Request,session_id:str=Form(...),index:int=Form(...),appid:int=Form(...),action:str=Form(...)):
+    session=_session(session_id)
+    # A retry from the previous card returns the current card, without
+    # repeating its state change or incrementing counters again.
+    if index == session.index and index < len(session.queue):
+        if appid != session.queue[index]:
+            raise HTTPException(400,"Game does not match this review card")
+        with db.get_db() as conn:
+            gws=db.get_game_with_state_by_appid(conn,appid)
+            valid={name for name,_ in valid_actions_for_status(gws.state.status)} | {'skip','pin'}
+            if action not in valid:
+                raise HTTPException(400,"This action is not available for the current game")
+            token=None if action == 'skip' else actions.perform(conn,appid,action)
+        key={'confirm_finished':'finished','already_completed':'finished','mark_in_progress':'in_progress',
+             'pick':'in_progress','skip':'skipped','pin':'pinned'}.get(action,action)
+        session.history.append((session.index,dict(session.counts),token))
+        session.counts[key]=session.counts.get(key,0)+1
+        session.index += 1
+    return templates.TemplateResponse(request,"partials/session_view.html",_session_context(session))
 
-    if action == "skip":
-        counts["skipped"] = counts.get("skipped", 0) + 1
-    else:
-        _apply_session_action(appid, action)
 
-        if action in ("confirm_finished", "already_completed"):
-            counts["finished"] = counts.get("finished", 0) + 1
-        elif action == "bounced":
-            counts["bounced"] = counts.get("bounced", 0) + 1
-        elif action == "not_my_thing":
-            counts["not_my_thing"] = counts.get("not_my_thing", 0) + 1
-        elif action == "never_recommend":
-            counts["never_recommend"] = counts.get("never_recommend", 0) + 1
-        elif action in ("mark_in_progress", "pick"):
-            counts["in_progress"] = counts.get("in_progress", 0) + 1
-        else:
-            counts["other"] = counts.get("other", 0) + 1
-
-    next_index = index + 1
-    _, ctx, queue, counts = _session_context(
-        section_key, queue_json, next_index, counts,
-    )
-
-    if ctx is None:
-        total = sum(counts.values())
-        return templates.TemplateResponse(request, "partials/session_recap.html", {
-            "section_title": SECTION_TITLES.get(section_key, section_key),
-            "counts": counts,
-            "total_reviewed": total,
-        })
-
-    return templates.TemplateResponse(request, "partials/session_card.html", ctx)
+@router.post("/backlog/session/{session_id}/undo",response_class=HTMLResponse)
+async def session_undo(request:Request,session_id:str,index:int=Form(...)):
+    session=_session(session_id)
+    if session.history and index == session.index:
+        previous,counts,token=session.history[-1]
+        if token:
+            with db.get_db() as conn:
+                actions.undo(conn,token)
+        session.history.pop()
+        session.index,session.counts=previous,counts
+    return templates.TemplateResponse(request,"partials/session_view.html",_session_context(session))

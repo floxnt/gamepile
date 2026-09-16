@@ -18,3 +18,8 @@ def is_dismissed(pick_id: int) -> bool:
 def dismiss_for_session(pick_id: int) -> None:
     """Hide prompt for this pick until the app is restarted."""
     _dismissed.add(pick_id)
+
+
+# Shortlist skips last only until the app closes; they are not taste signals.
+skipped_appids: set[int] = set()
+skip_undo: dict[str, int] = {}

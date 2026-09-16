@@ -119,7 +119,23 @@ async def fetch_owned_games(
     }, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("response", {}).get("games", [])
+    response = data.get("response") if isinstance(data, dict) else None
+    if not isinstance(response, dict):
+        raise ValueError("Steam did not return a readable library. Your existing library has been kept.")
+    games = response.get("games")
+    # Steam may omit the array for a genuinely empty public library, but
+    # an empty response object also means private/unavailable. Never infer
+    # ownership removal from that ambiguous response.
+    if games is None and response.get("game_count") == 0:
+        games = []
+    if not isinstance(games, list) or any(
+        not isinstance(g, dict) or type(g.get("appid")) is not int or g["appid"] <= 0
+        for g in games
+    ):
+        raise ValueError("Steam did not return a games list. Check your library privacy settings; your existing library has been kept.")
+    if "game_count" in response and response["game_count"] != len(games):
+        raise ValueError("Steam returned an incomplete library. Your existing library has been kept.")
+    return games
 
 
 async def fetch_app_details(client: httpx.AsyncClient, appid: int) -> Optional[dict]:

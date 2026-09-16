@@ -152,3 +152,42 @@ async def export_backup(request: Request):
         request, "partials/settings_export_result.html",
         {"ok": True, "path": str(path)},
     )
+
+
+@router.post('/settings/import/preview', response_class=HTMLResponse)
+async def preview_backup(request: Request):
+    from starlette.datastructures import UploadFile
+    from app import backup_import
+    form = await request.form()
+    uploaded = form.get('backup_file')
+    try:
+        if not isinstance(uploaded, UploadFile):
+            raise backup_import.ImportError('Choose a GamePile backup file.')
+        raw = await uploaded.read(backup_import.MAX_BYTES + 1)
+        data = backup_import.validate(raw)
+        with db.get_db() as conn:
+            token, preview = backup_import.prepare(conn, data)
+    except backup_import.ImportError as exc:
+        return templates.TemplateResponse(request, 'partials/settings_import.html', {'error': str(exc)})
+    finally:
+        if isinstance(uploaded, UploadFile):
+            await uploaded.close()
+    return templates.TemplateResponse(request, 'partials/settings_import.html', {'preview': preview, 'token': token})
+
+
+@router.post('/settings/import/apply', response_class=HTMLResponse)
+async def import_backup(request: Request, token: str = Form(...), policy: str = Form(...)):
+    from app import backup_import, decision_sessions, prompt_state
+    try:
+        with db.get_db() as conn:
+            before_path = backup_import.apply(conn, token, policy)
+    except (backup_import.ImportError, OSError) as exc:
+        return templates.TemplateResponse(request, 'partials/settings_import.html', {'error': str(exc)})
+    # The commit succeeded. Only now consume the preview and clear actions
+    # based on the pre-import state.
+    backup_import.discard(token)
+    decision_sessions.sessions.clear()
+    prompt_state._dismissed.clear()
+    prompt_state.skipped_appids.clear()
+    prompt_state.skip_undo.clear()
+    return templates.TemplateResponse(request, 'partials/settings_import.html', {'imported': True, 'before_path': str(before_path)})

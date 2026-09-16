@@ -14,6 +14,7 @@
 {% endif %}
 
 <form method="post" action="/setup/edit" class="setup-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label class="setup-label" for="api-key">Steam API key</label>
   <input type="text"
          id="api-key"

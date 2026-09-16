@@ -117,6 +117,7 @@ class HltbResult:
     similarity: Optional[float] = None
     queries_tried: list[str] = field(default_factory=list)
     backoff_used: bool = False
+    matched_id: Optional[int] = None
 
 
 async def fetch_hltb(name: str, allow_backoff_retry: bool = False) -> HltbResult:
@@ -194,6 +195,7 @@ async def _try_query(query: str, original: str) -> HltbResult:
         hltb_main_extra_hours=_hours(best.main_extra),
         hltb_completionist_hours=_hours(best.completionist),
         matched_name=best.game_name,
+        matched_id=int(best.game_id) if str(getattr(best, "game_id", "")).isdigit() and int(best.game_id) > 0 else None,
         similarity=best.similarity,
     )
 
@@ -236,6 +238,7 @@ async def fetch_hltb_by_id(hltb_id: int) -> HltbResult:
         hltb_main_extra_hours=_hours(entry.main_extra),
         hltb_completionist_hours=_hours(entry.completionist),
         matched_name=entry.game_name,
+        matched_id=hltb_id,
         # similarity is meaningless for ID lookup — we asked for this exact
         # record. Leave as None so callers can distinguish from name-matched
         # results if they ever care.

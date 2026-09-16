@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Feedback — {{ pending_pick.game_name }}{% endblock %}
+{% block content %}
+  <a href="/" class="btn btn-ghost btn-sm">Back to Shortlist</a>
+  {% if pending_pick.legacy_taste_recorded %}
+    <p>This feedback from an earlier version is preserved in your existing taste history.</p>
+    <p><a href="/games/{{ pending_pick.appid }}">Open game details</a> to give a new personal rating.</p>
+  {% else %}
+    {% include "partials/feedback_prompt.html" %}
+  {% endif %}
+{% endblock %}

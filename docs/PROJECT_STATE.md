@@ -1,5 +1,24 @@
 # Project State — GamePile
 
+## Current branch — reliability and restore (unreleased)
+
+The authorized review fixes and iterations are implemented in this branch.
+See [RELIABILITY_AND_RESTORE.md](RELIABILITY_AND_RESTORE.md) for the complete
+behavior and validation handoff. This section supersedes older roadmap notes
+below where they describe export-only backups, CDN HTMX, or shared cache clocks.
+
+- Correct form submissions and repeated saves; local HTMX and protected writes.
+- Refresh writes respect intervening overrides and separate source timestamps.
+- Editable personal taste contributions, resumable feedback, and duplicate-submit protection.
+- Undo, exclusion restoration, temporary skips, and Decision Session continuity.
+- Schema 2 backup export and schemas 1/2 import with preview, conflict handling,
+  recovery export, inactive orphan preservation, and atomic/idempotent merge.
+- HLTB provenance, schema migration v3, and regression CI for Linux/Windows.
+
+Implementation modules: `app/actions.py`, `app/taste.py`,
+`app/decision_sessions.py`, `app/security.py`, and `app/backup_import.py`.
+Native Windows and CachyOS acceptance checks remain required before release.
+
 ## What this app is
 
 A local desktop app that helps the user manage their Steam backlog
@@ -45,9 +64,7 @@ Modules:
 - `app/affinity.py` — taste learning read + write paths
 - `app/sync.py` — refresh orchestration
 - `app/prompt_state.py` — in-session feedback prompt dismissal
-- `app/routes/{pick,library,refresh,feedback}.py` — route handlers
-  (note: `pick.py` will be renamed to `shortlist.py` as part of v2.5
-  rename work, with route prefix changing from `/` to `/shortlist`)
+- `app/routes/{shortlist,library,backlog,dashboard,game_detail,refresh,feedback,settings,setup}.py` — route handlers; Shortlist remains at `/`
 - `app/fetchers/{steam,hltb,steamspy}.py` — external API clients
 - `app/templates/` + `app/static/` — UI
 

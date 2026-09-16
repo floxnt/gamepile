@@ -12,7 +12,8 @@ Caching policy (bypassed when force=True):
   - hltb_main_hours / user_tags missing always triggers a refetch regardless
     of TTL, so transient HLTB / SteamSpy outages can recover on the next run.
   - Steam playtime, store details, and review data are always re-fetched.
-  - last_refreshed advances on every enrichment pass.
+  - Each source has its own success timestamp; skipped/failed fetches never
+    renew a different source. Personal achievements refresh daily or after play.
 
 Adaptive pacing:
   Every HLTB lookup outcome (match vs miss) is recorded. If the last three
@@ -136,14 +137,11 @@ def _ttl_days(release_date: Optional[datetime]) -> Optional[int]:
     return None
 
 
-def _is_stale(game: Game) -> bool:
-    """True when the existing enrichment data is older than the age-based TTL."""
-    if game.last_refreshed is None:
+def _source_stale(game: Game, timestamp: Optional[datetime]) -> bool:
+    if timestamp is None:
         return True
     ttl = _ttl_days(game.release_date)
-    if ttl is None:
-        return False
-    return datetime.utcnow() - game.last_refreshed >= timedelta(days=ttl)
+    return ttl is not None and datetime.utcnow() - timestamp >= timedelta(days=ttl)
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +318,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
         effective_game = _shadow_game(game, release_date=effective_release)
 
         # --- HLTB ---
-        if not force and game.hltb_main_hours is not None and not _is_stale(effective_game):
+        if not force and game.hltb_main_hours is not None and not _source_stale(effective_game, game.hltb_fetched_at):
             log.debug("HLTB cached: %s", game.name)
             progress.hltb_skipped += 1
         elif game.hltb_id_manual:
@@ -339,7 +337,11 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                     "hltb_main_hours": result.hltb_main_hours,
                     "hltb_main_extra_hours": result.hltb_main_extra_hours,
                     "hltb_completionist_hours": result.hltb_completionist_hours,
+                    "hltb_match_id": result.matched_id,
+                    "hltb_match_name": result.matched_name,
+                    "hltb_match_similarity": result.similarity,
                 })
+                updates["hltb_fetched_at"] = datetime.utcnow()
                 progress.hltb_matched += 1
             else:
                 progress.hltb_missed += 1
@@ -371,7 +373,11 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
                     "hltb_main_hours": result.hltb_main_hours,
                     "hltb_main_extra_hours": result.hltb_main_extra_hours,
                     "hltb_completionist_hours": result.hltb_completionist_hours,
+                    "hltb_match_id": result.matched_id,
+                    "hltb_match_name": result.matched_name,
+                    "hltb_match_similarity": result.similarity,
                 })
+                updates["hltb_fetched_at"] = datetime.utcnow()
                 progress.hltb_matched += 1
                 if result.backoff_used:
                     progress.hltb_transient_recovered += 1
@@ -388,7 +394,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
 
         # --- SteamSpy data (tags only — playtime_median_avg_ratio was a
         # hook-point metric, removed in v0.7.0; column preserved dormant). ---
-        if not force and game.user_tags and not _is_stale(effective_game):
+        if not force and game.user_tags and not _source_stale(effective_game, game.tags_fetched_at):
             log.debug("SteamSpy cached: %s", game.name)
             progress.spy_skipped += 1
         else:
@@ -396,6 +402,7 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             spy = await steamspy_fetcher.fetch_steamspy_data(client, game.appid)
             if spy is not None and spy.user_tags:
                 updates["user_tags"] = ",".join(name for name, _ in spy.user_tags)
+                updates["tags_fetched_at"] = datetime.utcnow()
             progress.spy_fetched += 1
 
         # --- Steam reviews (always fetch — aggregate fields only;
@@ -406,49 +413,32 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             reviews.pop("playtimes", None)
             updates.update(reviews)
 
-        # --- Achievement stats (display-only Library columns). ---
-        # Two endpoints folded into one block since they share the
-        # "game has achievements" precondition:
-        #   - GetGlobalAchievementPercentagesForApp → Avg. Achievement %
-        #     (v0.7.0; median across achievements, robust against
-        #     right-skewed unlock distributions)
-        #   - GetPlayerAchievements → My Achievement % (v0.8.7; user's
-        #     own unlock ratio for this game)
-        # Same age-band TTL pattern as HLTB. The global endpoint also
-        # serves as the cheap gate: 404 means no achievements, so we
-        # skip the per-player fetch and leave both stored values via
-        # COALESCE on upsert.
-        if (
-            not force
-            and game.median_achievement_unlock_pct is not None
-            and game.user_achievement_pct is not None
-            and not _is_stale(effective_game)
-        ):
+        # Global percentages change slowly; a user's progress can change
+        # on any game regardless of release age. Keep separate clocks.
+        has_achievements = game.median_achievement_unlock_pct is not None
+        if not force and has_achievements and not _source_stale(effective_game, game.achievements_fetched_at):
             progress.achievements_skipped += 1
         else:
             progress.phase = f"Achievements ({i+1}/{progress.total_games})"
-            achs = await achievements_fetcher.fetch_global_achievement_percentages(
-                client, game.appid,
-            )
+            achs = await achievements_fetcher.fetch_global_achievement_percentages(client, game.appid)
             if achs is None:
-                # No achievements (404) or fetch failure. Either way,
-                # leave both stored values alone via COALESCE.
                 progress.achievements_no_data += 1
             else:
                 percents = [a["percent"] for a in achs if a.get("percent") is not None]
                 if percents:
+                    has_achievements = True
                     updates["median_achievement_unlock_pct"] = float(statistics.median(percents))
-                # Per-user unlock %. Only attempted when the global fetch
-                # succeeded (the game definitely has achievements). None
-                # return paths: private profile, transient fetch error,
-                # missing SteamID. All collapse to "leave stored value
-                # alone" — column stays at its prior value via COALESCE.
-                user_pct = await achievements_fetcher.fetch_player_achievement_pct(
-                    client, game.appid,
-                )
-                if user_pct is not None:
-                    updates["user_achievement_pct"] = user_pct
+                    updates["achievements_fetched_at"] = datetime.utcnow()
                 progress.achievements_fetched += 1
+        user_stale = (game.user_achievements_fetched_at is None
+            or datetime.utcnow() - game.user_achievements_fetched_at >= timedelta(days=1)
+            or (game.last_played_steam is not None
+                and game.last_played_steam > game.user_achievements_fetched_at))
+        if has_achievements and (force or user_stale):
+            user_pct = await achievements_fetcher.fetch_player_achievement_pct(client, game.appid)
+            if user_pct is not None:
+                updates["user_achievement_pct"] = user_pct
+                updates["user_achievements_fetched_at"] = datetime.utcnow()
 
         # --- Game-type classification ---
         # The `coming_soon` flag from appdetails informs early_access detection
@@ -470,76 +460,16 @@ async def _phase_enrich(client: httpx.AsyncClient, force: bool = False) -> None:
             new_type = classify_game(merged, coming_soon=coming_soon)
             updates["game_type"] = new_type
 
-        # Always write, even when sources were cached, so last_refreshed advances.
-        enriched = Game(
-            appid=game.appid,
-            name=game.name,
-            playtime_minutes=game.playtime_minutes,
-            last_played_steam=game.last_played_steam,
-            installed=game.installed,
-            hltb_main_hours=updates.get("hltb_main_hours", game.hltb_main_hours),
-            hltb_main_extra_hours=updates.get("hltb_main_extra_hours", game.hltb_main_extra_hours),
-            hltb_completionist_hours=updates.get("hltb_completionist_hours", game.hltb_completionist_hours),
-            genres=updates.get("genres", game.genres),
-            tags=updates.get("tags", game.tags),
-            user_tags=updates.get("user_tags", game.user_tags),
-            developer=updates.get("developer", game.developer),
-            publisher=updates.get("publisher", game.publisher),
-            metacritic_score=updates.get("metacritic_score", game.metacritic_score),
-            # opencritic_score: enrichment no longer writes this; pass existing
-            # value through so the column survives refresh.
-            opencritic_score=game.opencritic_score,
-            steam_review_pct=updates.get("steam_review_pct", game.steam_review_pct),
-            steam_review_count=updates.get("steam_review_count", game.steam_review_count),
-            last_refreshed=datetime.utcnow(),
-            is_active=True,
-            release_date=updates.get("release_date", game.release_date),
-            description=updates.get("description", game.description),
-            # Hook-point Phase 1a metrics. None when this iteration didn't
-            # produce a fresh value — upsert_game COALESCEs against existing
-            # so cached / unavailable doesn't null out previously-stored data.
-            completion_rate=updates.get("completion_rate"),
-            completion_rate_confidence=updates.get("completion_rate_confidence"),
-            cliff_metric=updates.get("cliff_metric"),
-            cliff_position=updates.get("cliff_position"),
-            review_playtime_median=updates.get("review_playtime_median"),
-            stickiness_ratio=updates.get("stickiness_ratio"),
-            playtime_median_avg_ratio=updates.get("playtime_median_avg_ratio"),
-            # Game-type classification. game_type is omitted from `updates`
-            # entirely when game_type_manual=True (set above), so passing
-            # None preserves the user override via the upsert COALESCE.
-            game_type=updates.get("game_type"),
-            game_type_manual=game.game_type_manual,
-            app_type=updates.get("app_type", game.app_type),
-            # Phase 4 manual completion-achievement override — managed by
-            # Game Detail route handlers, never written by sync. Pass the
-            # existing value through unchanged so the upsert keeps it.
-            completion_achievement_name_manual=game.completion_achievement_name_manual,
-            # Phase 4 manual HLTB ID — same pattern. Sync READs this to
-            # decide which HLTB code path to take above; it never WRITES
-            # the value, only the route handlers do.
-            hltb_id_manual=game.hltb_id_manual,
-            # Phase 4 manual stickiness badge — passed through unchanged.
-            # Sync never reads or writes this; it's a pure display
-            # override managed by the Game Detail route handlers.
-            stickiness_badge_manual=game.stickiness_badge_manual,
-            # v0.7.0 median achievement unlock %. None when this iteration
-            # didn't fetch — upsert COALESCE preserves the stored value.
-            median_achievement_unlock_pct=updates.get("median_achievement_unlock_pct"),
-            # v0.8.7 user achievement %. Same COALESCE-on-upsert pattern:
-            # None when this iteration's fetch returned no value (private
-            # profile, transient error, no achievements unlocked).
-            user_achievement_pct=updates.get("user_achievement_pct"),
-        )
         with db.get_db() as conn:
-            db.upsert_game(conn, enriched)
-            db.maybe_refine_inferred_status(
-                conn,
-                enriched.appid,
-                enriched.playtime_minutes,
-                enriched.hltb_main_hours,
-                enriched.last_played_steam,
-            )
+            enriched = db.apply_enrichment(conn, game, updates)
+            if enriched:
+                from app.taste import refresh_rating_labels
+                refresh_rating_labels(conn, enriched)
+            if enriched is not None:
+                db.maybe_refine_inferred_status(
+                    conn, enriched.appid, enriched.playtime_minutes,
+                    enriched.hltb_main_hours, enriched.last_played_steam,
+                )
 
 
 def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
@@ -548,41 +478,4 @@ def _shadow_game(game: Game, release_date: Optional[datetime]) -> Game:
     this same iteration before the row is written back."""
     if game.release_date == release_date:
         return game
-    return Game(
-        appid=game.appid,
-        name=game.name,
-        playtime_minutes=game.playtime_minutes,
-        last_played_steam=game.last_played_steam,
-        installed=game.installed,
-        hltb_main_hours=game.hltb_main_hours,
-        hltb_main_extra_hours=game.hltb_main_extra_hours,
-        hltb_completionist_hours=game.hltb_completionist_hours,
-        genres=game.genres,
-        tags=game.tags,
-        user_tags=game.user_tags,
-        developer=game.developer,
-        publisher=game.publisher,
-        metacritic_score=game.metacritic_score,
-        opencritic_score=game.opencritic_score,
-        steam_review_pct=game.steam_review_pct,
-        steam_review_count=game.steam_review_count,
-        last_refreshed=game.last_refreshed,
-        is_active=game.is_active,
-        release_date=release_date,
-        description=game.description,
-        completion_rate=game.completion_rate,
-        completion_rate_confidence=game.completion_rate_confidence,
-        cliff_metric=game.cliff_metric,
-        cliff_position=game.cliff_position,
-        review_playtime_median=game.review_playtime_median,
-        stickiness_ratio=game.stickiness_ratio,
-        playtime_median_avg_ratio=game.playtime_median_avg_ratio,
-        game_type=game.game_type,
-        game_type_manual=game.game_type_manual,
-        app_type=game.app_type,
-        completion_achievement_name_manual=game.completion_achievement_name_manual,
-        hltb_id_manual=game.hltb_id_manual,
-        stickiness_badge_manual=game.stickiness_badge_manual,
-        median_achievement_unlock_pct=game.median_achievement_unlock_pct,
-        user_achievement_pct=game.user_achievement_pct,
-    )
+    return dc_replace(game, release_date=release_date)

@@ -20,6 +20,7 @@
 </p>
 
 <form method="post" action="/setup/steam-id" class="setup-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label class="setup-label" for="steam-id">Paste your SteamID or vanity URL</label>
   <input type="text"
          id="steam-id"

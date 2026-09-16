@@ -23,9 +23,11 @@
 
 <div class="setup-form-row setup-form-row--two">
   <form method="post" action="/setup/migrate/migrate">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" class="btn btn-primary">Migrate to keychain</button>
   </form>
   <form method="post" action="/setup/migrate/skip">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit" class="btn btn-ghost">Keep .env</button>
   </form>
 </div>

@@ -3,12 +3,34 @@
 
 {% block content %}
 <section class="game-detail-page">
+  {% if return_to_session %}
+    <a class="btn btn-primary btn-sm" href="/backlog/session/{{ return_to_session }}">Return to review session</a>
+  {% endif %}
+  {% if state.blacklisted or state.status.value == 'not_interested' or (state.status.value == 'dropped' and state.dropped_strength == 'strong') %}
+    <div id="game-exclusion" class="action-result">
+      <span>Excluded from recommendations.</span>
+      <button class="btn btn-secondary btn-sm" hx-post="/games/{{ game.appid }}/restore" hx-target="#game-exclusion" hx-swap="outerHTML">Restore to recommendations</button>
+    </div>
+  {% endif %}
+  {% if state.has_technical_issue %}
+    <div id="game-technical-issue" class="action-result">
+      <span>A technical issue was reported.</span>
+      <button class="btn btn-ghost btn-sm" hx-post="/games/{{ game.appid }}/clear_technical_issue" hx-target="#game-technical-issue" hx-swap="outerHTML">It's fixed</button>
+    </div>
+  {% endif %}
 
   {# Section 1 — Header (includes status bar + glance stats) #}
   {% include "partials/game_detail_header.html" %}
 
   {# Section 3 — Game data (read-only) #}
   {% include "partials/game_detail_data.html" %}
+
+{% if game.description %}
+  <section class="game-detail-description">
+    <p>{{ game.description }}</p>
+  </section>
+{% endif %}
+
 
   {# Section 4 — Personal #}
   <section class="game-detail-personal">

@@ -15,7 +15,7 @@
       name="hours"
       step="0.1"
       min="0"
-      value="{{ state.hours_played_manual or '' }}"
+      value="{{ state.hours_played_manual if state.hours_played_manual is not none else '' }}"
       class="personal-field-number"
       placeholder="e.g. 12"
     >

@@ -253,8 +253,8 @@ def _has_game_evidence(game) -> bool:
     Returns True when:
         (substantial playtime AND recognizable game genre) OR has achievements
 
-    Achievements are detected via completion_rate being non-None — the
-    column is populated only when the sync layer successfully fetched
+    Achievements are detected via the current median unlock percentage or
+    the legacy completion_rate cache. Both require successfully fetched
     Steam global achievement percentages, which only exist for entries
     Steam considers games.
 
@@ -265,7 +265,8 @@ def _has_game_evidence(game) -> bool:
     """
     has_playtime = (game.playtime_minutes or 0) >= GAME_EVIDENCE_PLAYTIME_MIN
     has_game_genre = bool(_genre_set(game) & RECOGNIZABLE_GAME_GENRES)
-    has_achievements = game.completion_rate is not None
+    has_achievements = (game.median_achievement_unlock_pct is not None
+                        or game.completion_rate is not None)
     return (has_playtime and has_game_genre) or has_achievements
 
 
