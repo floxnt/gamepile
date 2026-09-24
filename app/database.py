@@ -784,6 +784,13 @@ def get_games_with_state(
             g.stickiness_badge_manual,
             g.median_achievement_unlock_pct,
             g.user_achievement_pct,
+            -- 1.1 refresh clocks and HLTB provenance. The refresh loop reads
+            -- its snapshots through this query; without these columns every
+            -- source looked never-fetched (full re-fetch on every refresh)
+            -- and the override revision never matched (HLTB updates dropped).
+            g.hltb_fetched_at, g.tags_fetched_at, g.achievements_fetched_at,
+            g.user_achievements_fetched_at, g.hltb_override_updated_at,
+            g.hltb_match_id, g.hltb_match_name, g.hltb_match_similarity,
             gs.status, gs.hours_played_manual, gs.notes,
             gs.updated_at AS state_updated_at,
             gs.manually_set,

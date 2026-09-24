@@ -157,7 +157,9 @@ def build_backup(conn: sqlite3.Connection) -> dict:
         "affinity": affinity,
         "picks": picks,
         "catalog": _rows(conn, "SELECT appid,name FROM games ORDER BY appid"),
-        "affinity_base": _rows(conn, "SELECT kind,value,weight,pick_count FROM affinity_base ORDER BY kind,value"),
+        # rowid order: taste.rebuild() resolves case-variant labels in this
+        # order, so a restore must insert them in the same sequence.
+        "affinity_base": _rows(conn, "SELECT kind,value,weight,pick_count FROM affinity_base ORDER BY rowid"),
         "taste_signals": signals,
     }
 

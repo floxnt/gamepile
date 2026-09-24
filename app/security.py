@@ -52,7 +52,12 @@ async def protect_local_api(request: Request, call_next):
         "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    # Not "no-referrer": under that policy Chromium-based webviews (Qt
+    # WebEngine, WebView2) send `Origin: null` on ordinary same-origin form
+    # posts, which the origin check above rejects. That broke first-run setup
+    # and the Settings credential forms in 1.1.0. "same-origin" still sends no
+    # referrer to other sites.
+    response.headers["Referrer-Policy"] = "same-origin"
     if not request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-store"
     return response

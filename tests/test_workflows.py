@@ -552,6 +552,129 @@ class WorkflowTests(unittest.TestCase):
                 conn.execute("SELECT * FROM game_state WHERE appid=999").fetchone()
             )
 
+    # --- Regressions found reviewing 1.1.0 in a real browser -------------
+
+    def test_pages_do_not_force_null_origin_on_native_forms(self):
+        # Under "no-referrer", Chromium webviews send `Origin: null` on native
+        # form posts, which the origin check rejects (setup wizard broke).
+        page = self.client.get("/settings")
+        self.assertNotEqual(page.headers["Referrer-Policy"], "no-referrer")
+        same_origin = self.client.post(
+            "/games/1/notes",
+            data={"notes": "native", "csrf_token": CSRF_TOKEN},
+            headers={"X-GamePile-Token": "", "Origin": "http://127.0.0.1"},
+        )
+        self.assertEqual(same_origin.status_code, 200)
+        self.assertEqual(self.state().state.notes, "native")
+
+    def test_session_container_disables_buttons_with_a_matching_selector(self):
+        # hx-disabled-elt is inherited by each button. A "find ..." selector
+        # resolves inside the clicked button, matches nothing, and HTMX 1.9
+        # throws before sending the request.
+        self.seed(2)
+        response = self.client.post(
+            "/backlog/session/start",
+            data={"section_key": "in_progress", "appids_json": "[1, 2]"},
+        )
+        page = self.client.get(response.headers["HX-Redirect"]).text
+        container = re.search(r'<section[^>]*id="session-content"[^>]*>', page).group(0)
+        disabled = re.search(r'hx-disabled-elt="([^"]*)"', container)
+        if disabled:
+            self.assertFalse(disabled.group(1).startswith("find "), container)
+
+    def test_time_box_outside_field_limits_still_records_pick(self):
+        self.seed(2)
+        page = self.client.get(
+            "/picks", params={"minutes": 500, "mode": "i_only_have_tonight"}
+        ).text
+        values = json.loads(re.search(r"hx-vals='(\{\"candidates_at_pick\"[^']+)'", page).group(1))
+        self.assertEqual(values["minutes"], 480)
+        response = self.client.post(
+            f"/games/{values['candidates_at_pick'][0]}/pick",
+            data={
+                "mode": values["mode"],
+                "minutes": str(values["minutes"]),
+                "candidates_at_pick": [str(v) for v in values["candidates_at_pick"]],
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_real_refresh_loop_honors_source_clocks_and_override_revisions(self):
+        # The refresh reads snapshots through get_games_with_state(); 1.1.0's
+        # clock tests used the single-game loader and missed that the bulk
+        # query didn't select the new columns.
+        from app.fetchers.hltb import HltbResult
+
+        calls = []
+
+        async def nothing(*args, **kwargs):
+            return None
+
+        def counted(name, value):
+            async def fetch(*args, **kwargs):
+                calls.append(name)
+                return value
+            return fetch
+
+        found = HltbResult(found=True, hltb_main_hours=33.0, hltb_main_extra_hours=44.0,
+                           hltb_completionist_hours=55.0, matched_name="Fixture", matched_id=9)
+        spy = type("Spy", (), {"user_tags": [("Action", 1)]})()
+        with db.get_db() as conn:  # what importing a backup does to an HLTB override
+            db.set_hltb_id_manual(conn, 1, 9, None, None, None)
+            conn.execute("UPDATE games SET hltb_fetched_at=NULL WHERE appid=1")
+        with (
+            patch.object(sync.steam_fetcher, "fetch_app_details", nothing),
+            patch.object(sync.steam_fetcher, "fetch_review_data", nothing),
+            patch.object(sync.hltb_fetcher, "fetch_hltb", counted("hltb", found)),
+            patch.object(sync.hltb_fetcher, "fetch_hltb_by_id", counted("hltb", found)),
+            patch.object(sync.steamspy_fetcher, "fetch_steamspy_data", counted("tags", spy)),
+            patch.object(sync.achievements_fetcher, "fetch_global_achievement_percentages",
+                         counted("achievements", [{"percent": 30.0}])),
+            patch.object(sync.achievements_fetcher, "fetch_player_achievement_pct",
+                         counted("mine", 40.0)),
+        ):
+            asyncio.run(sync._phase_enrich(None))
+            self.assertEqual(self.state().game.hltb_main_hours, 33.0)
+            calls.clear()
+            asyncio.run(sync._phase_enrich(None))
+        self.assertEqual(calls, [], "cached sources were fetched again")
+
+    def test_backup_with_case_variant_taste_labels_round_trips(self):
+        # Steam developer strings vary in case across games; 1.0 kept each
+        # spelling as its own affinity row, and 1.1 copied them into the base.
+        with db.get_db() as conn:
+            conn.executemany(
+                "INSERT INTO affinity_base VALUES (?,?,?,?)",
+                [("developer", "Square Enix", 0.2, 1), ("developer", "SQUARE ENIX", 1.0, 1),
+                 ("tag", "RPG", 2.0, 3)],
+            )
+            taste.write_lock(conn)
+            taste.rebuild(conn)
+            original = backup.build_backup(conn)
+        expected = self.affinity()
+        legacy = json.loads(json.dumps(original))
+        legacy["schema"] = 1
+        legacy["affinity"] = legacy["affinity_base"]
+        for key in ("catalog", "affinity_base", "taste_signals"):
+            legacy.pop(key)
+        for pick in legacy["picks"]:
+            for key in ("key", "candidates_at_pick", "feedback_completed_at", "legacy_taste_recorded"):
+                pick.pop(key)
+        for label, payload in [("1.1 export", original), ("1.0 export", legacy)]:
+            data = backup_import.validate(backup.serialize(payload))
+            fresh = Path(self.tmp.name) / f"restored-{label[:3]}.db"
+            with patch.object(db, "DB_PATH", fresh):
+                db.init_db()
+                for _ in range(2):  # re-import is idempotent
+                    with db.get_db() as conn:
+                        backup_import.merge(conn, data, "backup")
+                        self.assertEqual(db.get_all_affinities(conn), expected, label)
+                        self.assertEqual(
+                            backup.build_backup(conn)["affinity_base"],
+                            original["affinity_base"],
+                            label,
+                        )
+
 
 def main():
     result = unittest.TextTestRunner(verbosity=2).run(
