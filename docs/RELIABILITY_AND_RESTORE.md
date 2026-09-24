@@ -1,8 +1,8 @@
-# Reliability and restore — unreleased
+# Reliability and restore — GamePile 1.1.0
 
-This branch implements the authorized app review. It preserves the existing
+Version 1.1.0 implements the authorized app review. It preserves the existing
 navigation, Library columns, dark theme, and Steam-only desktop scope.
-It does not publish a release or change the installer/runtime configuration.
+The installer and desktop runtime configuration are unchanged.
 
 ## User-visible changes
 

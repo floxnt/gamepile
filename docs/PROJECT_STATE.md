@@ -1,8 +1,8 @@
 # Project State — GamePile
 
-## Current branch — reliability and restore (unreleased)
+## Version 1.1.0 — reliability and restore
 
-The authorized review fixes and iterations are implemented in this branch.
+The authorized review fixes and iterations are merged into `main` for 1.1.0.
 See [RELIABILITY_AND_RESTORE.md](RELIABILITY_AND_RESTORE.md) for the complete
 behavior and validation handoff. This section supersedes older roadmap notes
 below where they describe export-only backups, CDN HTMX, or shared cache clocks.
@@ -17,7 +17,8 @@ below where they describe export-only backups, CDN HTMX, or shared cache clocks.
 
 Implementation modules: `app/actions.py`, `app/taste.py`,
 `app/decision_sessions.py`, `app/security.py`, and `app/backup_import.py`.
-Native Windows and CachyOS acceptance checks remain required before release.
+Native Windows and CachyOS acceptance checks have not been completed.
+See [the 1.1.0 release notes](releases/1.1.0.md) for changes and upgrade notes.
 
 ## What this app is
 
