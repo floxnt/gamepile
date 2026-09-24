@@ -228,8 +228,11 @@ def validate(raw):
         )
     for name in ("game_state", "game_overrides", "catalog"):
         _unique(out[name], lambda row: row["appid"], name)
+    # Exact (kind, value) is the table's primary key. Case variants such as
+    # "SQUARE ENIX" / "Square Enix" are legitimate: Steam's developer strings
+    # aren't consistently cased and 1.0 stored each spelling as its own row.
     for name in ("affinity", "affinity_base"):
-        _unique(out[name], lambda row: (row["kind"], row["value"].casefold()), name)
+        _unique(out[name], lambda row: (row["kind"], row["value"]), name)
     for row in out["game_overrides"]:
         if row["game_type_manual"] and not row["game_type"]:
             raise ImportError("A manual game type needs its chosen value.")
@@ -463,22 +466,31 @@ def merge(conn, data, policy):
         conn.execute(
             "DELETE FROM taste_signals WHERE source=?", (f"pick:{local_picks[key]}",)
         )
-    for row in data["affinity_base"]:
-        previous = conn.execute(
-            "SELECT value FROM affinity_base WHERE kind=? AND lower(value)=lower(?)",
-            (row["kind"], row["value"]),
-        ).fetchone()
-        if previous and policy == "local":
-            continue
-        if previous:
-            conn.execute(
-                "DELETE FROM affinity_base WHERE kind=? AND value=?",
-                (row["kind"], previous["value"]),
-            )
-        conn.execute(
-            "INSERT INTO affinity_base(kind,value,weight,pick_count) VALUES (?,?,?,?)",
-            tuple(row[k] for k in ("kind", "value", "weight", "pick_count")),
+    # Baseline labels are compared case-insensitively (rebuild() folds them),
+    # but every spelling in the backup is kept as its own row so a restore
+    # reproduces the source exactly. "backup" replaces all local spellings of
+    # a label; "local" keeps them and skips the backup's.
+    local_base = {}
+    for existing in conn.execute("SELECT kind, value FROM affinity_base"):
+        local_base.setdefault(
+            (existing["kind"], existing["value"].casefold()), []
+        ).append(existing["value"])
+    incoming = {(row["kind"], row["value"].casefold()) for row in data["affinity_base"]}
+    kept_local = {key for key in incoming if key in local_base and policy == "local"}
+    for key in incoming - kept_local:
+        conn.executemany(
+            "DELETE FROM affinity_base WHERE kind=? AND value=?",
+            [(key[0], value) for value in local_base.get(key, [])],
         )
+    # Insert in the backup's order so case variants resolve the same way.
+    conn.executemany(
+        "INSERT INTO affinity_base(kind,value,weight,pick_count) VALUES (?,?,?,?)",
+        [
+            tuple(row[k] for k in ("kind", "value", "weight", "pick_count"))
+            for row in data["affinity_base"]
+            if (row["kind"], row["value"].casefold()) not in kept_local
+        ],
+    )
     for row in data["taste_signals"]:
         kind, identifier = row["source"].split(":", 1)
         if kind == "pick":

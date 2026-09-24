@@ -32,3 +32,25 @@ jobs:
           GAMEPILE_DATA_DIR: ${{ runner.temp }}/gamepile-tests
           PYTHONUTF8: '1'
         run: uv run --locked python tests/run_tests.py
+
+  # Clicks the real UI in Chromium (the engine family behind WebView2 and
+  # Qt WebEngine). Catches HTMX/header bugs that request-level tests can't.
+  browser-smoke:
+    name: Browser smoke (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Install Chromium for Playwright
+        run: uv run --locked --with playwright python -m playwright install --with-deps chromium
+      - name: Click through setup, a review session, and a Shortlist action
+        env:
+          GAMEPILE_DATA_DIR: ${{ runner.temp }}/gamepile-browser
+        run: uv run --locked --with playwright python tests/browser_smoke.py

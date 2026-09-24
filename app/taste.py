@@ -49,7 +49,9 @@ def set_personal_rating(conn, game, rating):
 def rebuild(conn):
     """Recompute without subtraction from already-clamped aggregate weights."""
     totals = {}
-    for row in conn.execute("SELECT * FROM affinity_base"):
+    # Explicit rowid order: when a label has several spellings, the last one
+    # wins, matching how 1.0 read its affinity table.
+    for row in conn.execute("SELECT * FROM affinity_base ORDER BY rowid"):
         key = (row["kind"], row["value"].casefold())
         totals[key] = [row["value"], row["weight"], row["pick_count"], set()]
     signals = conn.execute("SELECT * FROM taste_signals ORDER BY source").fetchall()

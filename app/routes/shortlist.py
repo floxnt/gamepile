@@ -43,6 +43,9 @@ def _resolve_mode(raw: Optional[str], games_for_default) -> str:
 
 
 def _build_picks_context(request: Request, minutes: int, mode: Optional[str]) -> dict:
+    # The number field's min/max don't stop a typed 500 from reaching us.
+    # Clamp here so the cards never carry a value "I picked this" rejects.
+    minutes = max(15, min(480, minutes))
     include_unplayed = _bool_param(request, "include_unplayed", default=True)
     include_in_progress = _bool_param(request, "include_in_progress", default=True)
     excluded_ids = _parse_excluded(request) | frozenset(prompt_state.skipped_appids)

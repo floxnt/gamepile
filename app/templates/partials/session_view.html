@@ -1,5 +1,9 @@
-{# Decision Session — full <main> replacement. Shows one card at a time. #}
-<section class="session-page" id="session-content" hx-sync="this:drop" hx-disabled-elt="find button">
+{# Decision Session — full <main> replacement. Shows one card at a time.
+   hx-disabled-elt is inherited by every button below. It must be a selector
+   that matches from the clicked button's point of view: "find button" searches
+   *inside* the clicked button, finds nothing, and HTMX 1.9 then throws before
+   sending the request (every session button went dead in 1.1.0). #}
+<section class="session-page" id="session-content" hx-sync="this:drop" hx-disabled-elt="#session-content button">
   <div class="session-header">
     <h1 class="page-title">Review: {{ section_title }}</h1>
     <span class="session-progress">{{ [index + 1, total] | min }} of {{ total }}</span>
