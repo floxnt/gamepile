@@ -30,4 +30,5 @@ jobs:
       - name: Run isolated regression suites
         env:
           GAMEPILE_DATA_DIR: ${{ runner.temp }}/gamepile-tests
+          PYTHONUTF8: '1'
         run: uv run --locked python tests/run_tests.py
