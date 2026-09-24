@@ -20,7 +20,7 @@ import json
 import sqlite3
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import patch
 
@@ -334,8 +334,15 @@ def test_write_backup_raises_on_unwritable_directory():
             locked = Path(out) / "locked"
             locked.mkdir()
             locked.chmod(0o500)  # r-x: can traverse, cannot create
+            # Windows chmod does not deny directory writes through ACLs.
+            # Inject the same filesystem error there; retain real permissions
+            # on POSIX so both paths verify that export surfaces write failure.
+            denied_write = (
+                patch.object(Path, "write_text", side_effect=PermissionError("access denied"))
+                if sys.platform == "win32" else nullcontext()
+            )
             try:
-                with db.get_db() as conn:
+                with db.get_db() as conn, denied_write:
                     try:
                         backup.write_backup(conn, target_dir=locked)
                     except OSError:
