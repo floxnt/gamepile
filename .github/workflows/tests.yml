@@ -17,8 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    env:
-      GAMEPILE_DATA_DIR: ${{ runner.temp }}/gamepile-tests
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,4 +28,6 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Run isolated regression suites
+        env:
+          GAMEPILE_DATA_DIR: ${{ runner.temp }}/gamepile-tests
         run: uv run --locked python tests/run_tests.py
